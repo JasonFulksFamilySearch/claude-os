@@ -19,6 +19,7 @@ Both run identical code from this repo. Each maintains its own `~/.claude-data/`
 ├── README.md
 ├── commands/                      ← global slash commands (/design-review, /release, etc.)
 ├── skills/                        ← global skills
+├── agents/                        ← global subagent definitions
 ├── templates/                     ← templates for new projects, contexts, etc.
 ├── hooks/                         ← Claude Code hooks (Phase 3)
 ├── mcp/                           ← local MCP server (Phase 2+)
