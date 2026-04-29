@@ -37,6 +37,21 @@ Both run identical code from this repo. Each maintains its own `~/.claude-data/`
 └── archive/                       ← consolidated/pruned old memories
 ```
 
+## Installation
+
+**Prerequisites:** Node.js >= 20, Git, Claude Code CLI.
+
+The repo **must** be cloned to `~/.claude-os` — agent identity and config files
+reference that path directly.
+
+```bash
+git clone <repo-url> ~/.claude-os
+~/.claude-os/install.sh
+```
+
+Restart Claude Code after the script completes. For a fresh machine, populate
+`~/.claude-data/agent/CLAUDE.md` with the agent identity before first use.
+
 ## Phases
 
 - **Phase 1:** restructure existing setup into the two-directory layout (current)
