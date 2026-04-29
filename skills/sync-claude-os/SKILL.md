@@ -1,4 +1,4 @@
-# claude-os Sync
+# Sync Claude OS
 
 Commit and push all pending changes in `~/.claude-os/` to origin. Invoking
 this command is the explicit signal that the current state of the repo is
@@ -45,7 +45,7 @@ Read the full staged diff and write a conventional commit message:
 - No bullet points in body
 - No `Co-Authored-By` footer
 
-The `/sync` invocation IS the approval. Do not ask for confirmation.
+The `/sync-claude-os` invocation IS the approval. Do not ask for confirmation.
 
 ### 5. Commit
 
