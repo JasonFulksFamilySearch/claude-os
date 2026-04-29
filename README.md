@@ -52,6 +52,10 @@ git clone <repo-url> ~/.claude-os
 Restart Claude Code after the script completes. For a fresh machine, populate
 `~/.claude-data/agent/CLAUDE.md` with the agent identity before first use.
 
+**To update an existing install:** `~/.claude-os/update.sh` — pulls latest,
+rebuilds the MCP server only if `mcp/` changed, and skips everything else.
+Skills and commands go live immediately via symlink.
+
 ## Phases
 
 - **Phase 1:** restructure existing setup into the two-directory layout (current)
