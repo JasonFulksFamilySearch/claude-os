@@ -1,0 +1,26 @@
+{
+  "timezone": "America/Denver",
+  "authorRegex": "fulksjas\\|Jason Fulks\\|jason.fulks\\|JasonMFulks",
+  "repos": [
+    {
+      "name": "Record Exchange",
+      "path": "/Users/fulksjas/dev/Record_Exchange/arc-record-exchange",
+      "slug": "fs-webdev/arc-record-exchange"
+    },
+    {
+      "name": "Orchestration Service",
+      "path": "/Users/fulksjas/dev/OrchestrationService/arc-record-exchange-orch-service",
+      "slug": "fs-eng/arc-record-exchange-orch-service"
+    },
+    {
+      "name": "Global Status Service",
+      "path": "/Users/fulksjas/dev/GlobalStatusService/arc-record-exchange-global-status-service",
+      "slug": "fs-eng/arc-record-exchange-global-status-service"
+    },
+    {
+      "name": "Delivery Spec Service",
+      "path": "/Users/fulksjas/dev/Delivery_Specification_Service/arc-delivery-specification-service",
+      "slug": "fs-eng/arc-delivery-specification-service"
+    }
+  ]
+}

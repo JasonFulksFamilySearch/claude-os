@@ -1,0 +1,40 @@
+# Belt and suspenders — data must NEVER end up in this repo
+../.claude-data/
+.claude-data/
+
+# Environment / secrets — never commit
+.env
+.env.*
+*.key
+*.pem
+secrets/
+credentials/
+
+# Anything that smells like a token
+*token*
+*secret*
+*credentials*
+
+# OS / editor cruft
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python (for Phase 2+)
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+
+# Node (in case any tooling shows up)
+node_modules/
+
+# Logs
+*.log
+
+# Generated skill output (data artifacts, not system code)
+skills/daily-action/plans/

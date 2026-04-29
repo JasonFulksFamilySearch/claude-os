@@ -1,0 +1,21 @@
+# Project: {{PROJECT_NAME}}
+
+## Stack
+
+(language, frameworks, key dependencies)
+
+## Conventions
+
+(project-specific rules — these layer on top of the global agent rules,
+and should not duplicate them)
+
+## Active context
+
+(what the agent should know about the current state of this project —
+this section can be appended to as the project evolves)
+
+## See also
+
+- learnings.md — accumulated lessons
+- decisions.md — architectural decisions
+- task-log.md — session continuity
