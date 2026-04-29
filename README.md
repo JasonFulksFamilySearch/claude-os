@@ -52,9 +52,33 @@ git clone <repo-url> ~/.claude-os
 Restart Claude Code after the script completes. For a fresh machine, populate
 `~/.claude-data/agent/CLAUDE.md` with the agent identity before first use.
 
-**To update an existing install:** `~/.claude-os/update.sh` — pulls latest,
-rebuilds the MCP server only if `mcp/` changed, and skips everything else.
-Skills and commands go live immediately via symlink.
+## Keeping machines in sync
+
+Changes to the system (skill edits, new scripts, config tweaks) are committed
+and pushed from whichever machine made them, then pulled on the other.
+
+**On the machine that made changes** (e.g. Willis):
+
+```
+/sync-claude-os
+```
+
+Stages all pending changes in `~/.claude-os/`, generates a conventional commit
+message from the diff, commits, and pushes to origin. The invocation is the
+explicit "I'm happy with this state" signal — no confirmation prompt.
+
+**On the receiving machine** (e.g. Walter):
+
+```
+/update-claude-os
+```
+
+Pulls the latest from origin and rebuilds the MCP server only if `mcp/` changed.
+Skills and commands go live immediately via symlink — no restart needed for those.
+Restart Claude Code if the MCP server was rebuilt.
+
+Both skills live in `skills/` and are portable — every machine that runs
+`install.sh` gets them automatically.
 
 ## Phases
 
