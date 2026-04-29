@@ -132,4 +132,33 @@ Schema for the temp file:
 - `doneWhen`: the "Done when:" line verbatim, without the "Done when:" prefix
 - Items with no steps or context can be omitted from `planDetails`
 
-**Field ownership:** `planDetails` is owned by the daily-action skill. Do not write to `plan.items` — that is owned by the Perch rules engine and writing to it will corrupt the snapshot.
+**Field ownership:**
+
+- `planDetails` and `plan.items` are owned by the daily-action skill. The skill writes the canonical list of today's plan items via Call 3 below.
+- `plan.items` status, links, and `statusHistory` are kept live by the perch-agent rules engine (`agent/snapshotMerger.js`), but the agent is **update-only on known keys** — it cannot append new items. Tickets the skill did not place on today's plan never land in `plan.items`.
+- This means the skill's Call 3 is the daily reset point. Whatever you put in `planItems` is what shows up on the dashboard.
+
+### Call 3 — plan items (canonical list)
+
+Write this JSON to `~/Documents/WorkDay/DailyActionPlan/_tmp_snapshot.json`, then call:
+
+```bash
+~/.claude/skills/daily-action/snapshot-write.sh "$PLAN_DATE" ~/Documents/WorkDay/DailyActionPlan/_tmp_snapshot.json
+```
+
+Schema for the temp file:
+```json
+{
+  "planItems": [
+    { "jiraKey": "ARC-3972", "summary": "Graceful pause/resume on network loss", "priority": "P1", "status": "active" },
+    { "jiraKey": "ARC-4276", "summary": "Concurrent cross-tab downloads overwrite", "priority": "P2", "status": "active" }
+  ]
+}
+```
+
+**Rules for `planItems`:**
+- Include every item from today's plan — the same set that appears in the markdown file under "Today's Action Plan."
+- `status` is one of: `"active"`, `"completed"`, `"cancelled"`, `"reassigned"`, `"moved"`. Default to `"active"` for new entries unless the item already shipped before the plan was written.
+- The shell script preserves live status (`status`, `statusHistory`, `addedAt`, `links`, `updatedAt`) for any `jiraKey` that already exists in today's snapshot — so re-running `/daily-action` mid-day after the agent has flipped a status to `"completed"` will not wipe that.
+- Keys in old `plan.items` that are not in your new `planItems` are **dropped**. That's the correct behavior — items leave the plan when you take them off.
+- New entries are stamped with `addedAt`, `updatedAt`, and an initial `statusHistory` automatically.

@@ -96,6 +96,35 @@ MERGED=$(jq -n \
   | if $owned.signals     then .signals     = ((.signals     // {}) * $owned.signals)     else . end
   | if $owned.jira        then .jira        = ((.jira        // {}) * $owned.jira)        else . end
   | if $owned.planDetails then .planDetails = ((.planDetails // {}) * $owned.planDetails) else . end
+  # planItems — skill is authoritative for which keys are on the plan, but live
+  # status from the agent must survive a re-plan. For each incoming item:
+  #   - if jiraKey exists in current plan.items, keep status/statusHistory/addedAt/
+  #     links/updatedAt; overwrite summary and priority from the new payload.
+  #   - if not, stamp addedAt/updatedAt = $updatedAt, statusHistory = [{status, at}],
+  #     status = incoming.status (default "active").
+  # Keys absent from $owned.planItems are dropped — that is how items leave the plan.
+  | if $owned.planItems then
+      .plan = (.plan // {}) |
+      .plan.items = (
+        $owned.planItems | map(
+          . as $new |
+          ((($existing.plan // {}).items // []) | map(select(.jiraKey == $new.jiraKey)) | first) as $prev |
+          if $prev != null then
+            $prev + { summary: $new.summary, priority: $new.priority }
+          else
+            {
+              jiraKey: $new.jiraKey,
+              summary: $new.summary,
+              priority: $new.priority,
+              status: ($new.status // "active"),
+              addedAt: $updatedAt,
+              updatedAt: $updatedAt,
+              statusHistory: [{ status: ($new.status // "active"), at: $updatedAt }]
+            }
+          end
+        )
+      )
+    else . end
   # warnings: append any from $owned.warnings, never clear existing
   | if ($owned.warnings // [] | length) > 0
     then .warnings = ((.warnings // []) + $owned.warnings | unique)
