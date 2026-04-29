@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Watched Projects Config",
+  "type": "object",
+  "required": ["projects"],
+  "properties": {
+    "projects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["slug", "path"],
+        "properties": {
+          "slug": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "path": {
+            "type": "string",
+            "description": "Absolute path to project root"
+          },
+          "files": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": ["CLAUDE.md", "README.md"]
+          }
+        }
+      }
+    }
+  }
+}

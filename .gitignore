@@ -38,3 +38,7 @@ node_modules/
 
 # Generated skill output (data artifacts, not system code)
 skills/daily-action/plans/
+
+# Override user-global ignore that masks the tracked docs/ directory
+!docs/
+!docs/**
