@@ -15,6 +15,9 @@ credentials/
 *secret*
 *credentials*
 
+# Claude Code scratch files (plans, tasks — not portable system code)
+.claude/
+
 # OS / editor cruft
 .DS_Store
 .vscode/
