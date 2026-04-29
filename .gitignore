@@ -35,6 +35,8 @@ venv/
 
 # Node (in case any tooling shows up)
 node_modules/
+package-lock.json
+mcp/package-lock.json
 
 # Logs
 *.log
