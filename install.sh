@@ -85,7 +85,8 @@ echo ""
 echo "--- Step 2: MCP server build ---"
 
 cd "$REPO_DIR/mcp"
-npm install || fail "npm install failed in $REPO_DIR/mcp"
+rm -f package-lock.json
+npm install --no-audit || fail "npm install failed in $REPO_DIR/mcp"
 ok "npm install"
 npm run build || fail "MCP server build failed — check TypeScript errors above"
 [ -f "dist/index.js" ] || fail "Build succeeded but dist/index.js not found"
