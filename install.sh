@@ -85,9 +85,10 @@ echo ""
 echo "--- Step 2: MCP server build ---"
 
 cd "$REPO_DIR/mcp"
-npm install --silent
+npm install || fail "npm install failed in $REPO_DIR/mcp"
 ok "npm install"
-npm run build --silent 2>/dev/null || npm run build
+npm run build || fail "MCP server build failed — check TypeScript errors above"
+[ -f "dist/index.js" ] || fail "Build succeeded but dist/index.js not found"
 ok "MCP server built → $REPO_DIR/mcp/dist/index.js"
 
 echo ""
