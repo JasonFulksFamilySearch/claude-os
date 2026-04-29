@@ -49,6 +49,37 @@ fi
 
 echo ""
 
+# ── Step 1.5: Dev root ────────────────────────────────────────────────────────
+
+echo "--- Step 1.5: Dev root ---"
+
+default_dev="$HOME/dev"
+read -rp "Where are your dev projects? [$default_dev]: " input_dev
+DEV_ROOT="${input_dev:-$default_dev}"
+export DEV_ROOT
+
+config_src="$REPO_DIR/config/watched-projects.template.json"
+config_out="$REPO_DIR/config/watched-projects.json"
+
+if [ -f "$config_out" ]; then
+    skip "watched-projects.json already exists — delete it to regenerate"
+elif command -v envsubst >/dev/null 2>&1; then
+    envsubst '${DEV_ROOT}' < "$config_src" > "$config_out"
+    ok "Generated watched-projects.json with DEV_ROOT=$DEV_ROOT"
+else
+    warn "envsubst not found (install via: brew install gettext)"
+    warn "Manually copy config/watched-projects.template.json → config/watched-projects.json"
+    warn "and replace \${DEV_ROOT} with: $DEV_ROOT"
+fi
+
+# Remove from git tracking if still indexed (safe — file is gitignored)
+if git -C "$REPO_DIR" ls-files --error-unmatch config/watched-projects.json >/dev/null 2>&1; then
+    git -C "$REPO_DIR" rm --cached config/watched-projects.json
+    ok "Removed config/watched-projects.json from git index"
+fi
+
+echo ""
+
 # ── Step 2: Build the MCP server ─────────────────────────────────────────────
 
 echo "--- Step 2: MCP server build ---"

@@ -1,0 +1,30 @@
+{
+  "$schema": "./watched-projects.schema.json",
+  "_comment": "Generated from this template by install.sh. Edit the template, not the generated file.",
+  "projects": [
+    {
+      "slug": "arc-record-exchange",
+      "path": "${DEV_ROOT}/Record_Exchange/arc-record-exchange"
+    },
+    {
+      "slug": "arc-pages",
+      "path": "${DEV_ROOT}/ARC-Pages/arc-pages"
+    },
+    {
+      "slug": "arc-record-exchange-orch-service",
+      "path": "${DEV_ROOT}/OrchestrationService/arc-record-exchange-orch-service"
+    },
+    {
+      "slug": "arc-delivery-specification-service",
+      "path": "${DEV_ROOT}/Delivery_Specification_Service/arc-delivery-specification-service"
+    },
+    {
+      "slug": "arc-record-exchange-global-status-service",
+      "path": "${DEV_ROOT}/GlobalStatusService/arc-record-exchange-global-status-service"
+    },
+    {
+      "slug": "perch",
+      "path": "${DEV_ROOT}/Sandbox/Perch"
+    }
+  ]
+}

@@ -42,6 +42,9 @@ node_modules/
 # Generated skill output (data artifacts, not system code)
 skills/daily-action/plans/
 
+# Machine-local config (generated from *.template.json by install.sh)
+config/watched-projects.json
+
 # Override user-global ignore that masks the tracked docs/ directory
 !docs/
 !docs/**
