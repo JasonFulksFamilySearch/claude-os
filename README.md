@@ -55,8 +55,9 @@ git clone <repo-url> ~/.claude-os
 ~/.claude-os/install.sh
 ```
 
-Restart Claude Code after the script completes. For a fresh machine, populate
-`~/.claude-data/agent/CLAUDE.md` with the agent identity before first use.
+Restart Claude Code after the script completes. The installer renders your agent
+identity into `~/.claude-data/agent/CLAUDE.md` automatically — review it before
+first use and extend it with any machine-specific context.
 
 ## Keeping machines in sync
 
