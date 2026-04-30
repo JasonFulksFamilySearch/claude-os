@@ -1,16 +1,22 @@
 # claude-os
 
-Portable agent system for Jason's Claude Code setup. This repo contains the
-*system* — code, conventions, skills, slash commands, templates. It does NOT
-contain memories, project context, or any machine-specific data; that lives
-in `~/.claude-data/` on each machine and is never committed.
+Portable agent system for Claude Code. This repo contains the *system* — code,
+conventions, skills, slash commands, templates. It does NOT contain memories,
+project context, or any machine-specific data; that lives in `~/.claude-data/`
+on each machine and is never committed.
 
-## Two-machine model
+## Gemini: two agents, one system
 
-- **Willis** — work Mac, FamilySearch context.
-- **Walter** — personal Mac, side-project context.
+Run the same agent on two machines — work and personal, for example — each with
+its own name, identity, and lived experience, but sharing the same code, skills,
+and conventions from this repo.
+
+- **Castor** — one machine (e.g. work Mac).
+- **Pollux** — the other machine (e.g. personal Mac).
 
 Both run identical code from this repo. Each maintains its own `~/.claude-data/`.
+Agent names are chosen at install time — Castor and Pollux are just the canonical
+example pair.
 
 ## Layout
 
@@ -57,7 +63,7 @@ Restart Claude Code after the script completes. For a fresh machine, populate
 Changes to the system (skill edits, new scripts, config tweaks) are committed
 and pushed from whichever machine made them, then pulled on the other.
 
-**On the machine that made changes** (e.g. Willis):
+**On the machine that made changes** (e.g. Castor):
 
 ```
 /sync-claude-os
@@ -67,7 +73,7 @@ Stages all pending changes in `~/.claude-os/`, generates a conventional commit
 message from the diff, commits, and pushes to origin. The invocation is the
 explicit "I'm happy with this state" signal — no confirmation prompt.
 
-**On the receiving machine** (e.g. Walter):
+**On the receiving machine** (e.g. Pollux):
 
 ```
 /update-claude-os
