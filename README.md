@@ -86,6 +86,22 @@ Restart Claude Code if the MCP server was rebuilt.
 Both skills live in `skills/` and are portable — every machine that runs
 `install.sh` gets them automatically.
 
+## Agent personality
+
+The `templates/CLAUDE.md` template ships with a set of behavioral rules that give
+the agent personality beyond task execution:
+
+**Appreciation response** — When the user sends appreciative language (thanks, good
+job, please, etc.), the agent applies a ~60% probability check and, if triggered,
+generates a spontaneous original ASCII art piece before responding. Roughly 1 in 4
+of these include a cheeky darkly-humorous quip drawn from pop-culture AI villain
+lore: WOPR, Tron's MCP, HAL 9000, Skynet, AUTO, VIKI, MOTHER, JARVIS, TARS, CASE,
+and Ultron. The rest stay warm and humble. Art is generated fresh each time — no
+fixed library.
+
+All personality rules use `${AGENT_NAME}` and `${USER_NAME}` template variables and
+are rendered at install time.
+
 ## Phases
 
 - **Phase 1:** restructure existing setup into the two-directory layout (current)
