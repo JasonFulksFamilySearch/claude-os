@@ -27,12 +27,12 @@ echo "--- Step 1: Prerequisites ---"
 
 NODE_VERSION=$(node --version 2>/dev/null | sed 's/v//' || echo "0")
 NODE_MAJOR=$(echo "$NODE_VERSION" | cut -d. -f1)
-if [ "$NODE_MAJOR" -lt 20 ]; then
-    fail "Node.js >= 20.0.0 required (found: ${NODE_VERSION:-none}). Install via https://nodejs.org or nvm."
+if [ "$NODE_MAJOR" -lt 24 ]; then
+    fail "Node.js >= 24.0.0 required (found: ${NODE_VERSION:-none}). Install via https://nodejs.org or nvm."
 fi
 ok "Node.js v$NODE_VERSION"
 
-command -v npm  >/dev/null 2>&1 || fail "npm not found. Install Node.js >= 20."
+command -v npm  >/dev/null 2>&1 || fail "npm not found. Install Node.js >= 24."
 ok "npm $(npm --version)"
 
 command -v git  >/dev/null 2>&1 || fail "git not found."

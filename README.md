@@ -45,7 +45,7 @@ example pair.
 
 ## Installation
 
-**Prerequisites:** Node.js >= 20, Git, Claude Code CLI.
+**Prerequisites:** Node.js >= 24, Git, Claude Code CLI.
 
 The repo **must** be cloned to `~/.claude-os` — agent identity and config files
 reference that path directly.
