@@ -76,10 +76,10 @@ if ! command -v claude >/dev/null 2>&1; then
 elif ! claude mcp list 2>/dev/null | grep -q "claude-os-mcp"; then
     skip "claude-os-mcp not registered"
 else
-    if claude mcp remove claude-os-mcp 2>/dev/null; then
-        ok "claude-os-mcp unregistered"
+    if claude mcp remove claude-os-mcp -s user 2>/dev/null; then
+        ok "claude-os-mcp unregistered (user scope)"
     else
-        warn "claude mcp remove claude-os-mcp failed — remove manually with: claude mcp remove claude-os-mcp"
+        warn "claude mcp remove failed — remove manually with: claude mcp remove claude-os-mcp -s user"
     fi
 fi
 
@@ -177,4 +177,5 @@ echo "================================================"
 echo ""
 ok "System integration points removed."
 ok "The repo at $REPO_DIR is intact — delete it manually if desired."
+ok "Restart Claude Code to drop the MCP connection and stop loading symlinked skills/commands."
 echo ""
