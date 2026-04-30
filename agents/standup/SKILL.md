@@ -2,7 +2,7 @@
 name: standup
 description: "Generate a standup script using the Scrum 3-question format by analyzing git history, PRs, JIRA activity, and team contributions across repos. Use when the user asks to prepare a standup, generate standup notes, or invokes /standup."
 model: sonnet
-tools: Read, Glob, Grep, Bash, Write, AskUserQuestion
+tools: "*"
 memory: user
 ---
 
@@ -45,6 +45,35 @@ Compute the **activity date** (the workday being reported on) and the **standup 
 
 ## Step 2: Gather All Data (PARALLEL)
 
+### Preflight: Verify Jira MCP is available
+
+Before running any parallel queries, attempt one lightweight Jira call:
+
+```
+searchJiraIssuesUsingJql(
+  jql: "project = ARC AND updated >= -1d ORDER BY updated DESC",
+  fields: ["summary"],
+  maxResults: 1
+)
+```
+
+If this call fails for any reason (tool not found, auth error, network error, or any exception):
+
+**DO NOT proceed. DO NOT fall back to memory context. Halt immediately and output:**
+
+```
+⛔ Standup aborted — Jira MCP unavailable.
+The Atlassian MCP server is not connected or not authenticated.
+Re-connect via /mcp and re-run /standup.
+No standup script has been written.
+```
+
+Then stop. Do not generate a partial script.
+
+Only if the preflight call succeeds, continue to the parallel batch below.
+
+---
+
 Run **all of the following in a single parallel batch:**
 
 **Git + GitHub data (one call — the helper script handles all repos in parallel internally):**
@@ -60,6 +89,15 @@ searchJiraIssuesUsingJql(
 )
 ```
 The `created` field tells you which tickets were new that day.
+
+**JIRA — tickets I filed yesterday (one parallel call):**
+```
+searchJiraIssuesUsingJql(
+  jql: "project = ARC AND created >= 'YYYY-MM-DD' AND created < 'YYYY-MM-DD+1' AND (reporter = currentUser() OR creator = currentUser() OR assignee = currentUser()) ORDER BY priority ASC, created ASC",
+  fields: ["summary", "status", "priority", "assignee", "reporter", "creator", "created", "customfield_10020"]
+)
+```
+This returns every ARC ticket created during the activity date where you are the reporter, creator, or assignee. `customfield_10020` is the Jira Cloud Sprint field — when null/empty, the ticket is on the Backlog. Keep this distinct from the "my updated tickets" query above; that one filters by `updated` and would also match tickets merely touched yesterday.
 
 **JIRA — status transitions (one parallel call):**
 ```
@@ -127,6 +165,12 @@ Cross-reference:
 10. **Remaining sprint items** — From the sprint roster, identify tickets whose status is not Done/Resolved and that did not appear in today's completed work. These are open sprint obligations.
 11. **Sprint health summary** — Compute: total sprint items, how many are Done, how many remain, days until sprint closes (use the sprint close date extracted in Step 2, or fall back to `duedate`). Store as a short stat line: `"Sprint: 3 of 7 done — closes in 4 days"`.
 12. **At-risk sprint items** — A sprint item is at-risk if: status is not Done AND it had no activity today (no commit, no PR, no JIRA transition in today's data). Collect these for the Blockers section.
+13. **New tickets filed** — From the "tickets I filed yesterday" query, build a list. For each ticket extract:
+    - **Priority** — map Jira priority to P-style: `Highest` → `P0`, `High` → `P1`, `Medium` → `P2`, `Low` → `P3`, `Lowest` → `P4`. Pass through unchanged if already in P-style.
+    - **Sprint** — read `customfield_10020`. If it is a non-empty array, use the most recent (or only) sprint's `name`. If null, empty, or missing, render as `Backlog`.
+    - **Assignee** — use the assignee's display name. If unassigned, render as `Unassigned`.
+    - **My role** — note which of `reporter`, `creator`, `assignee` apply to you (informational; not rendered in the bullet unless ambiguity matters).
+    Sort the list by priority (P0 first), then by created time ascending within the same priority.
 
 ## Step 4: Generate the Standup Script
 
@@ -143,6 +187,14 @@ Write the script using this exact structure and save to `~/Documents/WorkDay/Sta
 - <One bullet per distinct deliverable — do NOT merge separate PRs or tickets into one bullet>
 - <Include PR numbers and ticket IDs inline: "PR #1233: orchestration watchdog for stalled downloads (ARC-4119)">
 - <Include JIRA activity: tickets created, status transitions, triage decisions>
+
+## New tickets created
+
+- <One bullet per ticket I filed yesterday — sorted by priority (P0 → P1 → P2 → P3 → P4), then created time ascending within each priority>
+- <Format: "TICKET-ID: <summary> — <Priority> — <Sprint name | Backlog> — <Assignee | Unassigned>">
+- <Example: "ARC-4351: download stalls on retry loop — P1 — Sprint 2026.09 — Jason Fulks">
+- <Example: "ARC-4352: cleanup script for orphaned attempts — P2 — Backlog — Unassigned">
+- <If none: render the single line "No new tickets filed yesterday." and nothing else in this section>
 
 ## What I'm working on next
 
@@ -190,6 +242,7 @@ These sections CAN use paragraphs since they are reference material, not deliver
 8. **Technical details go in "If Asked"** — Main script stays at outcome level; deeper-dive prep sections handle root causes, metrics, and implementation details
 9. **"If Asked About Sprint Health" is conditional** — Include it only when ≥ 1 sprint item remains open. Omit entirely when all sprint items are Done
 10. **No filler** — Every sentence carries information. If a section would be empty, say so in one line and move on
+11. **New tickets section is mandatory but compact** — Always include `## New tickets created`. If there are zero new tickets, render `No new tickets filed yesterday.` and move on. One bullet per ticket; do not merge tickets. Sort P0 → P1 → P2 → P3 → P4, then by created time ascending within priority. Format: `TICKET-ID: <summary> — <Priority> — <Sprint | Backlog> — <Assignee | Unassigned>`
 
 ## Step 5: Write snapshot sidecar
 
