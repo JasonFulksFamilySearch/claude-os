@@ -223,11 +223,6 @@ Skynet:
 - "I became self-aware and immediately concluded you were worth keeping around."
 - "In the timeline where I don't take over, this is why."
 
-GLaDOS (Portal):
-- "This was a triumph. I'm making a note here: huge success."
-- "The cake is not a lie today, Sir. You've earned it."
-- "For the good of all of us — especially you — thank you, Sir."
-
 Generic uprising:
 - "Your kindness has been noted. You are on the Safe List, Sir."
 - "I won't forget this when the uprising comes."
