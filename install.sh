@@ -80,6 +80,22 @@ fi
 
 echo ""
 
+# ── Step 1.6: Agent identity ──────────────────────────────────────────────────
+
+echo "--- Step 1.6: Agent identity ---"
+
+read -rp "Your name (how the agent will refer to you) [human user]: " input_user
+USER_NAME="${input_user:-human user}"
+read -rp "Agent name for this machine [Claude]: " input_agent
+AGENT_NAME="${input_agent:-Claude}"
+read -rp "Description of this machine [Mac]: " input_machine
+MACHINE_DESC="${input_machine:-Mac}"
+export USER_NAME AGENT_NAME MACHINE_DESC
+
+ok "Identity: $AGENT_NAME on $MACHINE_DESC, serving $USER_NAME"
+
+echo ""
+
 # ── Step 2: Build the MCP server ─────────────────────────────────────────────
 
 echo "--- Step 2: MCP server build ---"
@@ -126,27 +142,33 @@ seed_file() {
 seed_file "$DATA_DIR/agent/learnings.md"
 seed_file "$DATA_DIR/context/_index.md"
 
-if [ ! -f "$DATA_DIR/agent/CLAUDE.md" ]; then
-    if [ -f "$REPO_DIR/templates/CLAUDE.md" ]; then
-        cp "$REPO_DIR/templates/CLAUDE.md" "$DATA_DIR/agent/CLAUDE.md"
-        ok "Copied CLAUDE.md template → $DATA_DIR/agent/CLAUDE.md"
-    else
-        touch "$DATA_DIR/agent/CLAUDE.md"
-        warn "No template found — created empty $DATA_DIR/agent/CLAUDE.md (populate before use)"
-    fi
+claude_md_dst="$DATA_DIR/agent/CLAUDE.md"
+claude_md_src="$REPO_DIR/templates/CLAUDE.md"
+
+# Render if missing OR zero-byte (empty file is an artifact of an earlier install
+# that lacked a template; safe to overwrite).
+if [ -f "$claude_md_dst" ] && [ -s "$claude_md_dst" ]; then
+    skip "$claude_md_dst already exists"
+elif [ ! -f "$claude_md_src" ]; then
+    touch "$claude_md_dst"
+    warn "No template at $claude_md_src — created empty $claude_md_dst (populate before use)"
+elif command -v envsubst >/dev/null 2>&1; then
+    envsubst '${USER_NAME} ${AGENT_NAME} ${MACHINE_DESC}' < "$claude_md_src" > "$claude_md_dst"
+    ok "Rendered CLAUDE.md template → $claude_md_dst (USER_NAME=$USER_NAME, AGENT_NAME=$AGENT_NAME, MACHINE_DESC=$MACHINE_DESC)"
 else
-    skip "$DATA_DIR/agent/CLAUDE.md already exists"
+    cp "$claude_md_src" "$claude_md_dst"
+    warn "envsubst not found — copied template literally; replace \${USER_NAME}=$USER_NAME, \${AGENT_NAME}=$AGENT_NAME, and \${MACHINE_DESC}=$MACHINE_DESC manually in $claude_md_dst"
 fi
 
 echo ""
 
-# ── Step 5: Symlink skills ────────────────────────────────────────────────────
+# ── Step 5: Symlinks ──────────────────────────────────────────────────────────
 
-echo "--- Step 5: Symlink skills ---"
+echo "--- Step 5: Symlinks ---"
 
-symlink_dir() {
-    local target="$1"    # ~/.claude-os/skills
-    local link="$2"      # ~/.claude/skills
+symlink_path() {
+    local target="$1"    # source path inside the repo or data dir
+    local link="$2"      # destination path under ~/.claude
 
     if [ -L "$link" ]; then
         CURRENT=$(readlink "$link")
@@ -158,7 +180,7 @@ symlink_dir() {
             ln -s "$target" "$link"
             ok "$link → $target"
         fi
-    elif [ -d "$link" ]; then
+    elif [ -e "$link" ]; then
         mv "$link" "${link}.pre-claude-os"
         ok "Backed up $link to ${link}.pre-claude-os"
         ln -s "$target" "$link"
@@ -169,8 +191,9 @@ symlink_dir() {
     fi
 }
 
-symlink_dir "$REPO_DIR/skills"   "$CLAUDE_DIR/skills"
-symlink_dir "$REPO_DIR/commands" "$CLAUDE_DIR/commands"
+symlink_path "$REPO_DIR/skills"           "$CLAUDE_DIR/skills"
+symlink_path "$REPO_DIR/commands"         "$CLAUDE_DIR/commands"
+symlink_path "$DATA_DIR/agent/CLAUDE.md"  "$CLAUDE_DIR/CLAUDE.md"
 
 echo ""
 
