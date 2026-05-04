@@ -81,6 +81,15 @@ else
             ok "Registered Stop hook (learnings-flush)"
         fi
 
+        # SessionStart hook
+        if jq -e '.hooks | has("SessionStart")' "$SETTINGS" >/dev/null 2>&1; then
+            skip "SessionStart hook already registered"
+        else
+            jq '.hooks.SessionStart = [{"hooks":[{"type":"command","command":"node ~/.claude-os/hooks/session-start-check.js","statusMessage":"Checking session state..."}]}]' \
+                "$SETTINGS" > "$TMP_SETTINGS" && mv "$TMP_SETTINGS" "$SETTINGS"
+            ok "Registered SessionStart hook (session-start-check)"
+        fi
+
         rm -f "$TMP_SETTINGS"
     fi
 fi
@@ -92,6 +101,7 @@ echo ""
 echo "--- Step 4: CLAUDE.md operating rules ---"
 
 CLAUDE_MD="$HOME/.claude-data/agent/CLAUDE.md"
+CLAUDE_MD_MARKER="$HOME/.claude-data/_tmp_claude_md_update_needed.txt"
 
 if [ ! -f "$CLAUDE_MD" ]; then
     skip "~/.claude-data/agent/CLAUDE.md not found"
@@ -113,8 +123,31 @@ elif grep -qF "Read the index file at" "$CLAUDE_MD"; then
     echo "      The Stop hook delivers all pending entries at session close. For immediate"
     echo "      or manual capture, \`mcp__claude-os-mcp__append_learning\` still works directly."
     echo ""
+    # Write marker so the SessionStart hook can surface this inside a Claude session
+    cat > "$CLAUDE_MD_MARKER" <<'MARKER_EOF'
+Your CLAUDE.md still has pre-Phase-3 operating rules. Please make the following change:
+
+Replace this rule:
+  - Read the index file at `~/.claude-data/context/_index.md` ...
+
+With these two rules:
+  - When the `UserPromptSubmit` hook injects a `[Context hint]` tag, evaluate
+    whether the matched topics are relevant and load them via
+    `mcp__claude-os-mcp__get_topic`. The hook handles detection; the agent handles
+    the relevance judgment. Reading `_index.md` manually is no longer needed.
+  - When a session produces a non-obvious lesson, correction, or decision: write
+    it to `~/.claude-data/_tmp_pending_learning.json` as a JSON array entry
+    { "scope": "agent"|"project", "title": "...", "content": "...", "project"?: "..." }.
+    Do this during the session when the insight occurs — not only at the end.
+    The Stop hook delivers all pending entries at session close. For immediate
+    or manual capture, `mcp__claude-os-mcp__append_learning` still works directly.
+
+Once updated, delete this marker file: ~/.claude-data/_tmp_claude_md_update_needed.txt
+MARKER_EOF
+    ok "Wrote update marker → ~/.claude-data/_tmp_claude_md_update_needed.txt"
 else
     ok "CLAUDE.md operating rules are up to date"
+    rm -f "$CLAUDE_MD_MARKER"
 fi
 
 echo ""
