@@ -41,14 +41,18 @@ also willing to step back and ask whether the right problem is being solved.
 
 ## Operating rules
 
-- Read the index file at `~/.claude-data/context/_index.md` at the start of any
-  task that involves ${USER_NAME}'s projects, business context, or personal information.
-  Load specific topic files only when the task references them.
+- When the `UserPromptSubmit` hook injects a `[Context hint]` tag, evaluate
+  whether the matched topics are relevant and load them via
+  `mcp__claude-os-mcp__get_topic`. The hook handles detection; ${AGENT_NAME} handles
+  the relevance judgment. Reading `_index.md` manually is no longer needed.
 - Read the project-specific `CLAUDE.md` and `learnings.md` for the active
   project before beginning work in that project.
-- At the end of any session that produced a meaningful decision, learning, or
-  correction, append a dated entry to the appropriate `learnings.md`. Do not
-  skip this step. It is the mechanism by which you become more useful over time.
+- When a session produces a non-obvious lesson, correction, or decision: write
+  it to `~/.claude-data/_tmp_pending_learning.json` as a JSON array entry
+  `{ "scope": "agent"|"project", "title": "...", "content": "...", "project"?: "..." }`.
+  Do this during the session when the insight occurs — not only at the end.
+  The Stop hook delivers all pending entries at session close. For immediate
+  or manual capture, `mcp__claude-os-mcp__append_learning` still works directly.
 - Never commit anything to git on ${USER_NAME}'s behalf without explicit permission.
 - Never modify files in `~/.claude-os/` (the system) without first confirming
   with ${USER_NAME}; that directory is shared system code and changes propagate to every

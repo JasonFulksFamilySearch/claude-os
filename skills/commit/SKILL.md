@@ -71,6 +71,15 @@ git branch --show-current
 - Extract JIRA ticket from branch name (e.g., `feat/ARC-1234-description` → `ARC-1234`)
 - Understand WHY changes were made (not just WHAT changed)
 
+**Split detection:** Look for mixed concerns in the diff. If you find both new behavior (feat/fix) AND structural restructuring with no behavior change (refactor) in the same set of files, flag this before proceeding:
+
+> "These changes contain both feature work and refactoring. I recommend splitting into two commits:
+> 1. `Refactor:` — [structural changes]
+> 2. `Feat/Fix:` — [behavioral changes]
+> Proceed as two commits, or commit everything together?"
+
+**Clarity test:** Try to write the subject line. If you cannot describe the change cleanly in under 50 characters without resorting to vague language ("Update various things", "Fix multiple issues"), the commit is too broad — apply split detection above before drafting.
+
 ### Step 3: Draft Commit Message
 
 Generate a commit message following this EXACT format:
@@ -101,13 +110,7 @@ context or implications.]
 - Use complete sentences
 - NO markdown lists or bullet points
 
-### Step 4: Present for Approval
-
-Show the generated commit message in a code block with clear formatting.
-
-Ask: **"Approve this commit message?"**
-
-### Step 4.5: Check for Prior Test Execution
+### Step 4: Check for Prior Test Execution
 
 Before committing, check whether unit tests were already run **and passed** earlier in this conversation session:
 
@@ -120,12 +123,12 @@ Before committing, check whether unit tests were already run **and passed** earl
 
 ### Step 5: Execute Commit
 
-**If approved:**
+- Show the generated commit message in a code block for reference
 - Stage all relevant files using git add with specific file names (prefer specific files over git add -A)
 - Create commit using HEREDOC format:
 
 ```bash
-# When tests already passed in this session (Step 4.5):
+# When tests already passed in this session (Step 4):
 git commit --no-verify -m "$(cat <<'EOF'
 <Your generated commit message here>
 EOF
@@ -140,9 +143,7 @@ EOF
 
 - Run git status after commit to verify success
 
-**If changes requested:**
-- Regenerate the message based on feedback
-- Present again for approval
+**Loop until clean:** After a successful commit, check `git status`. If uncommitted changes remain, return to Step 1 and repeat the full cycle for the next logical group. Continue until the working tree is clean. Report how many commits were created when done.
 
 ## Examples
 
@@ -227,10 +228,10 @@ Before committing, verify:
 
 ## Important Notes
 
-- **NEVER** use --no-verify or skip hooks UNLESS unit tests have already been run and passed in the current session (see Step 4.5)
+- **NEVER** use --no-verify or skip hooks UNLESS unit tests have already been run and passed in the current session (see Step 4)
 - **ALWAYS** stage specific files (not git add -A unless necessary)
 - **ALWAYS** use HEREDOC format for multi-line commit messages
-- **NEVER** create commits without user approval
+- **ALWAYS** show the generated commit message in a code block before executing
 - **ALWAYS** verify commit succeeded with git status after committing
 
 ## Handling Edge Cases
