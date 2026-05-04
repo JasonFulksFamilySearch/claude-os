@@ -36,11 +36,19 @@ test('parseIndex skips non-topic lines', () => {
 
 test('matchTopics finds exact keyword match', () => {
   const topics = parseIndex(SAMPLE_INDEX);
-  const matched = matchTopics(topics, 'I need to look at the ARC orchestration code');
+  const matched = matchTopics(topics, 'I need to look at the ARC orch timeout');
   assert.equal(matched.length, 1);
   assert.equal(matched[0].name, 'arc');
   assert.ok(matched[0].hits.includes('arc'));
   assert.ok(matched[0].hits.includes('orch'));
+});
+
+test('matchTopics does not match orch inside orchestration', () => {
+  const topics = parseIndex(SAMPLE_INDEX);
+  const matched = matchTopics(topics, 'the orchestration layer is slow');
+  // orchestration is not a standalone keyword — only 'arc' and 'zion' are in the index
+  const arcMatch = matched.find(t => t.name === 'arc');
+  assert.ok(!arcMatch || !arcMatch.hits.includes('orch'));
 });
 
 test('matchTopics is case-insensitive', () => {
@@ -76,4 +84,17 @@ test('matchTopics handles multi-word keyword as substring', () => {
   assert.equal(matched.length, 1);
   assert.equal(matched[0].name, 'github');
   assert.ok(matched[0].hits.includes('pull request'));
+});
+
+test('matchTopics does not fire on partial word (pr inside prefer/approach)', () => {
+  const topics = parseIndex(SAMPLE_INDEX);
+  const matched = matchTopics(topics, 'I prefer this approach');
+  assert.deepEqual(matched, []);
+});
+
+test('matchTopics fires on standalone pr', () => {
+  const topics = parseIndex(SAMPLE_INDEX);
+  const matched = matchTopics(topics, 'open a pr for this fix');
+  assert.equal(matched.length, 1);
+  assert.equal(matched[0].name, 'github');
 });

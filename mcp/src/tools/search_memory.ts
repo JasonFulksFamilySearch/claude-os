@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { z } from "zod";
+import { embedQuery, serializeVector } from "../embedder.js";
 
 export const searchMemoryInput = z.object({
   query: z.string().min(1),
@@ -24,7 +25,7 @@ export interface SearchMemoryResult {
 export const searchMemoryDefinition = {
   name: "search_memory",
   description:
-    "Full-text search across Jason's curated memory: agent identity, context topics, learnings, decisions, and watched-project CLAUDE.md/README.md. Returns ranked snippets with paths so you can fetch the canonical file when you need full content. Use this before answering questions about Jason's projects, conventions, or accumulated learnings.",
+    "Hybrid full-text + semantic search across Jason's curated memory: agent identity, context topics, learnings, decisions, and watched-project CLAUDE.md/README.md. Returns ranked snippets with paths so you can fetch the canonical file when you need full content. Use this before answering questions about Jason's projects, conventions, or accumulated learnings.",
   inputSchema: {
     type: "object" as const,
     properties: {
@@ -55,10 +56,10 @@ export const searchMemoryDefinition = {
   },
 };
 
-export function searchMemory(
+export async function searchMemory(
   db: Database.Database,
   rawArgs: unknown,
-): SearchMemoryResult[] {
+): Promise<SearchMemoryResult[]> {
   const args = searchMemoryInput.parse(rawArgs);
   const limit = args.limit ?? 10;
 
@@ -66,13 +67,9 @@ export function searchMemory(
   const params: Record<string, unknown> = { query: args.query, limit };
 
   if (args.source_filter && args.source_filter.length > 0) {
-    const placeholders = args.source_filter
-      .map((_, i) => `@src${i}`)
-      .join(",");
+    const placeholders = args.source_filter.map((_, i) => `@src${i}`).join(",");
     whereClauses.push(`o.source_type IN (${placeholders})`);
-    args.source_filter.forEach((v, i) => {
-      params[`src${i}`] = v;
-    });
+    args.source_filter.forEach((v, i) => { params[`src${i}`] = v; });
   }
   if (args.project_filter) {
     whereClauses.push("o.project = @project_filter");
@@ -81,7 +78,8 @@ export function searchMemory(
 
   const whereSql = whereClauses.length > 0 ? "AND " + whereClauses.join(" AND ") : "";
 
-  const sql = `
+  // 1. FTS5 keyword search
+  const ftsSql = `
     SELECT
       o.id,
       o.source_type,
@@ -89,6 +87,7 @@ export function searchMemory(
       o.project,
       o.topic,
       o.title,
+      o.content,
       snippet(observations_fts, 1, '<mark>', '</mark>', '…', 32) AS snippet,
       bm25(observations_fts) AS rank
     FROM observations_fts
@@ -99,6 +98,69 @@ export function searchMemory(
     LIMIT @limit
   `;
 
-  const rows = db.prepare(sql).all(params) as SearchMemoryResult[];
-  return rows;
+  type FtsRow = SearchMemoryResult & { content: string };
+  let ftsRows: FtsRow[] = [];
+  try {
+    ftsRows = db.prepare(ftsSql).all(params) as FtsRow[];
+  } catch {
+    // FTS query may be malformed — treat as empty and fall through to vector
+  }
+
+  const seenIds = new Set(ftsRows.map(r => r.id));
+  const results: SearchMemoryResult[] = ftsRows.map(({ content: _c, ...r }) => r);
+
+  // 2. Vector semantic search — append hits not already in FTS results
+  try {
+    const queryVec = serializeVector(await embedQuery(args.query));
+    const vecSql = `
+      SELECT v.observation_id, v.distance
+      FROM vec_items v
+      WHERE v.embedding MATCH ?
+      ORDER BY v.distance
+      LIMIT ?
+    `;
+    const vecRows = db.prepare(vecSql).all(queryVec, limit) as Array<{
+      observation_id: number;
+      distance: number;
+    }>;
+
+    for (const vr of vecRows) {
+      if (seenIds.has(vr.observation_id)) continue;
+
+      // Apply source/project filters to vector hits too
+      const filterClauses: string[] = ["o.id = ?"];
+      const filterParams: unknown[] = [vr.observation_id];
+      if (args.source_filter && args.source_filter.length > 0) {
+        filterClauses.push(`o.source_type IN (${args.source_filter.map(() => "?").join(",")})`);
+        filterParams.push(...args.source_filter);
+      }
+      if (args.project_filter) {
+        filterClauses.push("o.project = ?");
+        filterParams.push(args.project_filter);
+      }
+
+      const obsRow = db.prepare(
+        `SELECT id, source_type, source_path, project, topic, title, content FROM observations WHERE ${filterClauses.join(" AND ")}`
+      ).get(...filterParams) as (FtsRow & { id: number }) | undefined;
+
+      if (!obsRow) continue;
+
+      const words = obsRow.content.split(/\s+/).slice(0, 32).join(" ");
+      results.push({
+        id: obsRow.id,
+        source_type: obsRow.source_type,
+        source_path: obsRow.source_path,
+        project: obsRow.project,
+        topic: obsRow.topic,
+        title: obsRow.title,
+        snippet: words.length < obsRow.content.length ? words + "…" : words,
+        rank: 999 + vr.distance,
+      });
+      seenIds.add(vr.observation_id);
+    }
+  } catch {
+    // Vector search unavailable (model not yet loaded, no vec_items rows) — FTS results stand
+  }
+
+  return results;
 }

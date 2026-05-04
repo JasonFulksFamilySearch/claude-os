@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import matter from "gray-matter";
 import type { SourceType } from "./db.js";
 import { log } from "./logger.js";
+import { embedDocument, serializeVector } from "./embedder.js";
 
 const MAX_FILE_BYTES = 1024 * 1024;
 
@@ -193,7 +194,30 @@ export function indexFile(
 }
 
 export function removeFile(db: Database.Database, absPath: string): void {
+  const row = db.prepare("SELECT id FROM observations WHERE source_path = ?").get(absPath) as { id: number } | undefined;
   db.prepare("DELETE FROM observations WHERE source_path = ?").run(absPath);
+  if (row) db.prepare("DELETE FROM vec_items WHERE observation_id = ?").run(row.id);
+}
+
+export async function embedObservation(
+  db: Database.Database,
+  id: number,
+  content: string,
+): Promise<void> {
+  // Skip if already embedded — content hash guard on observations means content hasn't changed
+  const existing = db.prepare("SELECT observation_id FROM vec_items WHERE observation_id = ?").get(id);
+  if (existing) return;
+
+  try {
+    const vector = await embedDocument(content);
+    const bytes = serializeVector(vector);
+    db.prepare("INSERT OR REPLACE INTO vec_items(observation_id, embedding) VALUES (?, ?)").run(id, bytes);
+  } catch (err) {
+    log("error", "embedObservation failed", {
+      id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 function walk(dir: string): string[] {
@@ -219,10 +243,10 @@ export interface ReindexSummary {
   durationMs: number;
 }
 
-export function fullReindex(
+export async function fullReindex(
   db: Database.Database,
   config: IndexerConfig,
-): ReindexSummary {
+): Promise<ReindexSummary> {
   const start = Date.now();
   const dataRoot = resolve(config.dataRoot);
 
@@ -260,11 +284,21 @@ export function fullReindex(
   let indexed = 0;
   let unchanged = 0;
   let skipped = 0;
+  const newlyIndexed: Array<{ id: number; content: string }> = [];
+
   for (const file of candidates) {
     const r = indexFile(db, file, config);
-    if (r.status === "indexed") indexed++;
-    else if (r.status === "skipped_unchanged") unchanged++;
+    if (r.status === "indexed") {
+      indexed++;
+      const row = db.prepare("SELECT id, content FROM observations WHERE source_path = ?").get(file) as { id: number; content: string } | undefined;
+      if (row) newlyIndexed.push(row);
+    } else if (r.status === "skipped_unchanged") unchanged++;
     else skipped++;
+  }
+
+  // Async embedding pass for newly indexed docs — runs after sync FTS work
+  for (const { id, content } of newlyIndexed) {
+    await embedObservation(db, id, content);
   }
 
   const candidateSet = candidates;
@@ -324,15 +358,21 @@ export function watchAll(
 
   const onChange = (p: string) => {
     if (!p.endsWith(".md")) return;
-    try {
-      const r = indexFile(db, p, config);
-      log("info", "watcher event", { path: p, status: r.status });
-    } catch (err) {
-      log("error", "watcher indexFile failed", {
-        path: p,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
+    void (async () => {
+      try {
+        const r = indexFile(db, p, config);
+        log("info", "watcher event", { path: p, status: r.status });
+        if (r.status === "indexed") {
+          const row = db.prepare("SELECT id, content FROM observations WHERE source_path = ?").get(p) as { id: number; content: string } | undefined;
+          if (row) await embedObservation(db, row.id, row.content);
+        }
+      } catch (err) {
+        log("error", "watcher indexFile failed", {
+          path: p,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    })();
   };
 
   watcher.on("add", onChange);

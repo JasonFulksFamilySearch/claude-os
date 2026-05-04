@@ -78,7 +78,7 @@ async function main(): Promise<void> {
   const db = openDb();
   const config = buildConfig();
 
-  const startupSummary = fullReindex(db, config);
+  const startupSummary = await fullReindex(db, config);
   log("info", "startup reindex complete", { ...startupSummary });
 
   const watcher = watchAll(db, config);
@@ -87,14 +87,11 @@ async function main(): Promise<void> {
   });
 
   const backstop = setInterval(() => {
-    try {
-      const summary = fullReindex(db, config);
-      log("info", "backstop reindex complete", { ...summary });
-    } catch (err) {
-      log("error", "backstop reindex failed", {
+    void fullReindex(db, config)
+      .then(summary => log("info", "backstop reindex complete", { ...summary }))
+      .catch(err => log("error", "backstop reindex failed", {
         error: err instanceof Error ? err.message : String(err),
-      });
-    }
+      }));
   }, REINDEX_INTERVAL_MS);
   backstop.unref();
 
@@ -118,7 +115,7 @@ async function main(): Promise<void> {
     try {
       switch (name) {
         case "search_memory":
-          return jsonResult(searchMemory(db, args ?? {}));
+          return jsonResult(await searchMemory(db, args ?? {}));
         case "get_topic":
           return jsonResult(getTopic(args ?? {}));
         case "append_learning":

@@ -64,7 +64,7 @@ describe("db", () => {
     const row = db.prepare("SELECT value FROM meta WHERE key = ?").get("phase") as
       | { value: string }
       | undefined;
-    expect(row?.value).toBe("2");
+    expect(row?.value).toBe("4");
   });
 
   it("FTS trigger fires on insert", () => {

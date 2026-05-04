@@ -26,7 +26,10 @@ function matchTopics(topics, message) {
   const lower = message.toLowerCase();
   const matched = [];
   for (const topic of topics) {
-    const hits = topic.keywords.filter(kw => lower.includes(kw.toLowerCase()));
+    const hits = topic.keywords.filter(kw => {
+      const escaped = kw.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`(?<![a-z0-9-])${escaped}(?![a-z0-9-])`, 'i').test(lower);
+    });
     if (hits.length > 0) matched.push({ ...topic, hits });
   }
   return matched;

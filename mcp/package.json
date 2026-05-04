@@ -13,10 +13,12 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@huggingface/transformers": "^3.0.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "better-sqlite3": "^11.0.0",
     "chokidar": "^4.0.0",
     "gray-matter": "^4.0.3",
+    "sqlite-vec": "latest",
     "zod": "^3.23.0"
   },
   "devDependencies": {

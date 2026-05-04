@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import * as sqliteVec from "sqlite-vec";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
@@ -10,6 +11,7 @@ export function openDb(dbPath: string = DEFAULT_DB_PATH): Database.Database {
   const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
+  sqliteVec.load(db);
   initSchema(db);
   return db;
 }
@@ -61,12 +63,17 @@ export function initSchema(db: Database.Database): void {
       VALUES (new.id, new.title, new.content, new.topic);
     END;
 
+    CREATE VIRTUAL TABLE IF NOT EXISTS vec_items USING vec0(
+      observation_id INTEGER PRIMARY KEY,
+      embedding FLOAT[768]
+    );
+
     CREATE TABLE IF NOT EXISTS meta (
       key   TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
-    INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', '1');
-    INSERT OR IGNORE INTO meta(key, value) VALUES ('phase', '2');
+    INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', '2');
+    INSERT OR IGNORE INTO meta(key, value) VALUES ('phase', '4');
   `);
 }
 

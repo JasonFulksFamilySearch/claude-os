@@ -1,4 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
+vi.mock("../src/embedder.js", () => ({
+  embedDocument: vi.fn().mockResolvedValue(new Float32Array(768).fill(0)),
+  embedQuery: vi.fn().mockResolvedValue(new Float32Array(768).fill(0)),
+  serializeVector: (v: Float32Array) => Buffer.from(v.buffer, v.byteOffset, v.byteLength),
+  EMBEDDING_DIM: 768,
+  MODEL_ID: "nomic-ai/nomic-embed-text-v1.5",
+}));
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,7 +27,7 @@ let db: Database.Database;
 let config: IndexerConfig;
 let contextDir: string;
 
-beforeEach(() => {
+beforeEach(async () => {
   workDir = mkdtempSync(join(tmpdir(), "claude-os-tools-"));
   setLogPath(join(workDir, "test.log"));
   dataRoot = join(workDir, ".claude-data");
@@ -82,7 +90,7 @@ beforeEach(() => {
 
   db = openDb(dbPath);
   config = { dataRoot, watchedProjects: [] };
-  fullReindex(db, config);
+  await fullReindex(db, config);
 });
 
 afterEach(() => {
@@ -91,22 +99,22 @@ afterEach(() => {
 });
 
 describe("search_memory", () => {
-  it("returns ranked results with snippets for FTS query", () => {
-    const results = searchMemory(db, { query: "checkstyle" });
+  it("returns ranked results with snippets for FTS query", async () => {
+    const results = await searchMemory(db, { query: "checkstyle" });
     expect(results.length).toBeGreaterThan(0);
     expect(results[0].source_type).toBe("context");
     expect(results[0].topic).toBe("java");
     expect(results[0].snippet).toContain("checkstyle");
   });
 
-  it("respects limit", () => {
-    const results = searchMemory(db, { query: "lesson OR project", limit: 1 });
+  it("respects limit", async () => {
+    const results = await searchMemory(db, { query: "lesson OR project", limit: 1 });
     expect(results.length).toBe(1);
   });
 
-  it("respects source_filter", () => {
-    const all = searchMemory(db, { query: "demo OR identity OR java" });
-    const filtered = searchMemory(db, {
+  it("respects source_filter", async () => {
+    const all = await searchMemory(db, { query: "demo OR identity OR java" });
+    const filtered = await searchMemory(db, {
       query: "demo OR identity OR java",
       source_filter: ["context"],
     });
@@ -114,8 +122,8 @@ describe("search_memory", () => {
     expect(filtered.length).toBeLessThan(all.length);
   });
 
-  it("respects project_filter", () => {
-    const results = searchMemory(db, {
+  it("respects project_filter", async () => {
+    const results = await searchMemory(db, {
       query: "zoot OR identity",
       project_filter: "demo",
     });
@@ -188,7 +196,7 @@ describe("append_learning", () => {
     expect(text).toMatch(/##\s+\d{4}-\d{2}-\d{2}\s+—\s+kickoff/);
   });
 
-  it("makes the new entry searchable via search_memory", () => {
+  it("makes the new entry searchable via search_memory", async () => {
     appendLearning(
       db,
       {
@@ -198,7 +206,7 @@ describe("append_learning", () => {
       },
       config,
     );
-    const hits = searchMemory(db, { query: "unicornpotato" });
+    const hits = await searchMemory(db, { query: "unicornpotato" });
     expect(hits.length).toBeGreaterThan(0);
   });
 

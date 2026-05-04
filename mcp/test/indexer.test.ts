@@ -1,4 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
+vi.mock("../src/embedder.js", () => ({
+  embedDocument: vi.fn().mockResolvedValue(new Float32Array(768).fill(0)),
+  embedQuery: vi.fn().mockResolvedValue(new Float32Array(768).fill(0)),
+  serializeVector: (v: Float32Array) => Buffer.from(v.buffer, v.byteOffset, v.byteLength),
+  EMBEDDING_DIM: 768,
+  MODEL_ID: "nomic-ai/nomic-embed-text-v1.5",
+}));
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -146,7 +154,7 @@ describe("indexFile", () => {
 });
 
 describe("fullReindex", () => {
-  it("indexes all expected files in the data root", () => {
+  it("indexes all expected files in the data root", async () => {
     writeFileSync(
       join(dataRoot, "agent", "CLAUDE.md"),
       "# Agent\n\nidentity\n",
@@ -178,7 +186,7 @@ describe("fullReindex", () => {
       "utf8",
     );
 
-    const summary = fullReindex(db, config);
+    const summary = await fullReindex(db, config);
     expect(summary.indexed).toBe(4);
 
     const rows = db.prepare("SELECT source_path FROM observations").all() as {
