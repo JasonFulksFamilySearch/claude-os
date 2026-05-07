@@ -1,7 +1,7 @@
 ---
 name: daily-action
 description: "Generate a daily action plan from git history, PRs, JIRA sprint/defect data, and 2-week retrospective heuristics"
-argument-hint: "[--rebuild [--force] | date]  Use --rebuild to discard and regenerate today's plan; date e.g. 'today', '2026-04-09'"
+argument-hint: "[--rebuild [date] [--force] | date]  Use --rebuild to discard and regenerate today's plan; optional date e.g. '2026-05-06'; date e.g. 'today', '2026-04-09'"
 ---
 
 ## Mode selection
@@ -55,9 +55,11 @@ Determine which files exist for `$PLAN_DATE`:
 
 - `~/Documents/WorkDay/DailyActionPlan/action-plan-${PLAN_DATE}.md`
 - `~/.claude/skills/daily-action/plans/${PLAN_DATE}.md`
-- `~/.claude/snapshots/daily/${PLAN_DATE}.json` (fields: `plan`, `signals`, `jira`,
-  `planDetails`, `planItems`, `plan.adhocItems`, `quality`, and `"daily-action"`,
-  `"perch"`, `"perch-agent"` in `sources`)
+- `~/.claude/snapshots/daily/${PLAN_DATE}.json` (daily-action subfields cleared:
+  `plan.itemsPlanned`, `plan.priorityStackSize`, `plan.items`, `plan.adhocItems`,
+  `signals`, `jira` download/sprint-assigned fields, `planDetails`, `planItems`,
+  `quality`; standup-owned subfields preserved; `"daily-action"`, `"perch"`,
+  `"perch-agent"` removed from `sources`)
 - `~/.claude/snapshots/agent-debug/${PLAN_DATE}.jsonl` (Perch agent debug log)
 
 If **none** of these exist, skip Steps 4–6 and proceed directly to **Step 7 (Regenerate)**.
