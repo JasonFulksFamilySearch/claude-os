@@ -1,12 +1,110 @@
 ---
 name: daily-action
 description: "Generate a daily action plan from git history, PRs, JIRA sprint/defect data, and 2-week retrospective heuristics"
-argument-hint: [date] (e.g., "today", "2026-04-09", "tomorrow" — default: today)
+argument-hint: "[--rebuild [--force] | date]  Use --rebuild to discard and regenerate today's plan; date e.g. 'today', '2026-04-09'"
 ---
+
+## Mode selection
+
+Parse `$ARGUMENTS` first:
+
+- If `$ARGUMENTS` contains `--rebuild` → follow **Rebuild Mode** below.
+- Otherwise → skip to **Normal Mode** (data collection and plan generation).
+
+---
+
+## Rebuild Mode
+
+Discard today's stale plan and regenerate from live JIRA/GitHub data. Use this when
+priorities have changed since this morning's plan was generated.
+
+### Step 1 — Determine plan date and flags
+
+```bash
+PLAN_DATE=$(date +%Y-%m-%d)
+```
+
+If `$ARGUMENTS` contains a date token matching `YYYY-MM-DD`, or the words "today"/"tomorrow",
+resolve it and set `PLAN_DATE` accordingly. Note whether `--force` is present.
+
+### Step 2 — Lock pre-check
+
+Check if a snapshot write is in progress before showing the confirmation:
+
+```bash
+LOCK="$HOME/.claude/snapshots/daily/.lock"
+if [ -d "$LOCK" ]; then
+  LOCK_MTIME=$(stat -f "%m" "$LOCK" 2>/dev/null || echo "0")
+  NOW=$(date +%s)
+  LOCK_AGE=$(( NOW - LOCK_MTIME ))
+  if [ "$LOCK_AGE" -lt 300 ]; then
+    echo "A daily-action write is in progress. Wait and retry."
+  fi
+fi
+```
+
+If the lock is **active** (age < 5 minutes): output the message above and **stop immediately**
+with a non-zero exit. Do not show the confirmation prompt, do not touch any files.
+
+If the lock is stale (age ≥ 5 minutes): continue — `rebuild-clear.sh` will warn and remove it.
+
+### Step 3 — Identify artifacts to clear
+
+Determine which files exist for `$PLAN_DATE`:
+
+- `~/Documents/WorkDay/DailyActionPlan/action-plan-${PLAN_DATE}.md`
+- `~/.claude/skills/daily-action/plans/${PLAN_DATE}.md`
+- `~/.claude/snapshots/daily/${PLAN_DATE}.json` (fields: `plan`, `signals`, `jira`,
+  `planDetails`, `planItems`, and `"daily-action"` in `sources`)
+
+If **none** of these exist, skip Steps 4–6 and proceed directly to **Step 7 (Regenerate)**.
+
+### Step 4 — Confirmation (skip when `--force`)
+
+Unless `--force` is set in `$ARGUMENTS`, use `AskUserQuestion` to confirm before clearing.
+List the specific files and fields that will be affected so the user knows what will be lost.
+Block until the user responds.
+
+If the user declines, output exactly:
+
+```
+Rebuild cancelled.
+```
+
+Then stop with exit code 0. Do not touch any files.
+
+### Step 5 — Clear artifacts
+
+Run the clear script:
+
+```bash
+~/.claude/skills/daily-action/rebuild-clear.sh "$PLAN_DATE"
+```
+
+This script acquires the snapshot lock, archives the outgoing plan markdown to
+`action-plan-${PLAN_DATE}.pre-rebuild-HHmmss.md` in the same directory, clears
+daily-action-owned fields from the snapshot (preserving standup- and perch-owned fields),
+and deletes the plan markdown files.
+
+If the script exits non-zero, surface the error and stop — do not proceed to regeneration.
+
+### Step 6 — Report clear output
+
+Echo what was archived, cleared, and removed (the script prints each line). Then proceed.
+
+### Step 7 — Regenerate
+
+Run the full data collection and plan generation pipeline — identical to **Normal Mode**
+below — using `$PLAN_DATE` as the plan date. Call `collect-data.sh` against live JIRA
+and GitHub. Do not skip any step.
+
+---
+
+## Normal Mode
 
 Launch the `daily-action` agent to generate an action plan.
 
-**Plan date:** `$ARGUMENTS`
+**Plan date:** `$ARGUMENTS` (or today if not specified)
 
 Gather all data sources (git, GitHub PRs, JIRA sprint/defect data, previous action plans), run retrospective heuristics against the last 2 weeks of plans, and produce the daily action plan.
 
