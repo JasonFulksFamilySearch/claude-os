@@ -90,6 +90,7 @@ if $HAS_SNAP; then
         .jira.unassignedDefectsOpen
       )
     | del(.planDetails)
+    | del(.planItems)
     | .sources = ([.sources[]? | select(. != "daily-action")])
     | .updatedAt = $ua
   ' "$SNAP_FILE" > "${SNAP_FILE}.tmp"
