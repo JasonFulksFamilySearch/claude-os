@@ -55,7 +55,9 @@ Determine which files exist for `$PLAN_DATE`:
 - `~/Documents/WorkDay/DailyActionPlan/action-plan-${PLAN_DATE}.md`
 - `~/.claude/skills/daily-action/plans/${PLAN_DATE}.md`
 - `~/.claude/snapshots/daily/${PLAN_DATE}.json` (fields: `plan`, `signals`, `jira`,
-  `planDetails`, `planItems`, and `"daily-action"` in `sources`)
+  `planDetails`, `planItems`, `plan.adhocItems`, `quality`, and `"daily-action"`,
+  `"perch"`, `"perch-agent"` in `sources`)
+- `~/.claude/snapshots/agent-debug/${PLAN_DATE}.jsonl` (Perch agent debug log)
 
 If **none** of these exist, skip Steps 4–6 and proceed directly to **Step 7 (Regenerate)**.
 
@@ -83,8 +85,9 @@ Run the clear script:
 
 This script acquires the snapshot lock, archives the outgoing plan markdown to
 `action-plan-${PLAN_DATE}.pre-rebuild-HHmmss.md` in the same directory, clears
-daily-action-owned fields from the snapshot (preserving standup- and perch-owned fields),
-and deletes the plan markdown files.
+daily-action-owned fields **and** perch-owned fields from the snapshot (preserving
+only standup-owned fields), deletes the plan markdown files, and removes the
+Perch agent debug log for `$PLAN_DATE`.
 
 If the script exits non-zero, surface the error and stop — do not proceed to regeneration.
 

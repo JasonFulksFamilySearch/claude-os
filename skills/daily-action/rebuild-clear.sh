@@ -77,7 +77,8 @@ fi
 # Removes fields owned by /daily-action per daily-metrics-contract.md §4.
 # Preserves standup-owned fields (activity.*, jira.transitionsToday,
 # jira.commentsLeft, jira.sprintCompletedToday, plan.itemsCompleted,
-# plan.completionRate, plan.carryoverFromPrev) and perch-owned quality.*.
+# plan.completionRate, plan.carryoverFromPrev).
+# Perch fields are also cleared (AC-4 updated): quality.*, plan.adhocItems.
 if $HAS_SNAP; then
   UPDATED_AT=$(date +"%Y-%m-%dT%H:%M:%S%z")
   jq --arg ua "$UPDATED_AT" '
@@ -91,7 +92,9 @@ if $HAS_SNAP; then
       )
     | del(.planDetails)
     | del(.planItems)
-    | .sources = ([.sources[]? | select(. != "daily-action")])
+    | del(.plan.adhocItems)
+    | del(.quality)
+    | .sources = ([.sources[]? | select(. != "daily-action" and . != "perch" and . != "perch-agent")])
     | .updatedAt = $ua
   ' "$SNAP_FILE" > "${SNAP_FILE}.tmp"
   mv "${SNAP_FILE}.tmp" "$SNAP_FILE"
@@ -107,6 +110,13 @@ fi
 if $HAS_SKILL_PLAN; then
   rm "$SKILLS_PLAN"
   echo "Removed: $SKILLS_PLAN"
+fi
+
+# ── FR-9: Delete perch-agent debug log for today (date-keyed external artifact) ─
+PERCH_DEBUG_LOG="$HOME/.claude/snapshots/agent-debug/${PLAN_DATE}.jsonl"
+if [ -f "$PERCH_DEBUG_LOG" ]; then
+  rm "$PERCH_DEBUG_LOG"
+  echo "Removed: $PERCH_DEBUG_LOG"
 fi
 
 echo "OK: Clear complete for ${PLAN_DATE}"
