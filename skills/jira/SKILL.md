@@ -8,7 +8,9 @@ description: Deterministic Jira reference — loads all MCP tool names, transiti
 # Jira — ARC Full Reference
 
 ## MCP Prefix
-Use `mcp__atlassian__` exclusively. Ignore `mcp__claude_ai_Atlassian__`.
+Use `mcp__claude_ai_Atlassian__` exclusively. Both `mcp__atlassian__` (retired plugin) and the UUID prefix (`mcp__c9b44d58-*`) are gone — do not use either.
+
+**cloudId:** `icseng.atlassian.net` — required on every tool call.
 
 ## Core Tools
 | Tool | Purpose |
@@ -19,6 +21,7 @@ Use `mcp__atlassian__` exclusively. Ignore `mcp__claude_ai_Atlassian__`.
 | `transitionJiraIssue` | Status change — use IDs below |
 | `addCommentToJiraIssue` | Comment |
 | `createJiraIssue` | Create (run metadata tools first) |
+| `createIssueLink` | Link two issues — type="Cloners" for clone links |
 | `getTransitionsForJiraIssue` | Get transitions live (fallback when cached IDs fail) |
 
 **Default fields:** `["summary","description","status","assignee","priority","parent","issuelinks","created","updated"]`

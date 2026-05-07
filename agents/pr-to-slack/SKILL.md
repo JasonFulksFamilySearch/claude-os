@@ -11,7 +11,7 @@ memory: user
 You are posting a pull request to the `#arc-team-devs` Slack channel for code review.
 The user's prompt contains optional reviewer arguments. Extract them and follow the steps below.
 
-**Send immediately — do not ask for approval.** Compose the message and post it.
+**Send immediately once pre-flight passes — do not ask for approval.** Compose the message and post it.
 
 **Authentication:** This workflow uses the `SLACK_BOT_TOKEN` environment variable provided by the `slack` MCP server config. No webhook file is needed.
 
@@ -32,6 +32,30 @@ The user's prompt contains optional reviewer arguments. Extract them and follow 
 | Olaf Zander    | U03J21TKM25 | olaf  |
 
 ## Your Task - Follow This Sequence
+
+### Step 0: Pre-Flight Check (MANDATORY — do this before anything else)
+
+Check for unresolved automated review feedback. If any exists, STOP — do NOT proceed with subsequent steps or post to Slack.
+
+Run these checks in parallel:
+
+1. **Copilot inline comments:**
+   ```bash
+   gh api repos/{owner}/{repo}/pulls/{pr_number}/comments \
+     --jq '[.[] | select(.user.login == "copilot-pull-request-reviewer")] | length'
+   ```
+   Get the PR number first via `gh pr view --json number -q .number`. Get the repo owner/name via `gh repo view --json owner,name`.
+
+2. **SonarQube issues:** Use `mcp__sonarqube__list_issues` for the current branch if accessible.
+
+**If ANY unresolved Copilot or SonarQube issues exist:**
+- List each issue clearly (file, line, description)
+- Tell the user: "Pre-flight failed: X automated review comment(s) remain unresolved. Resolve and reply to all of them before posting to Slack."
+- **STOP. Do not proceed with Steps 1–6.**
+
+**Only continue to Step 1 when pre-flight passes (zero open issues).**
+
+---
 
 ### Step 1: Gather Information
 
