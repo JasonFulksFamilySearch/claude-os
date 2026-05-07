@@ -78,11 +78,21 @@ if ! $HAS_SNAP && ! $HAS_PLAN && ! $HAS_SKILL_PLAN && ! $HAS_DEBUG_LOG; then
 fi
 
 # ── Archive outgoing plan markdown ─────────────────────────────────────────────
-ARCHIVE_SUFFIX=$(date "+%H%M%S")
+ARCHIVE_SUFFIX=$(date "+%H%M%S")_$$
 if $HAS_PLAN; then
   ARCHIVE_FILE="${WORKDAY_DIR}/action-plan-${PLAN_DATE}.pre-rebuild-${ARCHIVE_SUFFIX}.md"
   cp "$PLAN_MD" "$ARCHIVE_FILE"
   echo "Archived: $ARCHIVE_FILE"
+fi
+if $HAS_SKILL_PLAN; then
+  SKILLS_PLAN_DIR="$(dirname "$SKILLS_PLAN")"
+  SKILLS_ARCHIVE="${SKILLS_PLAN_DIR}/${PLAN_DATE}.pre-rebuild-${ARCHIVE_SUFFIX}.md"
+  if [ -f "$SKILLS_PLAN" ]; then
+    cp "$SKILLS_PLAN" "$SKILLS_ARCHIVE"
+    echo "Archived: $SKILLS_ARCHIVE"
+  else
+    echo "WARNING: Skills plan disappeared before archive; skipping archive."
+  fi
 fi
 
 # ── Clear daily-action-owned snapshot fields ────────────────────────────────────
@@ -115,18 +125,18 @@ fi
 
 # ── Delete plan markdown files ──────────────────────────────────────────────────
 if $HAS_PLAN; then
-  rm "$PLAN_MD"
+  rm -f "$PLAN_MD"
   echo "Removed: $PLAN_MD"
 fi
 
 if $HAS_SKILL_PLAN; then
-  rm "$SKILLS_PLAN"
+  rm -f "$SKILLS_PLAN"
   echo "Removed: $SKILLS_PLAN"
 fi
 
 # ── FR-9: Delete perch-agent debug log for today (date-keyed external artifact) ─
-if [ -f "$PERCH_DEBUG_LOG" ]; then
-  rm "$PERCH_DEBUG_LOG"
+if $HAS_DEBUG_LOG; then
+  rm -f "$PERCH_DEBUG_LOG"
   echo "Removed: $PERCH_DEBUG_LOG"
 fi
 
