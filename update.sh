@@ -152,6 +152,48 @@ fi
 
 echo ""
 
+# ── Step 5: Cleanup stale paths ──────────────────────────────────────────────
+
+echo "--- Step 5: Cleanup stale paths ---"
+
+# agents/ should be a symlink like skills/ and commands/ — convert if still a plain directory
+if [ -d "$HOME/.claude/agents" ] && [ ! -L "$HOME/.claude/agents" ]; then
+    rm -rf "$HOME/.claude/agents"
+    ln -s "$HOME/.claude-os/agents" "$HOME/.claude/agents"
+    ok "Converted ~/.claude/agents → symlink to ~/.claude-os/agents"
+else
+    skip "~/.claude/agents already a symlink"
+fi
+
+# Remove directories superseded by the claude-os migration
+for stale in \
+    "$HOME/.claude/memory" \
+    "$HOME/.claude/agent-memory" \
+    "$HOME/.claude/backups"
+do
+    if [ -e "$stale" ]; then
+        rm -rf "$stale"
+        ok "Removed stale: $(basename $stale)/"
+    else
+        skip "Already gone: $(basename $stale)/"
+    fi
+done
+
+# Remove pre-cutover backup files
+for f in \
+    "$HOME/.claude/CLAUDE.md.pre-claude-os" \
+    "$HOME/.claude/commands.pre-claude-os" \
+    "$HOME/.claude/skills.pre-claude-os" \
+    "$HOME/.claude/CLAUDE.md.backup-"*
+do
+    if [ -e "$f" ]; then
+        rm -rf "$f"
+        ok "Removed: $(basename $f)"
+    fi
+done
+
+echo ""
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 echo "================================================"

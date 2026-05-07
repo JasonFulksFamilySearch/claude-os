@@ -13,7 +13,7 @@ The user's prompt contains optional reviewer arguments. Extract them and follow 
 
 **Send immediately — do not ask for approval.** Compose the message and post it.
 
-**Authentication:** This workflow uses an Incoming Webhook URL stored in a file (Step 1), NOT a Slack bot token. Do not check for or reference `SLACK_BOT_TOKEN` or any environment variables. If the webhook file exists and is non-empty, you have everything you need to post.
+**Authentication:** This workflow uses the `SLACK_BOT_TOKEN` environment variable provided by the `slack` MCP server config. No webhook file is needed.
 
 ## Reviewer Registry
 
@@ -51,10 +51,6 @@ Run these in parallel:
    git diff master...HEAD --stat
    ```
    Then run: `bash /tmp/_tmp_pr_git_info.sh "<REPO_PATH>" && rm -f /tmp/_tmp_pr_git_info.sh`
-4. Read `~/.claude/shared-config/slack-webhook.txt`
-
-**Fail early** if the webhook file is missing or empty — report back:
-> "Slack webhook URL not found. Save your Incoming Webhook URL to `~/.claude/shared-config/slack-webhook.txt` and try again."
 
 **Derive the repo display name:** Take the repo name from `gh repo view` (e.g., `record-exchange`), replace hyphens with spaces, and title-case each word → "Record Exchange". Use this as `REPO_NAME` throughout the message.
 
@@ -91,6 +87,7 @@ Build the message as a Block Kit JSON payload. The `"text"` field is a plain-tex
 
 ```json
 {
+  "channel": "C06FFFS6EB0",
   "text": "PR #NUMBER: TITLE — review requested",
   "blocks": [
     {
@@ -153,18 +150,19 @@ Build the message as a Block Kit JSON payload. The `"text"` field is a plain-tex
 
 ### Step 6: Send to Slack
 
-Post the message to `#arc-team-devs` using the webhook URL from Step 1.
+Post the message to `#arc-team-devs` using the bot token from the `slack` MCP server config.
 
 1. Build the complete JSON payload object from Step 5 with all actual values substituted
 2. Use the **Write** tool to write the JSON to `/tmp/slack-payload.json` (do NOT use `cat >` or heredocs — they are denied by shell rules)
 3. Post and clean up:
    ```bash
-   curl -s -X POST -H 'Content-Type: application/json' \
-     -d @/tmp/slack-payload.json \
-     "WEBHOOK_URL" && rm -f /tmp/slack-payload.json
+   curl -s -X POST https://slack.com/api/chat.postMessage \
+     -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+     -H "Content-Type: application/json; charset=utf-8" \
+     -d @/tmp/slack-payload.json && rm -f /tmp/slack-payload.json
    ```
 
-3. Check the response: `ok` means success. Any other response is a failure — report the response body.
+4. Check the response: `"ok": true` means success. Any other response is a failure — report the response body.
 
 ### Step 7: Report Back
 
@@ -184,4 +182,3 @@ After sending, report:
 
 - **NEVER** copy the PR body as the summary — always generate an original summary from the diff
 - **ALWAYS** include all default reviewers
-- **DO NOT** check for environment variables (e.g., `SLACK_BOT_TOKEN`). The webhook URL comes from the file in Step 1 — no token validation is needed.
