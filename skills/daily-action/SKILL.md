@@ -34,17 +34,18 @@ Check if a snapshot write is in progress before showing the confirmation:
 ```bash
 LOCK="$HOME/.claude/snapshots/daily/.lock"
 if [ -d "$LOCK" ]; then
-  LOCK_MTIME=$(stat -f "%m" "$LOCK" 2>/dev/null || echo "0")
+  LOCK_MTIME=$(stat -f "%m" "$LOCK" 2>/dev/null || stat -c "%Y" "$LOCK" 2>/dev/null || echo "0")
   NOW=$(date +%s)
   LOCK_AGE=$(( NOW - LOCK_MTIME ))
   if [ "$LOCK_AGE" -lt 300 ]; then
     echo "A daily-action write is in progress. Wait and retry."
+    exit 1
   fi
 fi
 ```
 
-If the lock is **active** (age < 5 minutes): output the message above and **stop immediately**
-with a non-zero exit. Do not show the confirmation prompt, do not touch any files.
+If the lock is **active** (age < 5 minutes): the snippet above outputs the message and exits 1 immediately.
+Do not show the confirmation prompt, do not touch any files.
 
 If the lock is stale (age ≥ 5 minutes): continue — `rebuild-clear.sh` will warn and remove it.
 

@@ -1,23 +1,32 @@
 #!/bin/bash
-# rebuild-clear.sh — Atomically clears daily-action-owned fields from today's snapshot
+# rebuild-clear.sh — Clears daily-action- and perch-owned fields from today's snapshot
 #   and deletes today's plan markdown files, in preparation for a /daily-action --rebuild run.
 #
 # Usage:  rebuild-clear.sh <YYYY-MM-DD>
 #
-# Acquires the snapshot lock, archives the outgoing plan markdown, removes daily-action
-# fields from the snapshot (preserving standup and perch owned fields), and deletes the
-# plan markdown files. Prints progress to stdout. On a no-op (no artifacts for the date),
-# exits 0 with a NO-OP message so the caller can skip straight to generation.
+# Acquires the snapshot lock, archives the outgoing plan markdown, removes daily-action-
+# owned and perch-owned fields from the snapshot (preserving only standup-owned fields),
+# deletes plan markdown files, and removes the perch agent debug log for the date.
+# Prints progress to stdout. On a no-op (no artifacts for the date), exits 0 with a
+# NO-OP message so the caller can skip straight to generation.
 #
 # Exit codes:
 #   0  Success (clear complete, or no-op — no artifacts existed)
 #   1  Active lock held: a write is in progress
 #   2  jq not available
-#   3  Bad arguments
+#   3  Bad arguments (missing or malformed date)
 
 set -euo pipefail
 
-PLAN_DATE="${1:?Usage: rebuild-clear.sh <YYYY-MM-DD>}"
+PLAN_DATE="${1:-}"
+if [ -z "$PLAN_DATE" ]; then
+  echo "ERROR: Missing argument. Usage: rebuild-clear.sh <YYYY-MM-DD>" >&2
+  exit 3
+fi
+if ! echo "$PLAN_DATE" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
+  echo "ERROR: Invalid date format '$PLAN_DATE'. Expected YYYY-MM-DD." >&2
+  exit 3
+fi
 
 command -v jq >/dev/null 2>&1 || { echo "ERROR: jq not found" >&2; exit 2; }
 
@@ -27,6 +36,7 @@ SNAP_FILE="$SNAP_DIR/${PLAN_DATE}.json"
 WORKDAY_DIR="$HOME/Documents/WorkDay/DailyActionPlan"
 PLAN_MD="${WORKDAY_DIR}/action-plan-${PLAN_DATE}.md"
 SKILLS_PLAN="$HOME/.claude/skills/daily-action/plans/${PLAN_DATE}.md"
+PERCH_DEBUG_LOG="$HOME/.claude/snapshots/agent-debug/${PLAN_DATE}.jsonl"
 
 mkdir -p "$SNAP_DIR"
 
@@ -56,12 +66,14 @@ trap 'rmdir "$LOCK" 2>/dev/null || true' EXIT
 HAS_SNAP=false
 HAS_PLAN=false
 HAS_SKILL_PLAN=false
-[ -f "$SNAP_FILE" ]    && HAS_SNAP=true
-[ -f "$PLAN_MD" ]      && HAS_PLAN=true
-[ -f "$SKILLS_PLAN" ]  && HAS_SKILL_PLAN=true
+HAS_DEBUG_LOG=false
+[ -f "$SNAP_FILE" ]      && HAS_SNAP=true
+[ -f "$PLAN_MD" ]        && HAS_PLAN=true
+[ -f "$SKILLS_PLAN" ]    && HAS_SKILL_PLAN=true
+[ -f "$PERCH_DEBUG_LOG" ] && HAS_DEBUG_LOG=true
 
-if ! $HAS_SNAP && ! $HAS_PLAN && ! $HAS_SKILL_PLAN; then
-  echo "NO-OP: No daily-action artifacts found for ${PLAN_DATE} — skipping clear."
+if ! $HAS_SNAP && ! $HAS_PLAN && ! $HAS_SKILL_PLAN && ! $HAS_DEBUG_LOG; then
+  echo "NO-OP: No daily-action or perch artifacts found for ${PLAN_DATE} — skipping clear."
   exit 0
 fi
 
@@ -113,7 +125,6 @@ if $HAS_SKILL_PLAN; then
 fi
 
 # ── FR-9: Delete perch-agent debug log for today (date-keyed external artifact) ─
-PERCH_DEBUG_LOG="$HOME/.claude/snapshots/agent-debug/${PLAN_DATE}.jsonl"
 if [ -f "$PERCH_DEBUG_LOG" ]; then
   rm "$PERCH_DEBUG_LOG"
   echo "Removed: $PERCH_DEBUG_LOG"
