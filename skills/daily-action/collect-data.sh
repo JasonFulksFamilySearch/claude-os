@@ -15,13 +15,19 @@ SINCE_DATE=$(date -j -v-3d -f "%Y-%m-%d" "$PLAN_DATE" "+%Y-%m-%d" 2>/dev/null \
 TZ_OFFSET=$(date +%z)
 SINCE="${SINCE_DATE}T00:00:00${TZ_OFFSET}"
 
-# Load shared ARC repo list and author regex — see shared-config/daily-metrics-contract.md
-# Path is resolved relative to this script so it works both in production
-# (~/.claude/skills/...) and in a worktree checkout.
+# Load shared repo list and author regex — see shared-config/daily-metrics-contract.md
+# Prefers the new canonical filename; falls back to legacy arc-repos.json for one
+# release window (FR-11 / PER-206 rename migration).
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPOS_JSON="${SCRIPT_DIR}/../../shared-config/arc-repos.json"
-if [[ ! -f "$REPOS_JSON" ]]; then
-  echo "ERROR: Missing $REPOS_JSON — see shared-config/daily-metrics-contract.md" >&2
+NEW_REPOS_JSON="${SCRIPT_DIR}/../../shared-config/perch-watched-repos.json"
+LEGACY_REPOS_JSON="${SCRIPT_DIR}/../../shared-config/arc-repos.json"
+if [[ -f "$NEW_REPOS_JSON" ]]; then
+  REPOS_JSON="$NEW_REPOS_JSON"
+elif [[ -f "$LEGACY_REPOS_JSON" ]]; then
+  echo "deprecation: arc-repos.json detected — rename to perch-watched-repos.json" >&2
+  REPOS_JSON="$LEGACY_REPOS_JSON"
+else
+  echo "ERROR: Missing ${NEW_REPOS_JSON} — see shared-config/daily-metrics-contract.md" >&2
   exit 1
 fi
 

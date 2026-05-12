@@ -150,11 +150,17 @@ gh pr checks [number] --json name,state,conclusion
 
 **Do NOT run `unset GIT_DIR` before other commands.** The `GIT_DIR=/path git log` syntax is command-local — it sets the variable only for that one subprocess, never in the shell. Each Bash tool call is also a fresh shell, so nothing leaks between calls. Running `unset GIT_DIR && gh pr list` is both unnecessary and triggers a permission prompt.
 
+**Repo paths come from the watched-repo file — never hardcode them.** Read `~/.claude/shared-config/perch-watched-repos.json` (fall back to `arc-repos.json` if absent) and run `git log` for each entry's `path` field.
+
 ```bash
-# Run for each relevant repo using GIT_DIR — no cd required
-GIT_DIR=/Users/fulksjas/dev/Record_Exchange/arc-record-exchange/.git git log --oneline --since="14 days ago" --author="fulksjas" 2>&1
-GIT_DIR=/Users/fulksjas/dev/ARC-Pages/arc-pages/.git git log --oneline --since="14 days ago" --author="fulksjas" 2>&1
-GIT_DIR=/Users/fulksjas/dev/OrchestrationService/arc-record-exchange-orch-service/.git git log --oneline --since="14 days ago" --author="fulksjas" 2>&1
+# Read the canonical watched-repo list; fall back to legacy filename if new one missing
+REPOS_JSON=~/.claude/shared-config/perch-watched-repos.json
+if [[ ! -f "$REPOS_JSON" ]]; then REPOS_JSON=~/.claude/shared-config/arc-repos.json; fi
+
+# Run for each watched repo using GIT_DIR — no cd required
+while IFS=$'\t' read -r name path; do
+  GIT_DIR="${path}/.git" git log --oneline --since="14 days ago" --author="fulksjas" 2>&1 | sed "s/^/${name}: /" || true
+done < <(jq -r '.repos[] | [.name, .path] | @tsv' "$REPOS_JSON")
 ```
 
 Check for active worktrees under `../worktrees/{feat,fix,chore}/` relative to each repo and include those too.
