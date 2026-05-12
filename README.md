@@ -67,7 +67,7 @@ and pushed from whichever machine made them, then pulled on the other.
 **On the machine that made changes** (e.g. Castor):
 
 ```
-/sync-claude-os
+/transmit-claude-os
 ```
 
 Stages all pending changes in `~/.claude-os/`, generates a conventional commit
@@ -77,7 +77,7 @@ explicit "I'm happy with this state" signal — no confirmation prompt.
 **On the receiving machine** (e.g. Pollux):
 
 ```
-/update-claude-os
+/assimilate-claude-os
 ```
 
 Pulls the latest from origin and rebuilds the MCP server only if `mcp/` changed.

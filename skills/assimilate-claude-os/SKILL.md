@@ -1,8 +1,8 @@
-# Update Claude OS
+# Assimilate Claude OS
 
 Pull the latest changes from origin into `~/.claude-os/` and rebuild the MCP
 server if needed. Use this on any machine to pick up changes pushed from another
-machine (e.g., Willis syncing changes that Walter needs).
+machine (e.g., Willis transmitting changes that Walter needs).
 
 ## Steps
 

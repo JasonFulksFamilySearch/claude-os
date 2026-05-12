@@ -1,4 +1,4 @@
-# Sync Claude OS
+# Transmit Claude OS
 
 Commit and push all pending changes in `~/.claude-os/` to origin. Invoking
 this command is the explicit signal that the current state of the repo is
@@ -14,7 +14,7 @@ git status --porcelain
 
 Run this inside `~/.claude-os/`. If output is empty, print:
 
-> Nothing to sync — working tree is clean.
+> Nothing to transmit — working tree is clean.
 
 And stop. Do not proceed further.
 
@@ -45,7 +45,7 @@ Read the full staged diff and write a conventional commit message:
 - No bullet points in body
 - No `Co-Authored-By` footer
 
-The `/sync-claude-os` invocation IS the approval. Do not ask for confirmation.
+The `/transmit-claude-os` invocation IS the approval. Do not ask for confirmation.
 
 ### 5. Commit
 
@@ -68,4 +68,4 @@ git push
 
 Print a single summary line:
 
-> Synced to origin/<branch> — N files changed.
+> Transmitted to origin/<branch> — N files changed.
