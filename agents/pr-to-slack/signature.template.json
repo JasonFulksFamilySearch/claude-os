@@ -1,0 +1,51 @@
+{
+  "channel": "C06FFFS6EB0",
+  "text": "{{FALLBACK_TEXT}}",
+  "blocks": [
+    {
+      "type": "header",
+      "text": {
+        "type": "plain_text",
+        "text": "{{HEADER_TEXT}}",
+        "emoji": true
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "{{REVIEWER_PINGS}} I have {{REPO_ARTICLE}} {{REPO_DISPLAY_NAME}} PR ready for review."
+      }
+    },
+    {
+      "type": "divider"
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "{{SUMMARY_MRKDWN}}"
+      },
+      "accessory": {
+        "type": "button",
+        "action_id": "view_pr",
+        "style": "primary",
+        "text": {
+          "type": "plain_text",
+          "text": "View PR",
+          "emoji": true
+        },
+        "url": "{{PR_URL}}"
+      }
+    },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "{{FOOTER_MRKDWN}}"
+        }
+      ]
+    }
+  ]
+}
