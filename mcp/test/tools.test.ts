@@ -7,7 +7,7 @@ vi.mock("../src/embedder.js", () => ({
   EMBEDDING_DIM: 768,
   MODEL_ID: "nomic-ai/nomic-embed-text-v1.5",
 }));
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -20,6 +20,7 @@ import { appendLearning } from "../src/tools/append_learning.js";
 import { listTopics } from "../src/tools/list_topics.js";
 import { getRecentLearnings } from "../src/tools/get_recent_learnings.js";
 import { listEpisodesImpl } from "../src/tools/list_episodes.js";
+import { markEpisodePromotedImpl } from "../src/tools/mark_episode_promoted.js";
 
 let workDir: string;
 let dataRoot: string;
@@ -442,5 +443,135 @@ describe("listEpisodes", () => {
     const results = listEpisodesImpl({ project: "arc" }, episodesDir);
     const sameDay = results.filter(r => r.date === "2026-05-18");
     expect(sameDay.map(r => r.session_id)).toEqual(["ccc", "bbb", "aaa"]);
+  });
+});
+
+describe("markEpisodePromoted", () => {
+  let episodesDir: string;
+  let promoConfig: IndexerConfig;
+
+  beforeEach(() => {
+    episodesDir = join(dataRoot, "episodes");
+    mkdirSync(episodesDir, { recursive: true });
+    // macOS tmpdir is /var/folders/... but /var → /private/var, so realpathSync
+    // returns /private/var/.... The tool resolves through symlinks for security
+    // (defeats symlink escapes), then calls indexFile, whose classify() uses
+    // plain resolve() on config.dataRoot. Canonicalize the test's dataRoot so
+    // both ends agree — mirrors production where ~/.claude-data has no /var
+    // symlink layer. Episodes dir is realpath'd to match the tool's return.
+    episodesDir = realpathSync(episodesDir);
+    promoConfig = { dataRoot: realpathSync(dataRoot), watchedProjects: [] };
+  });
+
+  it("sets promoted: true in episode frontmatter using targeted regex (preserves all other fields)", () => {
+    const path = join(episodesDir, "2026-05-14-promo.md");
+    const original = [
+      "---",
+      "date: 2026-05-14",
+      "session_id: promo001",
+      "project: arc",
+      "turns: 7",
+      "promoted: false",
+      "---",
+      "",
+      "## Summary",
+      "A promotable session.",
+      "",
+    ].join("\n");
+    writeFileSync(path, original, "utf8");
+
+    const result = markEpisodePromotedImpl(db, { path }, promoConfig);
+    expect(result.promoted).toBe(true);
+    expect(result.path).toBe(path);
+
+    const updated = readFileSync(path, "utf8");
+    expect(updated).toContain("promoted: true");
+    expect(updated).not.toContain("promoted: false");
+    expect(updated).toContain("date: 2026-05-14");
+    expect(updated).toContain("session_id: promo001");
+    expect(updated).toContain("project: arc");
+    expect(updated).toContain("turns: 7");
+    expect(updated).toContain("A promotable session.");
+  });
+
+  it("re-indexes the file after promotion", () => {
+    const path = join(episodesDir, "2026-05-14-reindex.md");
+    writeFileSync(path, [
+      "---",
+      "date: 2026-05-14",
+      "session_id: reindex",
+      "project: arc",
+      "turns: 4",
+      "promoted: false",
+      "---",
+      "",
+      "## Summary",
+      "Session to be reindexed.",
+      "",
+    ].join("\n"), "utf8");
+
+    markEpisodePromotedImpl(db, { path }, promoConfig);
+
+    const row = db.prepare(
+      "SELECT frontmatter FROM observations WHERE source_path = ?"
+    ).get(path) as { frontmatter: string } | undefined;
+    expect(row).toBeDefined();
+    expect(row?.frontmatter).toContain("promoted: true");
+  });
+
+  it("throws when the episode file does not exist", () => {
+    expect(() =>
+      markEpisodePromotedImpl(db, { path: join(episodesDir, "ghost.md") }, promoConfig)
+    ).toThrow("Episode file not found");
+  });
+
+  it("rejects path outside the episodes directory", () => {
+    expect(() =>
+      markEpisodePromotedImpl(db, { path: "/etc/passwd" }, promoConfig)
+    ).toThrow(/outside the episodes directory|not allowed/i);
+  });
+
+  it("rejects path traversal via ..", () => {
+    // Create a real file OUTSIDE episodes so existsSync passes and the
+    // containment check (not the "file not found" branch) is what fires.
+    const outsidePath = join(dataRoot, "outside.md");
+    writeFileSync(outsidePath, "---\ndate: 2026-05-14\n---\nbody\n", "utf8");
+
+    const traversal = join(episodesDir, "..", "outside.md");
+    expect(() =>
+      markEpisodePromotedImpl(db, { path: traversal }, promoConfig)
+    ).toThrow(/outside the episodes directory|not allowed/i);
+  });
+
+  it("rejects a file missing required frontmatter (session_id or date)", () => {
+    const path = join(episodesDir, "2026-05-14-nofrontmatter.md");
+    writeFileSync(path, "## Summary\nNo frontmatter here.\n", "utf8");
+    expect(() =>
+      markEpisodePromotedImpl(db, { path }, promoConfig)
+    ).toThrow(/invalid episode|missing frontmatter/i);
+  });
+
+  it("round-trip preserves all frontmatter field types (date stays string, turns stays number)", () => {
+    const path = join(episodesDir, "2026-05-14-roundtrip.md");
+    writeFileSync(path, [
+      "---",
+      "date: 2026-05-14",
+      "session_id: rt001",
+      "project: arc",
+      "turns: 42",
+      "promoted: false",
+      "---",
+      "",
+      "## Summary",
+      "Round-trip test.",
+      "",
+    ].join("\n"), "utf8");
+
+    markEpisodePromotedImpl(db, { path }, promoConfig);
+
+    const updated = readFileSync(path, "utf8");
+    expect(updated).toMatch(/^date: 2026-05-14$/m);
+    expect(updated).not.toMatch(/2026-05-14T/);
+    expect(updated).toMatch(/^turns: 42$/m);
   });
 });
