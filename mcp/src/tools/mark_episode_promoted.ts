@@ -55,6 +55,9 @@ export function markEpisodePromotedImpl(
   }
 
   // Resolve through symlinks BEFORE any read or write to defeat symlink escapes.
+  // NOTE: indexer.classify() uses plain resolve() — these can disagree under a
+  // symlinked dataRoot (e.g., macOS /var → /private/var). Safe in production
+  // because ~/.claude-data is a direct path under $HOME on both targets.
   let real: string;
   try { real = realpathSync(args.path); }
   catch { throw new Error(`Cannot resolve path: ${args.path}`); }
@@ -85,8 +88,13 @@ export function markEpisodePromotedImpl(
   // Targeted regex replace — only the promoted: line changes.
   // This preserves all other fields exactly as written, preventing
   // gray-matter date coercion (YYYY-MM-DD → ISO timestamp) and key reordering.
+  //
+  // The replacement regex matches the WHOLE LINE (`/^promoted:.*$/m`). A naive
+  // `/^promoted:\s*\S+/m` is unsafe — `\s` matches `\n`, so an empty `promoted:`
+  // value would let `\s*\S+` walk into the next line and consume the first
+  // token of the adjacent field. Whole-line replacement is the safe form.
   const newFmBody = /^promoted:/m.test(fmBody)
-    ? fmBody.replace(/^promoted:\s*\S+/m, "promoted: true")
+    ? fmBody.replace(/^promoted:.*$/m, "promoted: true")
     : fmBody + "\npromoted: true";
 
   const updated = open + newFmBody + close + rest;

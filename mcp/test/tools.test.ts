@@ -574,4 +574,34 @@ describe("markEpisodePromoted", () => {
     expect(updated).not.toMatch(/2026-05-14T/);
     expect(updated).toMatch(/^turns: 42$/m);
   });
+
+  it("replaces promoted line even when value is empty (does not eat adjacent field)", () => {
+    // Regression: an earlier draft used /^promoted:\s*\S+/m which would walk
+    // past the line break (\s includes \n) and consume the first token of the
+    // next field's value. With `promoted:` empty and `turns: 7` immediately
+    // after, the bug would have rewritten `turns: 7` → `turns: ` with `7`
+    // glued to `promoted:`. The fix matches the whole line via `.` (no /s flag
+    // so `.` does NOT match newlines).
+    const path = join(episodesDir, "2026-05-14-emptyval.md");
+    writeFileSync(path, [
+      "---",
+      "date: 2026-05-14",
+      "session_id: emptyval",
+      "promoted:",
+      "turns: 7",
+      "---",
+      "",
+      "## Summary",
+      "Test for empty promoted value.",
+      "",
+    ].join("\n"), "utf8");
+
+    markEpisodePromotedImpl(db, { path }, promoConfig);
+
+    const updated = readFileSync(path, "utf8");
+    expect(updated).toMatch(/^promoted: true$/m);
+    expect(updated).toMatch(/^turns: 7$/m);
+    // The original `promoted:` line should be fully replaced — no stray empty value
+    expect(updated.match(/^promoted:/gm)).toHaveLength(1);
+  });
 });
