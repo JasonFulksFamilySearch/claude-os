@@ -281,6 +281,12 @@ export async function fullReindex(
     candidates.add(f);
   }
 
+  const episodesDir = join(dataRoot, "episodes");
+  for (const f of walk(episodesDir)) {
+    if (basename(f).startsWith("_")) continue;
+    candidates.add(f);
+  }
+
   for (const watched of config.watchedProjects) {
     const projRoot = resolve(watched.path);
     if (!existsSync(projRoot)) {
@@ -347,6 +353,7 @@ export function watchAll(
     join(dataRoot, "agent"),
     join(dataRoot, "context"),
     join(dataRoot, "projects"),
+    join(dataRoot, "episodes"),
   ];
 
   for (const watched of config.watchedProjects) {

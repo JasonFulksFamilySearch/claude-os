@@ -253,6 +253,61 @@ describe("indexFile — episode", () => {
   });
 });
 
+describe("fullReindex — episodes", () => {
+  it("indexes episode files during full reindex and includes them in indexed count", async () => {
+    mkdirSync(join(dataRoot, "episodes"), { recursive: true });
+    const p = join(dataRoot, "episodes", "2026-05-14-reindex.md");
+    writeFileSync(p, [
+      "---",
+      "date: 2026-05-14",
+      "session_id: reindex001",
+      "project: arc",
+      "turns: 8",
+      "promoted: false",
+      "---",
+      "",
+      "## Summary",
+      "Reindex test session.",
+      "",
+    ].join("\n"), "utf8");
+
+    const summary = await fullReindex(db, config);
+
+    const row = db.prepare(
+      "SELECT source_type, project FROM observations WHERE source_path = ?"
+    ).get(p) as { source_type: string; project: string } | undefined;
+    expect(row?.source_type).toBe("episode");
+    expect(row?.project).toBe("arc");
+    expect(summary.indexed).toBeGreaterThanOrEqual(1);
+  });
+
+  it("fullReindex skips files whose basename starts with underscore (e.g. _legacy.md)", async () => {
+    // walk() in indexer.ts already filters to .md only, so _index.json is
+    // skipped for free. This test exercises the explicit underscore-prefix
+    // skip — the only reachable case is a .md file that begins with _.
+    mkdirSync(join(dataRoot, "episodes"), { recursive: true });
+    const legacyPath = join(dataRoot, "episodes", "_legacy.md");
+    writeFileSync(legacyPath, [
+      "---",
+      "date: 2026-05-14",
+      "session_id: legacy",
+      "promoted: false",
+      "---",
+      "",
+      "## Summary",
+      "Legacy file that must be skipped by the _* filter.",
+      "",
+    ].join("\n"), "utf8");
+
+    await fullReindex(db, config);
+
+    const row = db.prepare(
+      "SELECT * FROM observations WHERE source_path = ?"
+    ).get(legacyPath);
+    expect(row).toBeUndefined();
+  });
+});
+
 describe("fullReindex", () => {
   it("indexes all expected files in the data root", async () => {
     writeFileSync(
