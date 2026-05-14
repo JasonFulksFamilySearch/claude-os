@@ -1,17 +1,32 @@
 'use strict';
 
 const {
-  readFileSync, writeFileSync, mkdirSync, existsSync, renameSync,
+  readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, renameSync,
 } = require('node:fs');
-const { join, resolve, sep } = require('node:path');
+const { join, dirname, resolve, sep } = require('node:path');
 const { homedir } = require('node:os');
 const { todayLocal } = require('./lib/episode-utils.js');
 
 const EPISODES_DIR = join(homedir(), '.claude-data', 'episodes');
+const LOG_PATH = join(homedir(), '.claude-data', 'logs', 'session-observer.log');
+// MAX_CHARS = 30_000 ≈ 7,500 tokens — conservative cap to bound Haiku cost per
+// session close. Haiku 4.5's context is much larger; raise this only after
+// considering monthly spend at average session length.
 const MAX_CHARS = 30_000;
 const MIN_TURNS = 3;
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const HAIKU_MODEL = 'claude-haiku-4-5-20251001';
+
+// Append a timestamped line to the worker log. Wrapped in try/catch so a
+// logging failure (disk full, perms) can never crash the worker. The launcher
+// detaches stdio so process.stderr.write goes to /dev/null; this log file is
+// the only visible trace when episodes stop being generated.
+function logLine(level, message) {
+  try {
+    mkdirSync(dirname(LOG_PATH), { recursive: true });
+    appendFileSync(LOG_PATH, '[' + new Date().toISOString() + '] ' + level + ': ' + message + '\n');
+  } catch { /* logging must never crash the worker */ }
+}
 
 const SYSTEM_PROMPT = `You are a session observer for an AI coding assistant named Willis.
 Extract ONLY salient, non-obvious observations from the session transcript.
@@ -95,27 +110,47 @@ function extractJsonFromText(text) {
   return null;
 }
 
+// safeString — strips control characters (including newlines) and collapses
+// whitespace runs. This guarantees no string field can break the episode's
+// YAML frontmatter or markdown structure via embedded \n, \n---, \n##, etc.
+// Critical defense against the prompt-injection chain: malicious transcript →
+// Haiku embeds newlines in `project` → episode file's YAML breaks → injected
+// content surfaces as the summary digest in future session-start contexts.
+function safeString(v, max) {
+  if (typeof v !== 'string') return '';
+  return v.replace(/[\x00-\x1f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
 // Manual schema coercion — replaces Zod (unavailable in hooks layer).
+// Prevents TypeError when Haiku returns unexpected shapes (string instead of
+// array, null fields, extra keys).
 function coerceObservation(raw) {
-  if (typeof raw !== 'object' || raw === null) {
+  // Array.isArray guard: typeof [] === 'object', so a bare check passes
+  // arrays. Tighten with explicit isArray rejection.
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new Error('Haiku returned non-object response');
   }
-  function coerceArray(v) {
-    if (Array.isArray(v)) return v.filter(x => typeof x === 'string').slice(0, 20);
-    if (typeof v === 'string') return v.length > 0 ? [v] : [];
+  function coerceArray(v, max) {
+    if (Array.isArray(v)) {
+      return v.filter(x => typeof x === 'string').map(x => safeString(x, max)).slice(0, 20);
+    }
+    if (typeof v === 'string') {
+      const s = safeString(v, max);
+      return s.length > 0 ? [s] : [];
+    }
     return [];
   }
+  const projectClean = safeString(raw.project, 64);
   return {
-    summary: typeof raw.summary === 'string' ? raw.summary.slice(0, 2000) : '',
-    project: typeof raw.project === 'string' && raw.project.length > 0
-      ? raw.project.slice(0, 64) : null,
-    decisions: coerceArray(raw.decisions),
-    corrections: coerceArray(raw.corrections),
-    discoveries: coerceArray(raw.discoveries),
+    summary: safeString(raw.summary, 2000),
+    project: projectClean.length > 0 ? projectClean : null,
+    decisions: coerceArray(raw.decisions, 500),
+    corrections: coerceArray(raw.corrections, 500),
+    discoveries: coerceArray(raw.discoveries, 500),
     files_of_note: Array.isArray(raw.files_of_note)
       ? raw.files_of_note
           .filter(f => f && typeof f.path === 'string' && typeof f.reason === 'string')
-          .map(f => ({ path: f.path.slice(0, 500), reason: f.reason.slice(0, 500) }))
+          .map(f => ({ path: safeString(f.path, 500), reason: safeString(f.reason, 500) }))
           .slice(0, 20)
       : [],
   };
@@ -140,8 +175,14 @@ async function callHaiku(transcriptText) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
 
+  // Wrap transcript in a data-fence so Haiku treats it as untrusted content.
+  // Use bracketed sentinels for the replacement — `<<<TRANSCRIPT` replaced with
+  // `[FENCE-OPEN]` cannot reconstruct a fence on re-pass, so this is idempotent.
+  // A naive `<TRANSCRIPT` replacement is NOT safe: `<<<<<TRANSCRIPT` →
+  // `<<<TRANSCRIPT` (regenerates the marker) — an attacker writing 5+ `<`s
+  // would forge a fence and inject instructions past the boundary.
   const safeTranscript = '<<<TRANSCRIPT\n'
-    + transcriptText.replace(/<<<TRANSCRIPT/g, '<TRANSCRIPT').replace(/TRANSCRIPT>>>/g, 'TRANSCRIPT>')
+    + transcriptText.replace(/<<<TRANSCRIPT/g, '[FENCE-OPEN]').replace(/TRANSCRIPT>>>/g, '[FENCE-CLOSE]')
     + '\nTRANSCRIPT>>>';
 
   const controller = new AbortController();
@@ -238,7 +279,7 @@ async function main() {
 
     const target = resolve(EPISODES_DIR, filename);
     if (target !== EPISODES_DIR && !target.startsWith(EPISODES_DIR + sep)) {
-      process.stderr.write('[session-observer-worker] filename escapes episodes dir; aborting\n');
+      logLine('error', 'filename escapes episodes dir; aborting: ' + filename);
       process.exit(0);
     }
 
@@ -248,17 +289,17 @@ async function main() {
     writeFileSync(tmpPath, content, 'utf8');
     renameSync(tmpPath, target);
   } catch (err) {
-    process.stderr.write('[session-observer-worker] ' + err.message + '\n');
+    logLine('error', 'worker run failed: ' + (err && err.message ? err.message : String(err)));
   }
 
   process.exit(0);
 }
 
-module.exports = { parseTurns, buildTranscriptText, buildEpisodeContent, extractJsonFromText, coerceObservation };
+module.exports = { parseTurns, buildTranscriptText, buildEpisodeContent, extractJsonFromText, coerceObservation, safeString };
 
 if (require.main === module) {
   main().catch(err => {
-    process.stderr.write('[session-observer-worker] fatal: ' + err.message + '\n');
+    logLine('fatal', 'unhandled rejection: ' + (err && err.message ? err.message : String(err)));
     process.exit(0);
   });
 }

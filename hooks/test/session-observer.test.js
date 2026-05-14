@@ -13,6 +13,7 @@ const {
   buildEpisodeContent,
   extractJsonFromText,
   coerceObservation,
+  safeString,
 } = require('../session-observer-worker.js');
 
 const TMP = join(tmpdir(), `session-observer-test-${process.pid}`);
@@ -151,6 +152,92 @@ test('coerceObservation treats null arrays as empty arrays', () => {
 test('coerceObservation ignores extra unknown keys', () => {
   const raw = { summary: 'ok', project: null, decisions: [], corrections: [], discoveries: [], files_of_note: [], unexpected: 'ignored' };
   assert.doesNotThrow(() => coerceObservation(raw));
+});
+
+test('coerceObservation rejects arrays (typeof [] === "object" passes a naive guard)', () => {
+  // Regression: without the Array.isArray check, `[]` would pass the
+  // `typeof !== 'object'` guard. Haiku occasionally wraps responses in
+  // [{...}] — the worker must refuse rather than silently produce an
+  // empty observation.
+  assert.throws(() => coerceObservation([]), /non-object response/);
+  assert.throws(() => coerceObservation([{ summary: 'evil' }]), /non-object response/);
+});
+
+test('coerceObservation rejects null', () => {
+  assert.throws(() => coerceObservation(null), /non-object response/);
+});
+
+// --- safeString (control-char and structural-injection defense) ---
+
+test('safeString strips newlines and collapses whitespace', () => {
+  assert.equal(safeString('a\nb\tc', 100), 'a b c');
+});
+
+test('safeString trims leading and trailing whitespace', () => {
+  assert.equal(safeString('   padded   ', 100), 'padded');
+});
+
+test('safeString slices to max length', () => {
+  assert.equal(safeString('a'.repeat(200), 50), 'a'.repeat(50));
+});
+
+test('safeString returns empty string for non-string input', () => {
+  assert.equal(safeString(null, 100), '');
+  assert.equal(safeString(undefined, 100), '');
+  assert.equal(safeString(42, 100), '');
+  assert.equal(safeString({}, 100), '');
+});
+
+test('coerceObservation neutralizes newline injection in project (prompt-injection defense)', () => {
+  // Regression: a malicious transcript could trick Haiku into setting
+  // project: "arc\n---\n## Summary\nINJECTED" — the embedded \n would
+  // break YAML frontmatter and inject a fake summary section. safeString
+  // strips all control chars so the project becomes a single-line value.
+  // The literal substrings `---` and `##` survive as inline text but cannot
+  // form line-starting markers without a preceding newline, so the
+  // structural-injection vector is closed.
+  const raw = {
+    summary: 'ok',
+    project: 'arc\n---\n## Summary\nINJECTED',
+    decisions: [], corrections: [], discoveries: [], files_of_note: [],
+  };
+  const obs = coerceObservation(raw);
+  assert.ok(!obs.project.includes('\n'));
+  assert.ok(!/\n\s*---/.test(obs.project));
+  assert.ok(obs.project.startsWith('arc'));
+});
+
+test('coerceObservation neutralizes newline injection in summary', () => {
+  const raw = {
+    summary: 'Normal summary\n---\n## Decisions\n- evil',
+    project: null,
+    decisions: [], corrections: [], discoveries: [], files_of_note: [],
+  };
+  const obs = coerceObservation(raw);
+  assert.ok(!obs.summary.includes('\n'));
+  assert.ok(!/\n\s*---/.test(obs.summary));
+});
+
+test('coerceObservation neutralizes newline injection in list items', () => {
+  const raw = {
+    summary: 'ok', project: null,
+    decisions: ['legit decision\n## fake heading\n- evil'],
+    corrections: [], discoveries: [], files_of_note: [],
+  };
+  const obs = coerceObservation(raw);
+  assert.ok(!obs.decisions[0].includes('\n'));
+  assert.ok(!/\n\s*##/.test(obs.decisions[0]));
+});
+
+test('coerceObservation neutralizes newline injection in files_of_note', () => {
+  const raw = {
+    summary: 'ok', project: null,
+    decisions: [], corrections: [], discoveries: [],
+    files_of_note: [{ path: 'src/foo.ts\n---\n## fake', reason: 'good\n## evil' }],
+  };
+  const obs = coerceObservation(raw);
+  assert.ok(!obs.files_of_note[0].path.includes('\n'));
+  assert.ok(!obs.files_of_note[0].reason.includes('\n'));
 });
 
 // --- buildEpisodeContent ---
