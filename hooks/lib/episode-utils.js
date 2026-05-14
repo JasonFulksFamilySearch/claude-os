@@ -1,0 +1,59 @@
+'use strict';
+
+/**
+ * Shared utilities for claude-os hook scripts.
+ * Used by session-observer-worker.js and session-start-check.js.
+ * No external dependencies — Node.js builtins only.
+ */
+
+function todayLocal() {
+  const d = new Date();
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, '0'),
+    String(d.getDate()).padStart(2, '0'),
+  ].join('-');
+}
+
+// Allowlisted YAML parser for episode frontmatter.
+// Only accepts the known episode schema keys; silently drops all others.
+// This prevents prototype-pollution and injection of unexpected keys from
+// episode files into the session-start-check filter logic.
+const ALLOWED_FM_KEYS = new Set(['date', 'session_id', 'project', 'turns', 'promoted']);
+
+function parseFrontmatter(content) {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
+  if (!match) return {};
+  const data = Object.create(null);
+  for (const line of match[1].split(/\r?\n/)) {
+    const colonIdx = line.indexOf(':');
+    if (colonIdx === -1) continue;
+    const key = line.slice(0, colonIdx).trim();
+    if (!ALLOWED_FM_KEYS.has(key)) continue;
+    const val = line.slice(colonIdx + 1).trim();
+    const lower = val.toLowerCase();
+    if (lower === 'true') data[key] = true;
+    else if (lower === 'false') data[key] = false;
+    else if (/^\d+$/.test(val)) data[key] = parseInt(val, 10);
+    else if (val.length > 0) data[key] = val;
+  }
+  return data;
+}
+
+// extractSummary uses no /m flag — but the opening anchor is `(?:^|\n)##`
+// rather than `^##` because the frontmatter-strip regex leaves a leading
+// "\n" in the body (it consumes the trailing "---\n" but not the blank line
+// that follows). Without `(?:^|\n)`, `^##` would fail to match anything when
+// content has a blank line between frontmatter and the first heading.
+//
+// The closing lookahead `(?=\n##|$)` runs to the next section heading or
+// end-of-string. Avoiding `/m` here is deliberate — under `/m`, `$` matches
+// end-of-line, which would truncate multi-paragraph summaries at the first
+// blank line.
+function extractSummary(content) {
+  const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '');
+  const m = body.match(/(?:^|\n)##\s+Summary\s*\r?\n+([\s\S]+?)(?=\n##|$)/);
+  return m ? m[1].trim().slice(0, 300) : null;
+}
+
+module.exports = { todayLocal, parseFrontmatter, extractSummary };
