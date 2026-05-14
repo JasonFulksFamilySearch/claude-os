@@ -18,9 +18,10 @@ SINCE="${SINCE_DATE}T00:00:00${TZ_OFFSET}"
 # Load shared repo list and author regex — see shared-config/daily-metrics-contract.md
 # Prefers the new canonical filename; falls back to legacy arc-repos.json for one
 # release window (FR-11 / PER-206 rename migration).
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NEW_REPOS_JSON="${SCRIPT_DIR}/../../shared-config/perch-watched-repos.json"
-LEGACY_REPOS_JSON="${SCRIPT_DIR}/../../shared-config/arc-repos.json"
+# Use $HOME/.claude/shared-config/ directly — relative ../../ traversal breaks when
+# ~/.claude/skills is a symlink, since the kernel resolves .. physically.
+NEW_REPOS_JSON="$HOME/.claude/shared-config/perch-watched-repos.json"
+LEGACY_REPOS_JSON="$HOME/.claude/shared-config/arc-repos.json"
 if [[ -f "$NEW_REPOS_JSON" ]]; then
   REPOS_JSON="$NEW_REPOS_JSON"
 elif [[ -f "$LEGACY_REPOS_JSON" ]]; then

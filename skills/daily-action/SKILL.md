@@ -135,38 +135,39 @@ jira issue view ISSUE-KEY --plain
 jira sprint list --plain
 ```
 
-### GitHub PRs
-```bash
-# My open PRs
-gh pr list --author "@me" --json number,title,state,reviewDecision,url --limit 20
+### GitHub and Git
 
-# PR checks / CI status
-gh pr checks [number] --json name,state,conclusion
-```
+> Jira data is queried inline above. GitHub and git data are collected via `collect-data.sh`.
 
-### Git / local history
-
-**Always use `GIT_DIR=` env vars — never `cd ; git` or `cd && git`.** The `cd ; git` pattern triggers a built-in security prompt that cannot be bypassed. `GIT_DIR=` is already in the allow list.
-
-**Do NOT run `unset GIT_DIR` before other commands.** The `GIT_DIR=/path git log` syntax is command-local — it sets the variable only for that one subprocess, never in the shell. Each Bash tool call is also a fresh shell, so nothing leaks between calls. Running `unset GIT_DIR && gh pr list` is both unnecessary and triggers a permission prompt.
-
-**Repo paths come from the watched-repo file — never hardcode them.** Read `~/.claude/shared-config/perch-watched-repos.json` (fall back to `arc-repos.json` if absent) and run `git log` for each entry's `path` field.
+Run the data collection script and use its stdout as raw context for plan generation:
 
 ```bash
-# Read the canonical watched-repo list; fall back to legacy filename if new one missing
-REPOS_JSON=~/.claude/shared-config/perch-watched-repos.json
-if [[ ! -f "$REPOS_JSON" ]]; then REPOS_JSON=~/.claude/shared-config/arc-repos.json; fi
-
-# Run for each watched repo using GIT_DIR — no cd required
-while IFS=$'\t' read -r name path; do
-  GIT_DIR="${path}/.git" git log --oneline --since="14 days ago" --author="fulksjas" 2>&1 | sed "s/^/${name}: /" || true
-done < <(jq -r '.repos[] | [.name, .path] | @tsv' "$REPOS_JSON")
+~/.claude/skills/daily-action/collect-data.sh "$PLAN_DATE"
 ```
 
-Check for active worktrees under `../worktrees/{feat,fix,chore}/` relative to each repo and include those too.
+**If the script exits non-zero:**
+1. Append `"daily-action: collect-data.sh failed"` to the snapshot `warnings[]` array.
+2. Continue plan generation using only Jira and previous-plans data.
+3. Add this banner at the top of the plan markdown:
+   `> ⚠ GitHub/git data unavailable — plan based on Jira and history only.`
 
 ### Previous plans
 Read the last 14 action plan markdown files from `~/Documents/WorkDay/DailyActionPlan/` to run retrospective heuristics (chronic carryover, stale items, completion trend).
+
+## Priority Mapping
+
+Apply this rule when ordering plan items. This is a hard rule — do not override with judgment.
+
+| Jira Priority | Plan Bucket |
+|---|---|
+| Critical | P1 — mandatory, no deferral |
+| High | P1 |
+| Medium | P2 |
+| Low | P3 or omit |
+
+**Tie-breaker:** sprint membership takes precedence over issue type. A sprint-assigned defect follows the High rule (P1), not a defect-only exception.
+
+Critical items that are externally blocked appear at P1 with an explicit blocker note — they do not move to P2.
 
 ## Snapshot output
 
