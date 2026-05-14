@@ -27,8 +27,9 @@ const WATCHED_PROJECTS_PATH = join(homedir(), '.claude-os', 'config', 'watched-p
 const MAX_INJECT_CHARS = 1600;
 
 function loadConfig(configPath) {
+  const path = configPath || CONFIG_PATH;
   try {
-    const raw = readFileSync(configPath || CONFIG_PATH, 'utf8');
+    const raw = readFileSync(path, 'utf8');
     const parsed = JSON.parse(raw);
     return {
       sessionStartInjectCount: typeof parsed.sessionStartInjectCount === 'number'
@@ -36,7 +37,14 @@ function loadConfig(configPath) {
       stalenessThresholdDays: typeof parsed.stalenessThresholdDays === 'number'
         ? parsed.stalenessThresholdDays : 30,
     };
-  } catch {
+  } catch (e) {
+    // Silently using defaults when the file is missing is expected; silently
+    // using defaults when the file is malformed is a footgun. SessionStart
+    // hook stderr lands in Claude Code's debug log (NOT the model context),
+    // so the breadcrumb is observable to Jason without polluting the session.
+    if (e && e.code !== 'ENOENT') {
+      process.stderr.write('[session-start-check] loadConfig: ' + (e.name || 'Error') + ' reading ' + path + '\n');
+    }
     return { sessionStartInjectCount: 2, stalenessThresholdDays: 30 };
   }
 }
@@ -62,7 +70,15 @@ function inferProject(cwd, watchedProjectsPath) {
         if (cwd === proj.path || cwd.startsWith(projPath)) return proj.slug;
       }
     }
-  } catch { /* fall through */ }
+  } catch (e) {
+    // Same diagnostic policy as loadConfig: ENOENT is expected (no watched
+    // projects configured); other errors should leave a breadcrumb in the
+    // Claude Code debug log so syntax errors in watched-projects.json don't
+    // silently disable project inference.
+    if (e && e.code !== 'ENOENT') {
+      process.stderr.write('[session-start-check] inferProject: ' + (e.name || 'Error') + ' reading ' + wpPath + '\n');
+    }
+  }
   return basename(cwd);
 }
 
@@ -88,10 +104,18 @@ function getRecentEpisodes(project, config, episodesDir) {
 
       const epProject = typeof data.project === 'string' && data.project.length > 0
         ? data.project : null;
+      // Filter policy: drop only when BOTH sides have a project and they
+      // disagree. If we couldn't infer the caller's project, surface all
+      // recent episodes (better than nothing). If an episode has no project,
+      // surface it regardless — orphans are rare and usually worth seeing.
       if (project && epProject && epProject !== project) continue;
 
       episodes.push({ date: dateStr, project: epProject, summary: extractSummary(content), path });
-    } catch { /* skip malformed files */ }
+    } catch (e) {
+      // One malformed episode file must not block SessionStart. Leave a
+      // breadcrumb so a corrupt frontmatter regression is diagnosable.
+      process.stderr.write('[session-start-check] getRecentEpisodes: ' + (e.name || 'Error') + ' reading ' + path + '\n');
+    }
   }
 
   episodes.sort((a, b) => (a.date < b.date ? 1 : -1));
