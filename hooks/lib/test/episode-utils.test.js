@@ -1,10 +1,7 @@
 'use strict';
 
-const { test, before, after } = require('node:test');
+const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { mkdirSync, rmSync } = require('node:fs');
-const { join } = require('node:path');
-const { tmpdir } = require('node:os');
 
 const { todayLocal, parseFrontmatter, extractSummary } = require('../episode-utils.js');
 
@@ -67,4 +64,17 @@ test('extractSummary stops at next ## section (not at blank line)', () => {
   const summary = extractSummary(content);
   assert.ok(!summary.includes('Decisions'));
   assert.ok(!summary.includes('sliding window'));
+});
+
+test('extractSummary returns null when Summary section is empty (Haiku produced no summary text)', () => {
+  // Regression: without the trim()/startsWith('##') guard, the regex would
+  // greedily span the blank line and trim() would yield '## Decisions...'
+  // as the summary digest — injecting a section heading as if it were text.
+  const content = '---\ndate: 2026-05-14\n---\n\n## Summary\n\n## Decisions\n- foo';
+  assert.equal(extractSummary(content), null);
+});
+
+test('extractSummary returns null when Summary section is whitespace-only', () => {
+  const content = '---\ndate: 2026-05-14\n---\n\n## Summary\n   \n\n## Decisions\n- foo';
+  assert.equal(extractSummary(content), null);
 });

@@ -50,10 +50,19 @@ function parseFrontmatter(content) {
 // end-of-string. Avoiding `/m` here is deliberate — under `/m`, `$` matches
 // end-of-line, which would truncate multi-paragraph summaries at the first
 // blank line.
+//
+// Empty-summary guard: if the body between `## Summary` and the next `##`
+// heading is whitespace-only, the greedy `\s*` would consume through the
+// blank line and `[\s\S]+?` would capture the next heading. trim() returning
+// a string that starts with `##` means we captured the next section by
+// accident — treat that as "no summary present" and return null.
 function extractSummary(content) {
   const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '');
   const m = body.match(/(?:^|\n)##\s+Summary\s*\r?\n+([\s\S]+?)(?=\n##|$)/);
-  return m ? m[1].trim().slice(0, 300) : null;
+  if (!m) return null;
+  const text = m[1].trim();
+  if (text.length === 0 || text.startsWith('##')) return null;
+  return text.slice(0, 300);
 }
 
 module.exports = { todayLocal, parseFrontmatter, extractSummary };
