@@ -19,6 +19,7 @@ import { getTopic } from "../src/tools/get_topic.js";
 import { appendLearning } from "../src/tools/append_learning.js";
 import { listTopics } from "../src/tools/list_topics.js";
 import { getRecentLearnings } from "../src/tools/get_recent_learnings.js";
+import { listEpisodesImpl } from "../src/tools/list_episodes.js";
 
 let workDir: string;
 let dataRoot: string;
@@ -285,5 +286,139 @@ describe("get_recent_learnings", () => {
     );
     expect(result[0].date).toBe("2026-05-01");
     expect(result[0].project).toBe("demo");
+  });
+});
+
+describe("listEpisodes", () => {
+  let episodesDir: string;
+
+  beforeEach(() => {
+    episodesDir = join(dataRoot, "episodes");
+    mkdirSync(episodesDir, { recursive: true });
+
+    writeFileSync(join(episodesDir, "2026-05-13-aaa.md"), [
+      "---",
+      "date: 2026-05-13",
+      "session_id: aaa",
+      "project: arc",
+      "turns: 10",
+      "promoted: false",
+      "---",
+      "",
+      "## Summary",
+      "Debugged download stall in SplunkService.",
+      "",
+      "## Decisions",
+      "- Used sliding window approach.",
+      "",
+    ].join("\n"), "utf8");
+
+    writeFileSync(join(episodesDir, "2026-05-14-bbb.md"), [
+      "---",
+      "date: 2026-05-14",
+      "session_id: bbb",
+      "project: perch",
+      "turns: 5",
+      "promoted: true",
+      "---",
+      "",
+      "## Summary",
+      "Quick Perch config session.",
+      "",
+    ].join("\n"), "utf8");
+  });
+
+  it("returns all episodes sorted by date descending", () => {
+    const results = listEpisodesImpl({}, episodesDir);
+    expect(results).toHaveLength(2);
+    expect(results[0].date).toBe("2026-05-14");
+    expect(results[1].date).toBe("2026-05-13");
+  });
+
+  it("filters by project", () => {
+    const results = listEpisodesImpl({ project: "arc" }, episodesDir);
+    expect(results).toHaveLength(1);
+    expect(results[0].project).toBe("arc");
+  });
+
+  it("filters by promoted status", () => {
+    const unpromoted = listEpisodesImpl({ promoted: false }, episodesDir);
+    expect(unpromoted).toHaveLength(1);
+    expect(unpromoted[0].session_id).toBe("aaa");
+
+    const promoted = listEpisodesImpl({ promoted: true }, episodesDir);
+    expect(promoted).toHaveLength(1);
+    expect(promoted[0].session_id).toBe("bbb");
+  });
+
+  it("extracts summary from body", () => {
+    const results = listEpisodesImpl({ project: "arc" }, episodesDir);
+    expect(results[0].summary).toContain("Debugged download stall");
+  });
+
+  it("returns empty array when episodes dir does not exist", () => {
+    expect(listEpisodesImpl({}, join(dataRoot, "nonexistent"))).toEqual([]);
+  });
+
+  it("respects limit", () => {
+    const results = listEpisodesImpl({ limit: 1 }, episodesDir);
+    expect(results).toHaveLength(1);
+  });
+
+  it("session_id is null (not empty string) when frontmatter field is absent", () => {
+    writeFileSync(join(episodesDir, "2026-05-15-nosessionid.md"), [
+      "---",
+      "date: 2026-05-15",
+      "project: arc",
+      "promoted: false",
+      "---",
+      "",
+      "## Summary",
+      "No session_id in frontmatter.",
+      "",
+    ].join("\n"), "utf8");
+    const results = listEpisodesImpl({ project: "arc" }, episodesDir);
+    const ep = results.find(r => r.date === "2026-05-15");
+    expect(ep?.session_id).toBeNull();
+  });
+
+  it("falls back to filename date when frontmatter date is absent or is a Date object", () => {
+    writeFileSync(join(episodesDir, "2026-05-16-nodatekey.md"), [
+      "---",
+      "session_id: nodatekey",
+      "project: arc",
+      "promoted: false",
+      "---",
+      "",
+      "## Summary",
+      "Episode with no date key.",
+      "",
+    ].join("\n"), "utf8");
+    const results = listEpisodesImpl({ project: "arc" }, episodesDir);
+    const ep = results.find(r => r.session_id === "nodatekey");
+    expect(ep?.date).toBe("2026-05-16");
+  });
+
+  it("summary is null when Summary section is empty (Haiku produced no summary text)", () => {
+    // Regression: without the trim()/startsWith('##') guard, the regex would
+    // greedily span the blank line and trim() would yield '## Decisions...'
+    // as the summary digest. Same guard as hooks/lib/episode-utils.js.
+    writeFileSync(join(episodesDir, "2026-05-17-emptysummary.md"), [
+      "---",
+      "date: 2026-05-17",
+      "session_id: emptysummary",
+      "project: arc",
+      "promoted: false",
+      "---",
+      "",
+      "## Summary",
+      "",
+      "## Decisions",
+      "- A decision was made.",
+      "",
+    ].join("\n"), "utf8");
+    const results = listEpisodesImpl({ project: "arc" }, episodesDir);
+    const ep = results.find(r => r.session_id === "emptysummary");
+    expect(ep?.summary).toBeNull();
   });
 });
