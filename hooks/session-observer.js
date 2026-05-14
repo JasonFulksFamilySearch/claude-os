@@ -8,6 +8,14 @@
  * blocked waiting for the Haiku API response. If the worker fails, it logs
  * to its own stderr but the session close is unaffected.
  */
+
+// Recursion guard: if this launcher was spawned inside a session started by
+// session-observer-worker.js (via `claude -p`), skip immediately. Without
+// this, the `claude -p` subprocess would close, fire its own Stop hook, and
+// re-enter this launcher — creating an infinite loop. The env var is set by
+// the worker on the spawnSync call and inherited by all descendants.
+if (process.env.CLAUDE_OS_SKIP_EPISODE === '1') process.exit(0);
+
 const { spawn } = require('node:child_process');
 const { join } = require('node:path');
 

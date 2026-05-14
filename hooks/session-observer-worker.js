@@ -3,19 +3,17 @@
 const {
   readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, renameSync,
 } = require('node:fs');
+const { spawnSync } = require('node:child_process');
 const { join, dirname, resolve, sep } = require('node:path');
 const { homedir } = require('node:os');
 const { todayLocal } = require('./lib/episode-utils.js');
 
 const EPISODES_DIR = join(homedir(), '.claude-data', 'episodes');
 const LOG_PATH = join(homedir(), '.claude-data', 'logs', 'session-observer.log');
-// MAX_CHARS = 30_000 ≈ 7,500 tokens — conservative cap to bound Haiku cost per
-// session close. Haiku 4.5's context is much larger; raise this only after
-// considering monthly spend at average session length.
+// MAX_CHARS = 30_000 ≈ 7,500 tokens — conservative cap to keep the summarization
+// prompt within a reasonable size. Raise only after measuring prompt cost.
 const MAX_CHARS = 30_000;
 const MIN_TURNS = 3;
-const API_URL = 'https://api.anthropic.com/v1/messages';
-const HAIKU_MODEL = 'claude-haiku-4-5-20251001';
 
 // Append a timestamped line to the worker log. Wrapped in try/catch so a
 // logging failure (disk full, perms) can never crash the worker. The launcher
@@ -171,11 +169,8 @@ function buildTranscriptText(turns) {
   return selected.join('');
 }
 
-async function callHaiku(transcriptText) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
-
-  // Wrap transcript in a data-fence so Haiku treats it as untrusted content.
+function callClaude(transcriptText) {
+  // Wrap transcript in a data-fence so Claude treats it as untrusted content.
   // Use bracketed sentinels for the replacement — `<<<TRANSCRIPT` replaced with
   // `[FENCE-OPEN]` cannot reconstruct a fence on re-pass, so this is idempotent.
   // A naive `<TRANSCRIPT` replacement is NOT safe: `<<<<<TRANSCRIPT` →
@@ -185,40 +180,27 @@ async function callHaiku(transcriptText) {
     + transcriptText.replace(/<<<TRANSCRIPT/g, '[FENCE-OPEN]').replace(/TRANSCRIPT>>>/g, '[FENCE-CLOSE]')
     + '\nTRANSCRIPT>>>';
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15_000);
+  const fullPrompt = SYSTEM_PROMPT + '\n\n' + safeTranscript;
 
-  let response;
-  try {
-    response = await fetch(API_URL, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: HAIKU_MODEL,
-        max_tokens: 1024,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: safeTranscript }],
-      }),
-    });
-  } finally {
-    clearTimeout(timer);
+  // --no-session-persistence: no .jsonl transcript is written for this
+  // subprocess, so even if its Stop hook fires, the worker exits at the
+  // transcriptPath guard (no transcript_path in payload). Belt-and-suspenders
+  // alongside the CLAUDE_OS_SKIP_EPISODE env var, which causes the launcher
+  // to exit at line 1 before any stdin is read.
+  const result = spawnSync('claude', ['-p', '--no-session-persistence', fullPrompt], {
+    env: { ...process.env, CLAUDE_OS_SKIP_EPISODE: '1' },
+    encoding: 'utf8',
+    timeout: 30_000,
+  });
+
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    const msg = (result.stderr || '').trim();
+    throw new Error('claude -p exited ' + result.status + (msg ? ': ' + msg : ''));
   }
 
-  if (!response.ok) {
-    try { await response.text(); } catch {}
-    throw new Error('Haiku API returned ' + response.status);
-  }
-
-  const data = await response.json();
-  const textBlock = (data.content || []).find(b => b && b.type === 'text');
-  const text = (textBlock?.text || '').trim();
-  const raw = extractJsonFromText(text);
-  if (!raw) throw new Error('No parseable JSON in Haiku response');
+  const raw = extractJsonFromText(result.stdout || '');
+  if (!raw) throw new Error('No parseable JSON in Claude response');
   return coerceObservation(raw);
 }
 
@@ -264,7 +246,7 @@ async function main() {
   if (!transcriptText.trim()) process.exit(0);
 
   try {
-    const obs = await callHaiku(transcriptText);
+    const obs = callClaude(transcriptText);
 
     const hasSignal = obs.decisions.length || obs.corrections.length ||
       obs.discoveries.length || obs.files_of_note.length ||
