@@ -40,6 +40,12 @@ function parseFrontmatter(content) {
   return data;
 }
 
+// KEEP IN LOCKSTEP with mcp/src/tools/list_episodes.ts extractSummary().
+// Same logic, different module system (CommonJS here, ESM there). The hooks
+// layer has no package.json, so cross-importing the MCP version isn't
+// practical. Update both files or neither. The TypeScript copy strips
+// frontmatter using gray-matter; this one strips it manually first.
+//
 // extractSummary uses no /m flag — but the opening anchor is `(?:^|\n)##`
 // rather than `^##` because the frontmatter-strip regex leaves a leading
 // "\n" in the body (it consumes the trailing "---\n" but not the blank line

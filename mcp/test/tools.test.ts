@@ -421,4 +421,26 @@ describe("listEpisodes", () => {
     const ep = results.find(r => r.session_id === "emptysummary");
     expect(ep?.summary).toBeNull();
   });
+
+  it("same-day episodes sort deterministically by session_id descending", () => {
+    // Stable-sort regression: V8's sort is stable but its input order
+    // depends on readdirSync, which is OS-dependent. Tie-break on session_id
+    // gives a portable ordering.
+    writeFileSync(join(episodesDir, "2026-05-18-aaa.md"), [
+      "---", "date: 2026-05-18", "session_id: aaa", "project: arc", "promoted: false", "---",
+      "", "## Summary", "First.", "",
+    ].join("\n"), "utf8");
+    writeFileSync(join(episodesDir, "2026-05-18-bbb.md"), [
+      "---", "date: 2026-05-18", "session_id: bbb", "project: arc", "promoted: false", "---",
+      "", "## Summary", "Second.", "",
+    ].join("\n"), "utf8");
+    writeFileSync(join(episodesDir, "2026-05-18-ccc.md"), [
+      "---", "date: 2026-05-18", "session_id: ccc", "project: arc", "promoted: false", "---",
+      "", "## Summary", "Third.", "",
+    ].join("\n"), "utf8");
+
+    const results = listEpisodesImpl({ project: "arc" }, episodesDir);
+    const sameDay = results.filter(r => r.date === "2026-05-18");
+    expect(sameDay.map(r => r.session_id)).toEqual(["ccc", "bbb", "aaa"]);
+  });
 });

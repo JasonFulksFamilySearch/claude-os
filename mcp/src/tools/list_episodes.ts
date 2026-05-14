@@ -52,6 +52,11 @@ export const listEpisodesDefinition = {
 
 const DEFAULT_EPISODES_DIR = join(homedir(), ".claude-data", "episodes");
 
+// KEEP IN LOCKSTEP with hooks/lib/episode-utils.js extractSummary().
+// Same logic, different module system. The CommonJS copy strips frontmatter
+// manually first; this one trusts gray-matter to have done it. Update both
+// files or neither.
+//
 // extractSummary: `(?:^|\n)##` instead of `^##` because gray-matter's
 // `parsed.content` includes the leading newline after the closing `---`.
 // `/m` is intentionally avoided — under `/m`, `$` matches end-of-line and
@@ -117,7 +122,15 @@ export function listEpisodesImpl(
     }
   }
 
-  entries.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  // Sort by date descending. Break ties on session_id (descending) so two
+  // episodes from the same day always sort deterministically across runs —
+  // V8's stable sort otherwise yields readdirSync order, which is OS-dependent.
+  entries.sort((a, b) => {
+    if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+    const aId = a.session_id ?? "";
+    const bId = b.session_id ?? "";
+    return aId < bId ? 1 : aId > bId ? -1 : 0;
+  });
   return entries.slice(0, limit);
 }
 
