@@ -105,6 +105,29 @@ describe("classify", () => {
     const p = join(dataRoot, "archive", "old.md");
     expect(classify(p, config)).toBeNull();
   });
+
+  it("classifies episode files", () => {
+    const p = join(dataRoot, "episodes", "2026-05-14-abc.md");
+    expect(classify(p, config)).toEqual({
+      source_type: "episode",
+      topic: null,
+      project: null,
+    });
+  });
+
+  it("returns null for non-.md files in episodes dir", () => {
+    const p = join(dataRoot, "episodes", "2026-05-14-abc.txt");
+    expect(classify(p, config)).toBeNull();
+  });
+
+  it("classify returns project: null for episode even when file has project frontmatter (project extracted in indexFile, not classify)", () => {
+    const p = join(dataRoot, "episodes", "2026-05-14-hasproject.md");
+    expect(classify(p, config)).toEqual({
+      source_type: "episode",
+      topic: null,
+      project: null,
+    });
+  });
 });
 
 describe("indexFile", () => {
@@ -150,6 +173,83 @@ describe("indexFile", () => {
     writeFileSync(p, "# Old\n\nstale content\n", "utf8");
     const r = indexFile(db, p, config);
     expect(r.status).toBe("skipped_unclassified");
+  });
+});
+
+describe("indexFile — episode", () => {
+  it("indexes an episode file and extracts project from frontmatter", () => {
+    mkdirSync(join(dataRoot, "episodes"), { recursive: true });
+    const p = join(dataRoot, "episodes", "2026-05-14-abc123.md");
+    writeFileSync(p, [
+      "---",
+      "date: 2026-05-14",
+      "session_id: abc123",
+      "project: arc",
+      "turns: 12",
+      "promoted: false",
+      "---",
+      "",
+      "## Summary",
+      "Fixed a stall detection bug.",
+      "",
+      "## Decisions",
+      "- Used sliding window over fixed interval.",
+      "",
+    ].join("\n"), "utf8");
+
+    const r = indexFile(db, p, config);
+    expect(r.status).toBe("indexed");
+
+    const row = db.prepare(
+      "SELECT source_type, project FROM observations WHERE source_path = ?"
+    ).get(p) as { source_type: string; project: string } | undefined;
+    expect(row?.source_type).toBe("episode");
+    expect(row?.project).toBe("arc");
+  });
+
+  it("indexes episode with null project when frontmatter project is absent", () => {
+    mkdirSync(join(dataRoot, "episodes"), { recursive: true });
+    const p = join(dataRoot, "episodes", "2026-05-14-noproj.md");
+    writeFileSync(p, [
+      "---",
+      "date: 2026-05-14",
+      "promoted: false",
+      "---",
+      "",
+      "## Summary",
+      "General session with no project context.",
+      "",
+    ].join("\n"), "utf8");
+
+    const r = indexFile(db, p, config);
+    expect(r.status).toBe("indexed");
+
+    const row = db.prepare(
+      "SELECT project FROM observations WHERE source_path = ?"
+    ).get(p) as { project: string | null } | undefined;
+    expect(row?.project).toBeNull();
+  });
+
+  it("indexes episode with empty-string project as null", () => {
+    mkdirSync(join(dataRoot, "episodes"), { recursive: true });
+    const p = join(dataRoot, "episodes", "2026-05-14-emptyproj.md");
+    writeFileSync(p, [
+      "---",
+      "date: 2026-05-14",
+      "project: ",
+      "promoted: false",
+      "---",
+      "",
+      "## Summary",
+      "Empty project test.",
+      "",
+    ].join("\n"), "utf8");
+
+    const r = indexFile(db, p, config);
+    const row = db.prepare(
+      "SELECT project FROM observations WHERE source_path = ?"
+    ).get(p) as { project: string | null } | undefined;
+    expect(row?.project).toBeNull();
   });
 });
 

@@ -83,7 +83,8 @@ export type SourceType =
   | "decision"
   | "project_claude_md"
   | "project_readme"
-  | "agent";
+  | "agent"
+  | "episode";
 
 export interface ObservationRow {
   id: number;

@@ -79,6 +79,12 @@ export function classify(absPath: string, config: IndexerConfig): Classification
     return null;
   }
 
+  // Episodes dir: ~/.claude-data/episodes/ — classified by path, project extracted in indexFile
+  const episodesDir = resolve(dataRoot, "episodes");
+  if (norm.startsWith(episodesDir + "/") && norm.endsWith(".md")) {
+    return { source_type: "episode", topic: null, project: null };
+  }
+
   for (const watched of config.watchedProjects) {
     const projRoot = resolve(watched.path);
     if (norm === resolve(projRoot, "CLAUDE.md")) {
@@ -96,6 +102,7 @@ interface ParsedFile {
   body: string;
   frontmatter: string | null;
   title: string | null;
+  data: Record<string, unknown>;
 }
 
 function parseFile(rawContent: string): ParsedFile {
@@ -105,7 +112,7 @@ function parseFile(rawContent: string): ParsedFile {
     parsed.matter && parsed.matter.length > 0 ? parsed.matter : null;
   const titleMatch = body.match(/^#\s+(.+?)\s*$/m);
   const title = titleMatch ? titleMatch[1].trim() : null;
-  return { body, frontmatter, title };
+  return { body, frontmatter, title, data: parsed.data as Record<string, unknown> };
 }
 
 function sha256(s: string): string {
@@ -166,7 +173,13 @@ export function indexFile(
   }
 
   const raw = readFileSync(absPath, "utf8");
-  const { body, frontmatter, title } = parseFile(raw);
+  const { body, frontmatter, title, data } = parseFile(raw);
+
+  const effectiveProject =
+    cls.source_type === "episode"
+      ? (typeof data.project === "string" && data.project.length > 0 ? data.project : null)
+      : cls.project;
+
   const contentHash = sha256(body);
 
   const existing = db.prepare(selectExistingSql).get(absPath) as
@@ -180,7 +193,7 @@ export function indexFile(
   db.prepare(upsertSql).run({
     source_type: cls.source_type,
     source_path: absPath,
-    project: cls.project,
+    project: effectiveProject,
     topic: cls.topic,
     title: title ?? basename(absPath, ".md"),
     content: body,
