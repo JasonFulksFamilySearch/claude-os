@@ -78,48 +78,66 @@ Run these checks. Report any failures immediately and abort.
 
 **ARC (React):**
 ```bash
-cd ~/dev/Record_Exchange/arc-record-exchange && git status
-cd ~/dev/Record_Exchange/arc-record-exchange && git pull
-cd ~/dev/Record_Exchange/arc-record-exchange && git tag -l "v<ARC_VERSION>"
+cd ~/dev/Record_Exchange/arc-record-exchange
+git status
+git pull
+git tag -l "v<ARC_VERSION>"
 ```
 
 **REOS (Java):**
 ```bash
-cd ~/dev/OrchestrationService/arc-record-exchange-orch-service && git status
-cd ~/dev/OrchestrationService/arc-record-exchange-orch-service && git pull
-cd ~/dev/OrchestrationService/arc-record-exchange-orch-service && git tag -l "arc-reos-root-<REOS_VERSION>"
+cd ~/dev/OrchestrationService/arc-record-exchange-orch-service
+git status
+git pull
+git tag -l "arc-reos-root-<REOS_VERSION>"
 ```
 
 **DSS (Java):**
 ```bash
-cd ~/dev/Delivery_Specification_Service/arc-delivery-specification-service && git status
-cd ~/dev/Delivery_Specification_Service/arc-delivery-specification-service && git pull
-cd ~/dev/Delivery_Specification_Service/arc-delivery-specification-service && git tag -l "v<DSS_VERSION>"
+cd ~/dev/Delivery_Specification_Service/arc-delivery-specification-service
+git status
+git pull
+git tag -l "v<DSS_VERSION>"
 ```
 
 **GSS (Java):**
 ```bash
-cd ~/dev/GlobalStatusService/arc-record-exchange-global-status-service && git status
-cd ~/dev/GlobalStatusService/arc-record-exchange-global-status-service && git pull
-cd ~/dev/GlobalStatusService/arc-record-exchange-global-status-service && git tag -l "v<GSS_VERSION>"
+cd ~/dev/GlobalStatusService/arc-record-exchange-global-status-service
+git status
+git pull
+git tag -l "v<GSS_VERSION>"
 ```
 
 For each repo: verify on `master`, clean working tree, and no existing tag for the target version.
 
 Then run tests — only proceed if all pass:
 
+**ARC (React):**
 ```bash
-# ARE
-cd ~/dev/Record_Exchange/arc-record-exchange && npm run test:ci && npm run lint
+cd ~/dev/Record_Exchange/arc-record-exchange
+npm run test:ci
+npm run lint
+```
 
-# REOS
-cd ~/dev/OrchestrationService/arc-record-exchange-orch-service && mvn clean test && mvn checkstyle:check
+**REOS (Java):**
+```bash
+cd ~/dev/OrchestrationService/arc-record-exchange-orch-service
+mvn clean test
+mvn checkstyle:check
+```
 
-# DSS
-cd ~/dev/Delivery_Specification_Service/arc-delivery-specification-service && mvn clean test && mvn checkstyle:check
+**DSS (Java):**
+```bash
+cd ~/dev/Delivery_Specification_Service/arc-delivery-specification-service
+mvn clean test
+mvn checkstyle:check
+```
 
-# GSS
-cd ~/dev/GlobalStatusService/arc-record-exchange-global-status-service && mvn clean test && mvn checkstyle:check
+**GSS (Java):**
+```bash
+cd ~/dev/GlobalStatusService/arc-record-exchange-global-status-service
+mvn clean test
+mvn checkstyle:check
 ```
 
 ---
@@ -145,14 +163,17 @@ gh api "repos/fs-webdev/arc-record-exchange/branches?per_page=100" --jq '[.[].na
 
 Once available, fetch and check out the branch locally:
 ```bash
-cd ~/dev/Record_Exchange/arc-record-exchange && git fetch origin && git checkout release-bump-<ARC_VERSION>
+cd ~/dev/Record_Exchange/arc-record-exchange
+git fetch origin
+git checkout release-bump-<ARC_VERSION>
 ```
 
 **Generate release notes file:**
 
 Read git log since the previous tag to collect commits:
 ```bash
-cd ~/dev/Record_Exchange/arc-record-exchange && git log $(git describe --tags --abbrev=0 HEAD~1)..HEAD --oneline
+cd ~/dev/Record_Exchange/arc-record-exchange
+git log $(git describe --tags --abbrev=0 HEAD~1)..HEAD --oneline
 ```
 
 Generate `release-notes-v<ARC_VERSION>.md` at the repo root following this exact format
@@ -239,7 +260,8 @@ a minor bump is intended.
 
 On failure, roll back immediately:
 ```bash
-cd ~/dev/OrchestrationService/arc-record-exchange-orch-service && mvn release:rollback
+cd ~/dev/OrchestrationService/arc-record-exchange-orch-service
+mvn release:rollback
 ```
 
 ---
@@ -256,7 +278,8 @@ mvn release:prepare -B \
 
 On failure:
 ```bash
-cd ~/dev/Delivery_Specification_Service/arc-delivery-specification-service && mvn release:rollback
+cd ~/dev/Delivery_Specification_Service/arc-delivery-specification-service
+mvn release:rollback
 ```
 
 ---
@@ -273,7 +296,8 @@ mvn release:prepare -B \
 
 On failure:
 ```bash
-cd ~/dev/GlobalStatusService/arc-record-exchange-global-status-service && mvn release:rollback
+cd ~/dev/GlobalStatusService/arc-record-exchange-global-status-service
+mvn release:rollback
 ```
 
 ---
@@ -381,9 +405,9 @@ then call `mcp__slack__slack_post_message` once per repo with valid Block Kit JS
 | Repo | Scenario                  | Command                                                                              |
 |------|---------------------------|--------------------------------------------------------------------------------------|
 | ARE  | Workflow ran incorrectly  | Delete the release-bump branch on GitHub; delete the tag via `gh release delete`     |
-| REOS | prepare failed mid-run    | `cd <reos-path> && mvn release:rollback`                                             |
-| REOS | tag already pushed        | `git tag -d arc-reos-root-X.Y.Z && git push origin :refs/tags/arc-reos-root-X.Y.Z` |
-| DSS  | prepare failed mid-run    | `cd <dss-path> && mvn release:rollback`                                              |
-| DSS  | tag already pushed        | `git tag -d vX.Y.Z && git push origin :refs/tags/vX.Y.Z`                           |
-| GSS  | prepare failed mid-run    | `cd <gss-path> && mvn release:rollback`                                              |
-| GSS  | tag already pushed        | `git tag -d vX.Y.Z && git push origin :refs/tags/vX.Y.Z`                           |
+| REOS | prepare failed mid-run    | `cd <reos-path>` then `mvn release:rollback`                                        |
+| REOS | tag already pushed        | `cd <reos-path>` then `git tag -d arc-reos-root-X.Y.Z` then `git push origin :refs/tags/arc-reos-root-X.Y.Z` |
+| DSS  | prepare failed mid-run    | `cd <dss-path>` then `mvn release:rollback`                                         |
+| DSS  | tag already pushed        | `cd <dss-path>` then `git tag -d vX.Y.Z` then `git push origin :refs/tags/vX.Y.Z`  |
+| GSS  | prepare failed mid-run    | `cd <gss-path>` then `mvn release:rollback`                                         |
+| GSS  | tag already pushed        | `cd <gss-path>` then `git tag -d vX.Y.Z` then `git push origin :refs/tags/vX.Y.Z`  |

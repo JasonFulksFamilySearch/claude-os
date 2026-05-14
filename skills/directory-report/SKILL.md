@@ -48,10 +48,11 @@ Use built-in tools and minimal bash commands against the target directory (`$DIR
 6. These require `stat -f '%B %N'` which has no built-in equivalent. Run in bash but scope to a reasonable sample:
 
 ```bash
-# Earliest and latest file creation times
-# Write file list to temp, then stat it
-stat -f '%B %N' <file_paths> 2>/dev/null | sort -n | head -1
-stat -f '%B %N' <file_paths> 2>/dev/null | sort -rn | head -1
+# Earliest file creation time
+stat -f '%B %N' <file_paths> 2>/dev/null | sort -n > _tmp_oldest.txt
+
+# Latest file creation time
+stat -f '%B %N' <file_paths> 2>/dev/null | sort -rn > _tmp_newest.txt
 
 # Count distinct timestamps
 stat -f '%B' <file_paths> 2>/dev/null | sort -u | wc -l
@@ -63,10 +64,15 @@ date -r <epoch> '+%Y-%m-%d %H:%M:%S %Z'
 For the `stat` commands, use the file list already gathered from Glob in step 1. Write paths to `_tmp_file_list.txt` and use `xargs` to process them:
 
 ```bash
-xargs stat -f '%B %N' < _tmp_file_list.txt 2>/dev/null | sort -n | head -1
+xargs stat -f '%B %N' < _tmp_file_list.txt 2>/dev/null | sort -n > _tmp_oldest.txt
+xargs stat -f '%B %N' < _tmp_file_list.txt 2>/dev/null | sort -rn > _tmp_newest.txt
 ```
 
-Clean up with `rm _tmp_file_list.txt` when done.
+Then use the **Read tool** with `limit: 1` to extract the first line from each:
+- Read `_tmp_oldest.txt` with `limit: 1` to get the earliest file
+- Read `_tmp_newest.txt` with `limit: 1` to get the latest file
+
+Clean up with `rm _tmp_file_list.txt _tmp_oldest.txt _tmp_newest.txt` when done.
 
 ### Step 3: Write Report
 

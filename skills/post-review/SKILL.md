@@ -1,7 +1,7 @@
 ---
 name: post-review
 description: Post a structured PR review with inline comments and code suggestions to GitHub
-allowed-tools: Bash(gh:*), Bash(git:*), Read, Grep, Glob
+allowed-tools: Bash(gh:*), Bash(git:*), Read, Grep, Glob, Write
 argument-hint: <PR number> [approve|comment|request-changes]
 ---
 
@@ -107,14 +107,16 @@ Organize each piece of inline feedback into this structure:
 
 For each inline comment, find the correct line number in the PR diff.
 
-**Method:** Fetch the PR head and write the file to a temp location, then use Grep to find the target line:
+**Method:** Fetch the PR head, write the file to `/tmp/`, then use built-in tools to find the target line:
 
 ```bash
 git fetch origin <head_ref> 2>/dev/null
-git show FETCH_HEAD:<file_path> > _tmp_pr_file
+git show FETCH_HEAD:<file_path> > /tmp/pr_<PR_NUMBER>_<basename>
 ```
 
-Then use the **Grep** tool (not bash grep) to search `_tmp_pr_file` for the unique snippet with `output_mode: "content"` and line numbers enabled. Clean up with `rm _tmp_pr_file` after resolving.
+Then use the **Grep tool** (not bash `grep`) with `output_mode: "content"` and `-n: true` to find the target snippet line number. Use the **Read tool** (not `cat`/`head`/`tail`/`sed`) when you need to inspect a range of lines. These built-ins avoid the project's shell denylist (which blocks `cat`, `head`, `tail`, `grep`, `sed`, `awk`, `find`).
+
+Temp files in `/tmp/` are cleaned up automatically — no explicit removal needed.
 
 **Rules for line targeting:**
 
@@ -184,7 +186,9 @@ When suggesting code changes, use GitHub's suggestion syntax in the comment body
 
 ### Step 6: Build the API Payload
 
-Construct the review as a JSON payload:
+Construct the review as a JSON payload and write it to a temp file with the **Write tool**:
+
+**Target:** `/tmp/review_<PR_NUMBER>.json`
 
 ```json
 {
@@ -209,6 +213,8 @@ Construct the review as a JSON payload:
 }
 ```
 
+**Why a temp file** (not a heredoc): inline comments contain triple-backtick fences for ```suggestion``` blocks, and review bodies often contain embedded code snippets. A heredoc with this content is fragile to escape correctly; writing the JSON to disk with the Write tool sidesteps all shell-quoting risk.
+
 ### Step 7: Present for Approval
 
 Show the user:
@@ -224,18 +230,17 @@ Ask: **"Ready to post this review? Or let me know what to change."**
 
 ### Step 8: Post the Review
 
-Use the GitHub API with `--input -` to handle the nested JSON:
+Pass the temp file from Step 6 to `gh api` via `--input <path>`:
 
 ```bash
 gh api repos/<owner>/<repo>/pulls/<pr_number>/reviews \
   --method POST \
   -H "Accept: application/vnd.github+json" \
-  --input - <<'EOF'
-<JSON payload from Step 6>
-EOF
+  --input /tmp/review_<PR_NUMBER>.json \
+  --jq '{id: .id, state: .state, url: .html_url}'
 ```
 
-**CRITICAL:** Always use `--input -` with a heredoc for the full JSON body. Do NOT use `-f` flags for reviews with inline comments — the `gh` CLI cannot handle nested arrays via `-f`.
+**CRITICAL:** Always use `--input <file>` for reviews with inline comments. Do NOT use `-f` flags — the `gh` CLI cannot handle nested arrays via `-f`. The `--jq` filter trims the response for cleaner output.
 
 ### Step 9: Confirm to User
 
@@ -243,6 +248,50 @@ After posting, tell the user:
 - Review event (approved/commented/requested changes)
 - Number of inline comments posted
 - Link to the review
+
+## Re-Review Flow (After Author Addresses Feedback)
+
+When the author pushes a follow-up commit that resolves a `REQUEST_CHANGES` review, the previous review remains blocking until dismissed or stale-overridden. Recommended flow:
+
+### Re-Review Step 1: Detect the Follow-Up Commit
+
+```bash
+gh pr view <PR_NUMBER> --json headRefOid,commits \
+  --jq '{headSha: .headRefOid, recentCommits: [.commits[-5:][] | {sha: .oid[0:8], msg: .messageHeadline}]}'
+```
+
+Compare against the SHA of your earlier review to identify the new commit(s).
+
+### Re-Review Step 2: Diff the Delta
+
+```bash
+git fetch origin <head_ref> 2>/dev/null
+git diff <previous_review_sha>..<new_head_sha> -- <changed_paths>
+```
+
+Verify each original review point was addressed.
+
+### Re-Review Step 3: Dismiss the Stale Review
+
+Write the dismissal message to `/tmp/dismiss_<PR_NUMBER>.json`:
+
+```json
+{ "message": "Brief reason — typically references the follow-up commit." }
+```
+
+Then:
+
+```bash
+gh api repos/<owner>/<repo>/pulls/<pr_number>/reviews/<old_review_id>/dismissals \
+  --method PUT \
+  -H "Accept: application/vnd.github+json" \
+  --input /tmp/dismiss_<PR_NUMBER>.json \
+  --jq '{id: .id, state: .state}'
+```
+
+### Re-Review Step 4: Post a Fresh Approval
+
+Build a new approval payload (no inline comments — just a body) at `/tmp/approve_<PR_NUMBER>.json` with `event: "APPROVE"`. Acknowledge each fix specifically, and thank the author. Then POST it via the same Step 8 flow.
 
 ## Error Handling
 
@@ -254,7 +303,8 @@ After posting, tell the user:
 ## Important Notes
 
 - **NEVER** post a review without the user explicitly approving it first
-- **NEVER** use `-f` flags for reviews with inline comments — always `--input -`
+- **NEVER** use `-f` flags for reviews with inline comments — always `--input <file>`
+- **NEVER** use Bash `cat`, `head`, `tail`, `grep`, `sed`, `awk`, or `find` — they are denied at the shell level. Use Read and Grep tools instead.
 - **ALWAYS** verify line numbers land within diff hunks before posting
 - **ALWAYS** use supportive, collaborative tone in all comments
 - **ALWAYS** acknowledge what the author did well in the review body

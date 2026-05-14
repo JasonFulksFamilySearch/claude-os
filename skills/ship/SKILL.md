@@ -159,10 +159,9 @@ If tests fail: report failing test names, error messages, and stack traces. **St
 
 Only run if Node.js project or if `.js`/`.ts`/`.jsx`/`.tsx` files are in the diff.
 
-Get the list of changed JS/TS files:
-```bash
-git diff --name-only HEAD | grep -E '\.(js|ts|jsx|tsx)$'
-```
+Get the list of changed JS/TS files.
+
+Run `git diff --name-only HEAD` to get all changed files. From that output, identify any files ending in `.js`, `.ts`, `.jsx`, or `.tsx`.
 
 If changed JS/TS files exist, invoke the `javascript-typescript:modern-javascript-patterns` skill focused on those specific files.
 

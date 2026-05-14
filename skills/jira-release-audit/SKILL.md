@@ -20,10 +20,10 @@ Audit commits from the current repo since the last release tag, identify ARC tic
 ### Step 1 — Identify Last Release Tag and Get Commits Since Then
 
 ```bash
-git tag --sort=-v:refname | head -5
+git tag --sort=-v:refname
 ```
 
-Take the latest semver tag (e.g. `v2.12.0`). Then get all commits since that tag:
+Take the latest semver tag from the output (e.g. `v2.12.0`). Then get all commits since that tag:
 
 ```bash
 git log --oneline <last-tag>..HEAD
