@@ -283,6 +283,9 @@ export async function fullReindex(
 
   const episodesDir = join(dataRoot, "episodes");
   for (const f of walk(episodesDir)) {
+    // Broader `_*` skip than the agent walk's `_legacy*` — convention for
+    // any underscore-prefixed scratch/legacy file in episodes/ (so _archive.md,
+    // _scratch.md, etc. can be parked without re-indexing).
     if (basename(f).startsWith("_")) continue;
     candidates.add(f);
   }
@@ -369,6 +372,12 @@ export function watchAll(
       const norm = resolve(p);
       if (norm.includes("/archive/")) return true;
       if (basename(norm).startsWith("_legacy")) return true;
+      // Episodes dir uses the broader `_*` skip — mirrors the fullReindex walk
+      // filter so the watcher and the reindex pass stay symmetric.
+      const episodesDir = resolve(dataRoot, "episodes");
+      if (norm.startsWith(episodesDir + "/") && basename(norm).startsWith("_")) {
+        return true;
+      }
       return false;
     },
     ignoreInitial: true,
