@@ -26,6 +26,11 @@ import {
   getRecentLearnings,
   getRecentLearningsDefinition,
 } from "./tools/get_recent_learnings.js";
+import { listEpisodes, listEpisodesDefinition } from "./tools/list_episodes.js";
+import {
+  markEpisodePromoted,
+  markEpisodePromotedDefinition,
+} from "./tools/mark_episode_promoted.js";
 
 const CONFIG_PATH = join(homedir(), ".claude-os", "config", "watched-projects.json");
 const REINDEX_INTERVAL_MS = 15 * 60 * 1000;
@@ -107,6 +112,8 @@ async function main(): Promise<void> {
       appendLearningDefinition,
       listTopicsDefinition,
       getRecentLearningsDefinition,
+      listEpisodesDefinition,
+      markEpisodePromotedDefinition,
     ],
   }));
 
@@ -124,6 +131,10 @@ async function main(): Promise<void> {
           return jsonResult(listTopics());
         case "get_recent_learnings":
           return jsonResult(getRecentLearnings(args ?? {}));
+        case "list_episodes":
+          return jsonResult(listEpisodes(args ?? {}));
+        case "mark_episode_promoted":
+          return jsonResult(markEpisodePromoted(db, args ?? {}, config));
         default:
           throw new Error(`Unknown tool: ${name}`);
       }

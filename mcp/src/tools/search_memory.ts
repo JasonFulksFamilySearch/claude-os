@@ -25,7 +25,7 @@ export interface SearchMemoryResult {
 export const searchMemoryDefinition = {
   name: "search_memory",
   description:
-    "Hybrid full-text + semantic search across Jason's curated memory: agent identity, context topics, learnings, decisions, and watched-project CLAUDE.md/README.md. Returns ranked snippets with paths so you can fetch the canonical file when you need full content. Use this before answering questions about Jason's projects, conventions, or accumulated learnings.",
+    "Hybrid full-text + semantic search across Jason's memory: agent identity, context topics, learnings, decisions, watched-project CLAUDE.md/README.md, and session episodes. Returns ranked snippets with paths. Use source_filter: [\"episode\"] to scope to episodic memory only. Use this before answering questions about Jason's projects, conventions, accumulated learnings, or past session decisions.",
   inputSchema: {
     type: "object" as const,
     properties: {
@@ -45,7 +45,7 @@ export const searchMemoryDefinition = {
         type: "array",
         items: { type: "string" },
         description:
-          "Optional filter by source_type (e.g. ['context','learning']). Allowed: context, learning, decision, project_claude_md, project_readme, agent.",
+          "Optional array of source types to restrict results. Allowed values: context, learning, decision, project_claude_md, project_readme, agent, episode.",
       },
       project_filter: {
         type: "string",
