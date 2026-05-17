@@ -5,11 +5,10 @@ description: >
   review, PR, Copilot/SonarQube, JIRA closeout. Use when the user invokes
   /make-it-so [JIRA-TICKET-ID] or requests full end-to-end ticket delivery.
   Do NOT use for partial delivery cycles — use targeted skills instead.
-allowed-tools: [Bash, Read, Edit, Write, Glob, Grep, TodoWrite, WebFetch, Agent]
+allowed-tools: Bash Read Edit Write Glob Grep TaskCreate TaskUpdate WebFetch Agent
 argument-hint: "[JIRA-TICKET-ID] (e.g. ARC-4301)"
-args: TICKET-ID
+arguments: TICKET-ID
 disable-model-invocation: true
-trigger: /make-it-so
 ---
 
 <role>

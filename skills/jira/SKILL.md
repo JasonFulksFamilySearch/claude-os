@@ -2,7 +2,7 @@
 name: jira
 description: Deterministic Jira reference — loads all MCP tool names, transition IDs, formatting rules, and comment templates for the ARC project. Trigger when the user asks to fetch, update, comment on, or transition a Jira ticket; requests JQL search help; or when Jira memory context may be stale.
 argument-hint: "(no arguments — reference card)"
-allowed-tools: mcp__claude_ai_Atlassian__getJiraIssue, mcp__claude_ai_Atlassian__searchJiraIssuesUsingJql, mcp__claude_ai_Atlassian__editJiraIssue, mcp__claude_ai_Atlassian__transitionJiraIssue, mcp__claude_ai_Atlassian__addCommentToJiraIssue, mcp__claude_ai_Atlassian__createJiraIssue, mcp__claude_ai_Atlassian__createIssueLink, mcp__claude_ai_Atlassian__getTransitionsForJiraIssue
+allowed-tools: mcp__claude_ai_Atlassian__getJiraIssue mcp__claude_ai_Atlassian__searchJiraIssuesUsingJql mcp__claude_ai_Atlassian__editJiraIssue mcp__claude_ai_Atlassian__transitionJiraIssue mcp__claude_ai_Atlassian__addCommentToJiraIssue mcp__claude_ai_Atlassian__createJiraIssue mcp__claude_ai_Atlassian__createIssueLink mcp__claude_ai_Atlassian__getTransitionsForJiraIssue
 ---
 
 <role>

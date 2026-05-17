@@ -5,7 +5,7 @@ description: >
   Use when the user says "post my review", "submit the review", "review this PR",
   "post review on #NNN", or invokes /post-review. Also trigger after an AI-assisted
   code review analysis and the user asks to publish it to GitHub.
-allowed-tools: Bash(gh:*), Bash(git:*), Read, Grep, Glob, Write
+allowed-tools: Bash(gh *) Bash(git *) Read Grep Glob Write
 argument-hint: <PR number> [approve|comment|request-changes]
 ---
 

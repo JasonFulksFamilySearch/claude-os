@@ -1,6 +1,6 @@
 ---
 name: write-a-prd
-allowed-tools: Read, Grep, Glob, Agent, AskUserQuestion, Write
+allowed-tools: Read Grep Glob Agent AskUserQuestion Write
 argument-hint: "[optional: topic or problem description]"
 description: >
   Create a PRD through user interview, codebase exploration, and module design, then

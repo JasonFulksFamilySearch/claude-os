@@ -7,6 +7,7 @@ description: >
   "prepare standup notes", or requests a daily status summary. Default to
   yesterday when no date is given.
 argument-hint: <date> (e.g., "yesterday", "2026-03-20", "Friday")
+allowed-tools: Bash(git *) Bash(gh *) Bash(jira *) Read
 ---
 
 <role>

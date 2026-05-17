@@ -5,7 +5,7 @@ description: >
   Convert a local PRD markdown file into a JIRA issue with implementation work
   packages as sub-tasks in the ARC project. Use when the user invokes /prd-to-jira,
   "push this PRD to Jira", "create Jira issue from PRD", or "convert PRD to ticket".
-allowed-tools: Read, Glob, Grep, AskUserQuestion, mcp__claude_ai_Atlassian__getVisibleJiraProjects, mcp__claude_ai_Atlassian__getJiraProjectIssueTypesMetadata, mcp__claude_ai_Atlassian__getJiraIssueTypeMetaWithFields, mcp__claude_ai_Atlassian__createJiraIssue, mcp__claude_ai_Atlassian__getJiraIssue, mcp__claude_ai_Atlassian__editJiraIssue
+allowed-tools: Read Glob Grep AskUserQuestion mcp__claude_ai_Atlassian__getVisibleJiraProjects mcp__claude_ai_Atlassian__getJiraProjectIssueTypesMetadata mcp__claude_ai_Atlassian__getJiraIssueTypeMetaWithFields mcp__claude_ai_Atlassian__createJiraIssue mcp__claude_ai_Atlassian__getJiraIssue mcp__claude_ai_Atlassian__editJiraIssue
 argument-hint: "<path/to/prd.md>"
 ---
 

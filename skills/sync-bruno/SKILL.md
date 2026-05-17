@@ -6,7 +6,7 @@ description: >
   invokes /sync-bruno, "sync bruno", "update bruno collection", "sync api collection",
   or "my endpoints changed and bruno is out of date".
 argument-hint: '[optional: "Collection Name"]'
-allowed-tools: Read, Glob, Grep, Write, Bash(rm *), Agent
+allowed-tools: Read Glob Grep Write Bash(rm *) Agent
 ---
 
 <role>

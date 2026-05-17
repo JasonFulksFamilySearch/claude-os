@@ -6,7 +6,8 @@ allowed-tools:
   - Glob
   - Grep
   - Write
-  - Bash
+  - Bash(date *)
+  - Bash(ls *)
 ---
 
 <role>

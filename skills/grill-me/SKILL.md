@@ -6,7 +6,7 @@ description: >
   to stress-test a plan, get grilled on their design, explore architectural decisions,
   or says "grill me", "challenge my thinking", or "push back on this".
 argument-hint: "[topic or plan to be grilled on]"
-allowed-tools: Read, Grep, Glob, Agent, AskUserQuestion
+allowed-tools: Read Grep Glob Agent AskUserQuestion
 ---
 
 <role>

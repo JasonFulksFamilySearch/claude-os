@@ -7,7 +7,7 @@ description: >
   "merge my memories", "clean up memory", "graduate memories", or "memory maintenance".
   Run monthly or when MEMORY.md starts to feel noisy.
 argument-hint: "(no arguments)"
-allowed-tools: Read, Glob, Grep, Write, Edit, mcp__claude-os-mcp__append_learning, mcp__claude-os-mcp__list_topics, mcp__claude-os-mcp__search_memory
+allowed-tools: Read Glob Grep Write Edit mcp__claude-os-mcp__append_learning mcp__claude-os-mcp__list_topics mcp__claude-os-mcp__search_memory
 ---
 
 <role>

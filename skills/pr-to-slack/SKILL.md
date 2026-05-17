@@ -6,6 +6,7 @@ description: >
   "notify team about PR", "send PR for review", or "send it to the team". Optional
   positional args `pablo` or `olaf` tag additional reviewers beyond the defaults.
 argument-hint: "[pablo] [olaf] [--dry-run]"
+allowed-tools: Bash(gh *) Bash(git *) mcp__slack__slack_post_message mcp__slack__slack_get_channel_history mcp__slack__slack_list_channels
 ---
 
 <role>

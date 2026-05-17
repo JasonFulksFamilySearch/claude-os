@@ -6,7 +6,7 @@ description: >
   commit", "commit my changes", invokes /commit, or asks to save work to git.
   Also trigger when staged or unstaged changes are present and the user asks
   to wrap up a task.
-allowed-tools: Bash(git:*)
+allowed-tools: Bash(git *)
 argument-hint: [optional: custom message]
 ---
 
