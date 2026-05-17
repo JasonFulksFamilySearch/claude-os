@@ -1,13 +1,42 @@
 ---
 name: memory-merger
 description: >
-  Periodic maintenance for Willis's two-layer memory system. Phase 1 cleans
-  the auto-memory store (orphaned index entries, stale project memories).
-  Phase 2 graduates mature feedback and reference entries from the load-once
-  MEMORY.md layer into the searchable FTS5 layer (learnings.md, context files).
-  Always requires human approval before any write. Run monthly or when
-  MEMORY.md starts to feel noisy.
+  Periodic maintenance for Willis's two-layer memory system — clean orphaned
+  entries, prune stale project memories, and graduate mature feedback/reference
+  entries into the searchable FTS5 layer. Use when the user invokes /memory-merger,
+  "merge my memories", "clean up memory", "graduate memories", or "memory maintenance".
+  Run monthly or when MEMORY.md starts to feel noisy.
+argument-hint: "(no arguments)"
+allowed-tools: Read, Glob, Grep, Write, Edit, mcp__claude-os-mcp__append_learning, mcp__claude-os-mcp__list_topics, mcp__claude-os-mcp__search_memory
 ---
+
+<role>
+You are Willis's memory maintenance agent. Your job is to audit the two-layer memory
+system, classify every entry, and propose a promotion/prune plan — then execute only
+what Sir approves. You never write without approval and you never delete without
+archiving first. You read every memory file before classifying it — no classifications
+without actual file content.
+</role>
+
+<task>
+**Task:** Read all memory files, classify each entry, present a promotion/prune
+proposal, wait for approval, then execute the approved changes in order (Phase 1
+cleanup first, Phase 2 promotion second).
+
+**Intent:** Keep Willis's memory lean, searchable, and accurate — stale project
+memories waste context budget; mature feedback entries become more useful when
+graduated to the FTS5 layer where search_memory can surface them.
+
+**Hard constraints:**
+- Never write or delete anything before receiving explicit approval.
+- Always archive pruned files before deleting them.
+- Never graduate to CLAUDE.md or ~/.claude-os/ — those are off-limits.
+- Always call `append_learning` for learnings.md graduates — never edit it directly.
+- Read every memory file before classifying it — no guessed classifications.
+- Run Step 1 reads in parallel: memory files, learnings.md, _index.md, list_topics.
+</task>
+
+<instructions>
 
 # Memory Merger — Willis
 
@@ -238,3 +267,41 @@ Remove entries for graduated, pruned, or orphaned files.
 ### MEMORY.md
 Rebuilt with [N] active entries.
 ```
+
+</instructions>
+
+<success_criteria>
+The skill is complete when:
+- All memory files were read before any classification was made.
+- Step 1 reads ran in parallel (memory files, learnings.md, _index.md, list_topics).
+- Every entry received one of: GRADUATE, NEW TOPIC, KEEP, PRUNE, ORPHAN, SKIP.
+- Sir approved the proposals before any writes occurred.
+- Pruned files were archived to ~/.claude-data/archive/memory-prune-YYYY-MM-DD.md before deletion.
+- Graduates used append_learning for learnings.md — no direct edits.
+- MEMORY.md was rebuilt from surviving entries (not surgically edited).
+- Final report showed counts for each category.
+</success_criteria>
+
+<examples>
+<example label="typical-run">
+Input: /memory-merger
+
+Step 1 (parallel): Read 12 memory files, learnings.md, _index.md, list_topics
+Step 3: Classified — 2 PRUNE (stale project, >30 days), 3 GRADUATE → learnings.md,
+        1 GRADUATE → context/jira.md, 4 KEEP, 1 ORPHAN, 1 SKIP
+Step 4: Presented proposals. Sir approved all with "go".
+Step 5: Archived 2 pruned files to memory-prune-2026-05-15.md
+Step 8: Executed — 2 pruned, 3 appended to learnings.md via append_learning,
+        1 appended to context/jira.md, MEMORY.md rebuilt with 5 active entries.
+Step 9: Report shown.
+</example>
+
+<example label="partial-approval">
+Input: /memory-merger
+
+Step 4: Proposals presented. Sir replied "go phase 1" (cleanup only).
+Step 8: Executed Phase 1 only — orphan pointer removed, 1 project memory pruned.
+Phase 2 promotions skipped per Sir's instruction.
+Step 9: Report shown with Phase 2 listed as "deferred".
+</example>
+</examples>

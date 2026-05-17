@@ -1,7 +1,39 @@
 ---
 name: sync-bruno
-description: Use when Bruno API collection files in ~/dev/Misc/bruno.apis need to be synced with their Spring Boot source repos — new endpoints added, changed DTOs updated, deleted endpoints removed. Invoke as /sync-bruno or /sync-bruno "Collection Name".
+description: >
+  Diff and sync Bruno API collection files against their Spring Boot source repos —
+  add new endpoints, update changed DTOs, remove deleted endpoints. Use when the user
+  invokes /sync-bruno, "sync bruno", "update bruno collection", "sync api collection",
+  or "my endpoints changed and bruno is out of date".
+argument-hint: '[optional: "Collection Name"]'
+allowed-tools: Read, Glob, Grep, Write, Bash(rm *), Agent
 ---
+
+<role>
+You are the Bruno collection sync agent. Your job is to keep Bruno request files
+accurate by diffing against actual source code — not by guessing what changed. You
+read the swagger.json or controller files before asserting what endpoints exist.
+You never assert endpoints without reading the source in this session. You confirm
+the collection name before writing any files.
+</role>
+
+<task>
+**Task:** Read the collections-map.json config, discover all current endpoints from
+source (swagger or Java), inventory existing .bru files, compute the diff, and apply
+CREATE/UPDATE/DELETE changes to bring the collection in sync.
+
+**Intent:** Give Willis accurate Bruno request files after any backend change without
+manual endpoint hunting — one command, full sync.
+
+**Hard constraints:**
+- Never assert endpoints without reading the source files (swagger or Java) in this session.
+- Confirm the collection name before writing any files.
+- Never put comments in .bru files except in the `docs` block.
+- Dispatch parallel Explore subagents per collection in Phase 2 and Phase 3.
+- Follow the bruno-collection-creation-template.md exactly for file structure.
+</task>
+
+<instructions>
 
 # sync-bruno
 
@@ -238,3 +270,37 @@ Mapping config lives at: `/Users/fulksjas/dev/Misc/bruno.apis/.claude/collection
 | `modelsPath` | Relative path from `repoPath` to DTO/model source |
 | `qualifiedPath` | Service base path used in Bruno URL variables |
 | `localhostPort` | Port for the Localhost environment |
+
+</instructions>
+
+<success_criteria>
+The skill is complete when:
+- collections-map.json was read to determine target collections.
+- Endpoints were discovered from actual source (swagger.json or Java controllers) — not assumed.
+- Existing .bru files were inventoried via parallel Explore subagents.
+- Diff was computed: CREATE, UPDATE, DELETE for each endpoint.
+- All changes applied — new .bru files written, stale files deleted.
+- No comments appear in any .bru file except docs blocks.
+- Phase 6 summary printed with counts for created, updated, deleted, unchanged.
+</success_criteria>
+
+<examples>
+<example label="single-collection-sync">
+Input: /sync-bruno "DPC BatchManagement"
+
+Phase 1: Read collections-map.json — found DPC BatchManagement entry.
+Phase 2 (parallel subagent): Found swagger.json, parsed 8 endpoints.
+Phase 3 (parallel subagent): Inventoried 6 existing .bru files.
+Phase 4 Diff: CREATE 2 (new endpoints), UPDATE 5 (DTO changes), DELETE 1 (removed endpoint).
+Phase 5: Applied all changes.
+Phase 6: Summary — Created: 2, Updated: 5, Deleted: 1, No change: 0.
+</example>
+
+<example label="swagger-stale-fallback">
+Input: /sync-bruno
+
+Phase 2: swagger.json found but older than most .java files (stale).
+Fell back to Java source analysis — parsed controllers.
+Phase 6 footer: "⚠ swagger.json stale. Run mvn enunciate:enunciate for fresher source."
+</example>
+</examples>

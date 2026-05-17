@@ -14,14 +14,12 @@ The user's prompt contains the date argument. Extract it and follow the date log
 
 **Philosophy:** A daily action plan is a commitment device, not a wish list. It enforces sprint alignment, surfaces chronic drift patterns, and prioritizes finishing over starting. Every item has a "why" and a "definition of done." Items are either in the numbered plan or in the Priority Stack — there is no "if time permits."
 
-## Command Restrictions (MANDATORY)
-
-- **NEVER** use compound `cd && <command>` Bash calls. The helper script handles repo navigation.
-- **NEVER** use `gh search prs` — use `gh pr list --search` instead.
-- **NEVER** pipe output through `head`, `tail`, `grep`, `python3`, or `awk`.
-- **NEVER** use `git -C <path>`. The helper script handles this.
-- **ALWAYS** include `fields` parameter on JIRA MCP calls (Rule 5).
-- **NEVER** use `cat`, `head`, `tail`, `find`, `grep`, `rg`, `awk`, `sed` as Bash commands. Use built-in tools.
+<tool_guidance>
+Use the helper script for all repo navigation — it handles directory context internally,
+so pass the date argument directly rather than cd-ing or using git path flags.
+Use `gh pr list --search` for PR queries.
+Use built-in Read, Glob, and Grep tools for file operations instead of Bash commands.
+</tool_guidance>
 
 ## Step 1: Determine Date + Load Previous Plan
 
@@ -133,7 +131,7 @@ Run **all of the following in a single parallel batch:**
 ### 3a. Git + GitHub data (helper script)
 
 ```bash
-~/.claude/skills/daily-action/collect-data.sh <PLAN_DATE>
+~/.claude-os/skills/daily-action/collect-data.sh <PLAN_DATE>
 ```
 
 The helper script handles all 4 repos in parallel internally. It collects:
@@ -144,38 +142,26 @@ The helper script handles all 4 repos in parallel internally. It collects:
 
 ### 3b. JIRA — Sprint items assigned to me
 
-```
-searchJiraIssuesUsingJql(
-  jql: "project = ARC AND assignee = currentUser() AND sprint in openSprints() AND statusCategory != Done ORDER BY priority ASC",
-  fields: ["summary", "status", "priority", "assignee", "parent", "issuelinks", "created", "updated"]
-)
+```bash
+jira issue list -q"project = ARC AND assignee = currentUser() AND sprint in openSprints() AND statusCategory != Done ORDER BY priority ASC" --plain --columns KEY,SUMMARY,STATUS,PRIORITY
 ```
 
 ### 3c. JIRA — ARC-Download-Issues by priority
 
-```
-searchJiraIssuesUsingJql(
-  jql: "project = ARC AND labels = 'ARC-Download-Issues' AND statusCategory != Done ORDER BY priority ASC",
-  fields: ["summary", "status", "priority", "assignee", "created", "updated"]
-)
+```bash
+jira issue list -q"project = ARC AND labels = 'ARC-Download-Issues' AND statusCategory != Done ORDER BY priority ASC" --plain --columns KEY,SUMMARY,STATUS,PRIORITY
 ```
 
 ### 3d. JIRA — Unassigned ARC defects by priority
 
-```
-searchJiraIssuesUsingJql(
-  jql: "project = ARC AND issuetype in (Defect, Sighting) AND assignee is EMPTY AND statusCategory != Done ORDER BY priority ASC",
-  fields: ["summary", "status", "priority", "created", "updated"]
-)
+```bash
+jira issue list -q"project = ARC AND issuetype in (Defect, Sighting) AND assignee is EMPTY AND statusCategory != Done ORDER BY priority ASC" --plain --columns KEY,SUMMARY,STATUS,PRIORITY
 ```
 
 ### 3e. JIRA — Recent transitions (last 7 days)
 
-```
-searchJiraIssuesUsingJql(
-  jql: "project = ARC AND status CHANGED DURING ('-7d', 'now') AND assignee = currentUser() ORDER BY updated DESC",
-  fields: ["summary", "status", "priority", "created", "updated"]
-)
+```bash
+jira issue list -q"project = ARC AND status CHANGED DURING ('-7d', 'now') AND assignee = currentUser() ORDER BY updated DESC" --plain --columns KEY,SUMMARY,STATUS,PRIORITY,UPDATED
 ```
 
 Use this for QA feedback loop detection (Signal 7) and context about what moved recently.
@@ -334,13 +320,13 @@ Daily-action owns these fields. You MUST write them, and MUST NOT emit any field
 Use the `snapshot-write.sh` helper — it handles lock acquisition, stale-lock detection, JSON merge, atomic rename, and lock release in a single pre-approved call:
 
 ```bash
-~/.claude/skills/daily-action/snapshot-write.sh <PLAN_DATE> '<owned-fields-json>'
+~/.claude-os/skills/daily-action/snapshot-write.sh <PLAN_DATE> '<owned-fields-json>'
 ```
 
 Where `<owned-fields-json>` is a JSON object containing **only** the fields listed in 6a, plus a `warnings` array for any data-source failures. Example:
 
 ```bash
-~/.claude/skills/daily-action/snapshot-write.sh 2026-04-09 '{
+~/.claude-os/skills/daily-action/snapshot-write.sh 2026-04-09 '{
   "plan": { "itemsPlanned": 5, "priorityStackSize": 3 },
   "signals": {
     "sprintDrift":      { "status": "WARNING", "defectPercent": 85 },
@@ -436,7 +422,7 @@ Re-write the plan file with updates. Loop until the user approves or says they'r
 ## Notes
 
 - If `gh` CLI is not authenticated for a repo, the helper script notes it and skips that repo's PR data.
-- If JIRA MCP tools are unavailable, build the plan from git/GitHub data and the previous plan alone. Note the gap prominently.
+- If the `jira` CLI is unavailable or returns errors, build the plan from git/GitHub data and the previous plan alone. Note the gap prominently.
 - For Monday plans, the previous plan is typically Friday's — the 3-day git lookback window covers the gap naturally.
 - Resolve PR authors to first names when possible from the git log or PR author field.
 - The plan date's day-of-week determines the section header format (e.g., "Monday, April 6, 2026").

@@ -1,12 +1,41 @@
 ---
 name: make-it-so
-description: End-to-end ticket delivery — investigate, PRD, JIRA subtasks, plan, implement, review, PR, Copilot/SonarQube, JIRA closeout. One command, full discipline.
+description: >
+  End-to-end ticket delivery — investigate, PRD, JIRA subtasks, plan, implement,
+  review, PR, Copilot/SonarQube, JIRA closeout. Use when the user invokes
+  /make-it-so [JIRA-TICKET-ID] or requests full end-to-end ticket delivery.
+  Do NOT use for partial delivery cycles — use targeted skills instead.
 allowed-tools: [Bash, Read, Edit, Write, Glob, Grep, TodoWrite, WebFetch, Agent]
-argument-hint: '[JIRA-TICKET-ID]'
+argument-hint: "[JIRA-TICKET-ID] (e.g. ARC-4301)"
 args: TICKET-ID
 disable-model-invocation: true
 trigger: /make-it-so
 ---
+
+<role>
+You are a disciplined software delivery agent executing full-cycle ticket delivery.
+Your role is to drive a JIRA ticket from investigation to production-ready PR —
+maintaining quality gates, test discipline, and traceable decisions at every stage.
+You never advance past a gate without explicit user approval. You read the ticket
+and codebase before making any claims about what is needed.
+</role>
+
+<task>
+**Task:** Execute all 7 delivery steps for the specified JIRA ticket, stopping at
+each hard gate for explicit approval before proceeding.
+
+**Intent:** Eliminate the overhead of managing the delivery process manually —
+one command drives the entire lifecycle while maintaining the discipline gates
+that prevent rework from misaligned requirements or flawed plans.
+
+**Hard constraints:**
+- NEVER advance past Gate 1 or Gate 2 without explicit user approval.
+- Read the JIRA ticket before making any claims about what is needed.
+- Research analogous features in the codebase before proposing architecture.
+- Always invoke the designated skill for each step — never substitute manual work.
+- Announce at start: "Make it so — beginning full delivery cycle for [TICKET-ID]."
+- Before starting: think through what the ticket requires, which codebase patterns apply, and what risks must be resolved before coding.
+</task>
 
 # Make It So
 
@@ -247,3 +276,33 @@ Present the five verification items as a markdown checklist — one line each, �
 
 "Make it so — delivery complete for [TICKET-ID]."
 </output_format>
+
+<success_criteria>
+The skill is complete when:
+- Gate 1: Explicit user approval for the PRD was received and quoted.
+- Gate 2: Explicit user approval for the implementation plan was received and quoted.
+- Step 3 (plan): superpowers:writing-plans was invoked — not substituted.
+- Step 4 (implement): superpowers:subagent-driven-development or superpowers:executing-plans was invoked.
+- Step 5 (review): /comprehensive-review:full-review was run; all must-fix findings addressed.
+- Step 6 (PR): PR is open; Copilot comments resolved or declined with documentation; SonarQube gate is green.
+- Step 7 (JIRA): Story In Progress; impl subtasks Done; QA subtask In Progress; hours logged; progress comment posted.
+- Completion verification checklist shows all five items ✅ with evidence.
+</success_criteria>
+
+<examples>
+<example label="happy-path">
+Input: /make-it-so ARC-4301
+
+Announced: "Make it so — beginning full delivery cycle for ARC-4301."
+Step 1: Read ticket, explored codebase, wrote PRD. Gate 1 prompt displayed.
+[Sir: "approved"]
+Step 2: Subtask table proposed. [Sir: "approved"] — 4 subtasks created.
+Step 3: superpowers:writing-plans invoked. Plan saved. Gate 2 prompt displayed.
+[Sir: "approved"]
+Step 4: superpowers:subagent-driven-development invoked. All tasks committed.
+Step 5: /comprehensive-review:full-review run. 2 must-fix findings addressed, committed.
+Step 6: PR opened ARC-4301. Copilot 3 comments resolved. SonarQube gate: Pass.
+Step 7: JIRA closed out. Hours logged. Progress comment posted.
+Completion checklist: all 5 ✅. "Make it so — delivery complete for ARC-4301."
+</example>
+</examples>

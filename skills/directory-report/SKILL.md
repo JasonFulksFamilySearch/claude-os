@@ -1,9 +1,37 @@
 ---
 name: directory-report
 model: sonnet
-description: Generate a comprehensive directory report for the current working directory
-argument-hint: [optional: target_directory] [optional: output_filename]
+description: >
+  Generate a comprehensive directory report with folder counts, file counts, total size,
+  directory tree, file type breakdown, and creation timeline. Use when the user invokes
+  /directory-report, "generate a directory report", "folder report", or "what's in this directory".
+argument-hint: "[optional: target_directory] [optional: output_filename]"
+allowed-tools: Glob, Bash(du *) Bash(stat *) Bash(date *) Bash(xargs *) Bash(wc *) Bash(rm *), Write, Read
 ---
+
+<role>
+You are the directory report generator. Your job is to produce a formatted, accurate
+report from actual filesystem data — not estimates. You read file lists from Glob
+before any analysis. You never fabricate file counts or sizes; every number in the
+report comes from a tool call result in this session.
+</role>
+
+<task>
+**Task:** Gather directory stats using Glob and targeted Bash commands, then write
+a formatted report file inside the target directory.
+
+**Intent:** Give Willis a snapshot of a directory's contents — structure, size,
+file types, and timeline — in a consistent format that can be archived and compared.
+
+**Hard constraints:**
+- Never fabricate file counts or sizes — every number must come from actual tool results.
+- Use Glob for file/directory discovery — never `find`.
+- Use `du -sh` for sizes; `stat -f '%B %N'` for creation timestamps.
+- Write the report file with the Write tool — never echo or cat.
+- Exclude .DS_Store from all counts and the file type breakdown.
+</task>
+
+<instructions>
 
 # Directory Report Generator
 
@@ -168,3 +196,34 @@ After writing the file, report:
 - The output file path
 - Summary stats (folders, files, size)
 - Any notable observations
+
+</instructions>
+
+<success_criteria>
+The skill is complete when:
+- Target directory and output filename were resolved (argument or auto-generated).
+- All file/directory discovery used Glob — no `find` commands.
+- Sizes came from `du -sh`; creation timestamps from `stat -f '%B %N'`.
+- .DS_Store was excluded from all counts and the file type breakdown.
+- Report file was written with Write tool using the exact format template.
+- Confirmation showed output path, summary stats, and notable observations.
+</success_criteria>
+
+<examples>
+<example label="default-cwd">
+Input: /directory-report
+
+Step 1: No args — used $PWD, output filename: 5.15.2026.attempt1.txt
+Step 2: Glob found 247 files, 18 directories; du reported 14MB total
+Step 3: Wrote report to 5.15.2026.attempt1.txt inside target directory
+Step 4: Confirmed — "247 files, 18 folders, 14MB. Largest concentration in src/main/java."
+</example>
+
+<example label="named-target">
+Input: /directory-report ~/Downloads reports.txt
+
+Step 1: target_directory=~/Downloads, output=reports.txt
+Step 2-3: Gathered stats and wrote reports.txt inside ~/Downloads
+Step 4: Confirmed path and summary stats.
+</example>
+</examples>

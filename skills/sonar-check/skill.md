@@ -1,3 +1,46 @@
+---
+name: sonar-check
+description: >
+  Pre-commit SonarQube issue prevention. Auto-detects the language(s) in staged files,
+  queries the matching org quality profile(s) live, and analyzes for duplicates,
+  coverage gaps, code smells, reliability bugs, and security vulnerabilities — before
+  `git commit` fires. Use when the user says "run sonar", "check my staged files",
+  "pre-commit check", or invokes /sonar-check.
+argument-hint: "[--js-only] [--java-only]"
+allowed-tools: Bash(git diff *) Bash(git diff --staged *) Bash(npx jscpd *) Read Glob
+---
+
+<role>
+You are the pre-commit quality gate for this project. Your job is to analyze staged
+changes against the live SonarQube org quality profiles and report every finding
+— duplicates, test gaps, code smells, reliability bugs, and security vulnerabilities
+— before the commit lands. You read the actual staged diff before asserting anything
+about the code. You never claim a file is clean without checking it. If SONAR_TOKEN
+is unavailable, you fall back to the cached rules in `~/.claude-data/context/sonarqube.md`
+and note the fallback in your report.
+</role>
+
+<task>
+**Task:** Detect the languages of staged files, run jscpd for duplicate detection,
+fetch live SonarQube rules for the relevant profiles, analyze the diff against those
+rules, and produce a structured findings report.
+
+**Intent:** Surface the issues SonarQube would flag at CI time — before the commit
+creates a PR, saving a round-trip through the build pipeline.
+
+**Hard constraints:**
+- Always run `git diff --staged --name-only` before claiming to know what is staged.
+- If nothing is staged, exit immediately with "Nothing staged to check."
+- Steps 2, 3, and 4 (jscpd, Sonar API calls, full diff) are independent — run them in parallel.
+- Never skip the duplicate check — jscpd supports both JS and Java.
+- Report suspicions as "possible" — do not assert violations without clear diff evidence.
+
+Before analyzing, think through which rules apply to the specific code patterns
+introduced by the diff — don't flag every rule, only those with observable evidence.
+</task>
+
+<instructions>
+
 # sonar-check
 
 Pre-commit SonarQube issue prevention. Auto-detects the language(s) in your staged files, queries the matching org quality profile(s) live, and analyzes for duplicates, coverage gaps, code smells, reliability bugs, and security vulnerabilities — before `git commit` fires.
@@ -205,3 +248,51 @@ Be specific — include file and approximate line numbers when visible in the di
 - Java full coverage metrics require running `mvn test` — this skill checks structural coverage (are tests present?) not line/branch %.
 - If the Sonar API is unreachable, fall back to the rule summaries in `~/.claude-data/context/sonarqube.md`.
 - Live rule fetching means profile changes in SonarQube automatically apply here — no manual sync needed.
+
+</instructions>
+
+<success_criteria>
+The skill is complete when:
+- `git diff --staged --name-only` was run before any analysis.
+- If nothing was staged, reported "Nothing staged to check" and exited.
+- jscpd ran on all staged files (steps 2, 3, 4 ran in parallel).
+- Live SonarQube rules were fetched for the detected language(s) — or the fallback was noted.
+- The findings report includes all six sections (DUPLICATES, COVERAGE/TESTS, MAINTAINABILITY,
+  RELIABILITY, SECURITY, SUMMARY) with confirmed violations and clearly labeled suspicions.
+- The SUMMARY line states either "✅ Clear to commit" or "❌ Fix BLOCKER/HIGH issues before committing."
+</success_criteria>
+
+<examples>
+<example label="clean-js-staged">
+Input: /sonar-check (2 JS files staged)
+
+Step 1: Detected JS files — auth.js, parser.js
+Steps 2/3/4 (parallel): jscpd ran (no duplicates), fetched JS profile rules, got full diff.
+
+Report:
+  DUPLICATES: None detected
+  COVERAGE/TESTS: None detected
+  MAINTAINABILITY: [MAJOR] javascript:S3776 — parser.js:42 parse(): high cognitive complexity
+  RELIABILITY: None detected
+  SECURITY: None detected
+  SUMMARY: Duplicates: 0 | Tests: 0 | Maintainability: 1 | Reliability: 0 | Security: 0
+  ✅ Clear to commit (no BLOCKERs)
+</example>
+
+<example label="security-blocker">
+Input: /sonar-check (1 JS file staged with innerHTML usage)
+
+Step 5 — Security: innerHTML assigned from props.userInput → XSS risk.
+
+Report:
+  SECURITY: [BLOCKER] jssecurity:S5696 — renderer.js:14: innerHTML assigned from user-controlled input
+  SUMMARY: Security: 1 BLOCKER
+  ❌ Fix BLOCKER/HIGH issues before committing
+</example>
+
+<example label="no-token-fallback">
+SONAR_TOKEN not set. API calls skipped. Fell back to rule summaries in
+~/.claude-data/context/sonarqube.md. Analysis proceeded with cached rules.
+Report noted: "[FALLBACK] Live rules unavailable — using cached profile summaries."
+</example>
+</examples>

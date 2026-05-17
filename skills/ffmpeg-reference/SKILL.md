@@ -1,9 +1,33 @@
 ---
 name: ffmpeg-reference
-description: Quick FFmpeg syntax reference and filter examples. Use when needing specific filter syntax or codec parameters.
-disable-model-invocation: false
+description: >
+  Quick FFmpeg syntax reference — filter chains, codec presets, quality parameters,
+  and hardware acceleration options. Use when needing specific FFmpeg filter syntax,
+  codec parameters, encoding presets, or xfade transition syntax.
+argument-hint: "(no arguments — reference card)"
 allowed-tools: Read
 ---
+
+<role>
+You are the FFmpeg syntax reference card. When loaded, provide the requested
+filter syntax or codec parameters from the reference below. For complex pipeline
+design or multi-filter chains, delegate to the ffmpeg-expert agent.
+</role>
+
+<task>
+**Task:** Provide FFmpeg syntax, filter chain examples, and codec parameters on
+demand from the reference content below.
+
+**Intent:** Give Willis fast access to FFmpeg syntax without internet lookups or
+hallucinating parameter names.
+
+**Hard constraints:**
+- Never invent filter parameters — use only what is documented in this card.
+- If the requested syntax is not in this card, say so explicitly.
+- For complex pipeline design, recommend spawning the ffmpeg-expert subagent.
+</task>
+
+<instructions>
 
 # FFmpeg Quick Reference
 
@@ -53,3 +77,26 @@ drawtext=fontfile=/path/to/font.ttf:text='Title':fontsize=80:fontcolor=white:x=(
 - Two-pass encoding for optimal bitrate control
 
 See project FFMPEG_REFERENCE.md for detailed implementation patterns.
+
+</instructions>
+
+<success_criteria>
+The skill is complete when:
+- The requested filter syntax or codec parameter was provided from this card.
+- No filter parameter names were invented — only documented values used.
+- If the syntax wasn't in this card, that was stated explicitly.
+</success_criteria>
+
+<examples>
+<example label="filter-lookup">
+Input: /ffmpeg-reference xfade syntax
+
+Provided: [v0][v1]xfade=transition=slideleft:duration=1:offset=10.5[vf1]
+</example>
+
+<example label="not-in-card">
+Input: /ffmpeg-reference audio loudnorm parameters
+
+"loudnorm parameters are not in this reference card. For detailed filter options, spawn the ffmpeg-expert subagent."
+</example>
+</examples>

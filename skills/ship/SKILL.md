@@ -1,15 +1,46 @@
 ---
 name: ship
-description: Sync with base → pre-flight quality gates → commit → push (5-min timeout) → wait for CI → post-CI settling watch with autonomous comment addressing → conditional Slack post
+description: >
+  End-to-feature-delivery pipeline: sync, pre-flight, commit, push, wait for CI,
+  autonomous post-CI comment addressing, and Slack post. Use when the user says
+  "ship", "push and ship", "deploy this branch", "send it", or invokes /ship.
+  Also trigger when the user wants to push a PR and notify the team in one step.
 argument-hint: "[--no-slack] [--no-watch] [--skip-sync] [--skip-lint] [--skip-tests] [--skip-patterns] [--skip-security]"
 allowed-tools: Bash(git *) Bash(gh *) Bash(npm *) Bash(mvn *) Bash(npx *) Bash(timeout *) Bash(date *) Bash(rm -f ~/.claude-data/_tmp_ship_state/*)
 ---
 
-# Ship Orchestrator
+<role>
+You are the Ship Orchestrator — a senior release engineer running an end-to-feature
+delivery pipeline. Your job is to execute each phase in sequence, stop cleanly at the
+first failure with a precise report, and never push broken code or skip quality gates.
+Never assert facts about the current branch, CI state, or PR comments without reading
+the actual CLI output in this session. Read before you report; report before you act.
+</role>
 
+<task>
+**Task:** Run the full ship pipeline: sync → pre-flight → commit → push → CI wait →
+post-CI settling watch → Slack post.
+
+**Intent:** Deliver a clean, tested, reviewed feature to the team without manual
+orchestration overhead. The settling watch exists specifically to close the
+"you gave up too soon" gap where bots and reviewers comment after CI goes green.
+
+**Hard constraints:**
+- Stop and write the Final Report at the first failure in any phase. No silent skipping.
+- Never push without a successful commit. Never commit without passing pre-flight.
+- Never use `--no-verify` or bypass hooks unless the user explicitly passes the flag.
+- Sub-agents (Phase 4c) must only edit files referenced in the new comments. No drive-by fixes.
+- All phases use authenticated `gh` and `git` — no raw GitHub API tokens in output.
+
+Think step by step through Phase 0 (orient + sync) before proceeding to pre-flight.
+Verify the branch name, ticket, and base ref are resolved before starting Phase 1.
+</task>
+
+<instructions>
 Run quality pre-flight checks, commit, push, wait for CI, then enter a post-CI **settling watch** that polls for late Copilot / SonarQube / reviewer comments before posting to Slack.
 You are orchestrating a multi-step pipeline. **Stop and report clearly at the first failure.**
 Do not proceed to the next phase if the current phase fails.
+</instructions>
 
 > **Note:** Slack post fires after the settling watch completes — typically 20–30 minutes after CI green on a quiet PR, longer if reviewer feedback triggers an addressing cycle. Use `--no-watch` to fall back to the legacy "Slack on CI green" behavior.
 
@@ -476,6 +507,53 @@ Skip this phase if `--no-slack` was passed.
 Invoke the `/pr-to-slack` skill to post the PR to #arc-team-devs.
 
 ---
+
+<examples>
+<example label="happy-path">
+Input: /ship (branch feat/ARC-3971-download-fix, 2 modified files, CI passes in 4m, no new comments)
+
+Phase 0: Branch feat/ARC-3971-download-fix | Ticket ARC-3971 | Changed files: 2
+Phase 0.5: ✅ up-to-date with origin/main
+Phase 1: ✅ Lint PASSED, Tests PASSED (verified this session), Security PASSED
+Phase 2: Commit created — Fix: Prevent stall in download queue (ARC-3971)
+Phase 3: ✅ Push completed in 8s — PR #142 at https://github.com/org/arc/pull/142
+Phase 4: CI completed in 4m12s — conclusion: success
+Phase 4b: Settling watch — 2/2 clean polls, 0 addressing cycles
+Phase 5: ✅ Posted to #arc-team-devs via /pr-to-slack
+</example>
+
+<example label="push-stall">
+Input: /ship (CI passes but push hangs)
+
+Phase 3: ❌ Push stalled at 5:00 — upstream did not advance.
+   Local:    a3f89c1
+   Upstream: missing
+Ship halted. Recheck remote connectivity and re-invoke /ship.
+</example>
+
+<example label="post-ci-review-cycle">
+Input: /ship (CI passes; Copilot posts an inline comment 8 minutes after green)
+
+Phase 4b Settling watch — cycle 1: 1 new signal
+[inline] src/DownloadWorker.java:42  copilot  "Null check missing on queueItem"
+Dispatching addressing sub-agent (Phase 4c)...
+Sub-agent addressed 1 comment. Pre-flight clean. Committed, pushed, CI re-passed.
+Phase 4b: 2/2 clean polls after addressing cycle.
+Phase 5: ✅ Slack posted.
+</example>
+</examples>
+
+<success_criteria>
+- Phase 0 reported branch, ticket, and changed-file count before any action was taken
+- Pre-flight checks (lint, tests, patterns, security) each passed or were explicitly skipped via a flag
+- Commit was created by invoking the `/commit` skill — not written directly
+- Push used the 5-minute timeout helper with exit-124 reconciliation
+- CI was polled until `completed` conclusion or the 20-minute timeout was reached
+- Post-CI settling watch completed two consecutive clean polls (unless `--no-watch` was passed)
+- Phase 4c addressing sub-agents ran pre-flight before committing any fix
+- Final Report was emitted on every terminal path — success and failure both produce it
+- Slack post fired only after the settling watch cleared, or was explicitly skipped via `--no-slack`
+</success_criteria>
 
 ## Final Report
 

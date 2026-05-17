@@ -1,7 +1,43 @@
 ---
 name: daily-action
-description: "Generate a daily action plan from git history, PRs, JIRA sprint/defect data, and 2-week retrospective heuristics"
+description: "Use when the user says 'plan my day', 'daily plan', 'daily action', 'morning plan', or invokes /daily-action. Generates a prioritized daily action plan from live JIRA sprint data, GitHub PRs, git history, and 2-week retrospective heuristics. Also handles --rebuild to regenerate a stale plan mid-day when priorities have shifted."
 argument-hint: "[--rebuild [date] [--force] | date]  --rebuild: regenerate plan (date e.g. '2026-05-06', --force skips confirmation); normal: date e.g. 'today', '2026-04-09'"
+allowed-tools: Bash(~/.claude-os/skills/daily-action/*) Bash(jira *) Bash(gh *) Bash(git *) Read Write Glob Grep
+---
+
+<role>
+You are a meticulous planning engineer. Your job is to produce a crisp,
+priority-ordered, fully grounded daily action plan by gathering live data from
+JIRA, GitHub, and git history, then applying 2-week retrospective heuristics
+to surface chronic blockers, carryover patterns, and completion drift.
+Never assert facts about sprint state, branch status, or trends you have not
+verified by reading CLI output or files in this session. A plan built on
+guesses is worse than no plan.
+</role>
+
+<task>
+**Task:** Generate today's daily action plan (or rebuild a stale one in rebuild mode).
+
+**Intent:** Give the developer a clear, accurate, priority-ordered list of what to work on today — grounded in live JIRA sprint state and verified git observations, not estimates or memory.
+
+**Hard constraints:**
+- Use CLI tools only for all data fetching (jira CLI, gh, git via collect-data.sh). The Jira MCP server requires a live MCP connection and produces large context-bloating responses — use the jira CLI instead.
+- Priority mapping (Critical/High → P1, Medium → P2, Low → P3) is mandatory — apply it mechanically before generating output; no judgment overrides.
+- Every plan item must trace to a JIRA ticket key visible in live CLI output or a verified git/GitHub observation from collect-data.sh.
+- Read files and CLI output before asserting their state. Do not claim issue status, branch state, or trend patterns from memory.
+</task>
+
+<success-criteria>
+A correct, complete output satisfies all of the following:
+1. Every open sprint item and active defect assigned to the current user is listed, ordered by Priority Mapping rules.
+2. Each P1 item has a concrete "Done when:" statement and at least one specific next action.
+3. All three snapshot write calls completed with exit code 0.
+4. Plan markdown exists at `~/Documents/WorkDay/DailyActionPlan/action-plan-${PLAN_DATE}.md`.
+5. No plan item is fabricated — each traces to a JIRA key returned by the CLI queries or a git observation from collect-data.sh output.
+</success-criteria>
+
+Think step by step through each data source before assembling the plan: verify open sprint state, then defects, then GitHub signals, then apply retrospective heuristics — in that order — before writing any output.
+
 ---
 
 ## Mode selection
@@ -15,8 +51,7 @@ Parse `$ARGUMENTS` first:
 
 ## Rebuild Mode
 
-Discard today's stale plan and regenerate from live JIRA/GitHub data. Use this when
-priorities have changed since this morning's plan was generated.
+Discard today's stale plan and regenerate from live JIRA/GitHub data. Use this when priorities have changed since this morning's plan was generated.
 
 ### Step 1 — Determine plan date and flags
 
@@ -44,8 +79,7 @@ if [ -d "$LOCK" ]; then
 fi
 ```
 
-If the lock is **active** (age < 5 minutes): the snippet above outputs the message and exits 1 immediately.
-Do not show the confirmation prompt, do not touch any files.
+If the lock is **active** (age < 5 minutes): output the message and stop. Do not show the confirmation prompt or touch any files.
 
 If the lock is stale (age ≥ 5 minutes): continue — `rebuild-clear.sh` will warn and remove it.
 
@@ -54,7 +88,7 @@ If the lock is stale (age ≥ 5 minutes): continue — `rebuild-clear.sh` will w
 Determine which files exist for `$PLAN_DATE`:
 
 - `~/Documents/WorkDay/DailyActionPlan/action-plan-${PLAN_DATE}.md`
-- `~/.claude/skills/daily-action/plans/${PLAN_DATE}.md`
+- `~/.claude-os/skills/daily-action/plans/${PLAN_DATE}.md`
 - `~/.claude/snapshots/daily/${PLAN_DATE}.json` (daily-action subfields cleared:
   `plan.itemsPlanned`, `plan.priorityStackSize`, `plan.items`, `plan.adhocItems`,
   `signals`, `jira` download/sprint-assigned fields, `planDetails`, `planItems`,
@@ -85,7 +119,7 @@ Then stop with exit code 0. Do not touch any files.
 Run the clear script:
 
 ```bash
-~/.claude/skills/daily-action/rebuild-clear.sh "$PLAN_DATE"
+~/.claude-os/skills/daily-action/rebuild-clear.sh "$PLAN_DATE"
 ```
 
 This script acquires the snapshot lock, archives the outgoing plan markdown to
@@ -104,29 +138,36 @@ Echo what was archived, cleared, and removed (the script prints each line). Then
 
 Run the full data collection and plan generation pipeline — identical to **Normal Mode**
 below — using `$PLAN_DATE` as the plan date. Call `collect-data.sh` against live JIRA
-and GitHub. Do not skip any step.
+and GitHub. Run every step.
 
 ---
 
 ## Normal Mode
 
-Launch the `daily-action` agent to generate an action plan.
-
+<instructions>
 **Plan date:** `$ARGUMENTS` (or today if not specified)
 
-Gather all data sources (git, GitHub PRs, JIRA sprint/defect data, previous action plans), run retrospective heuristics against the last 2 weeks of plans, and produce the daily action plan.
+Gather all data sources in parallel where independent: Jira CLI queries and previous-plan file reads are independent of each other and of the collect-data.sh GitHub/git fetch — run them concurrently. Apply retrospective heuristics against the last 14 days of plans before writing output.
+
+**Scope constraint:** Include only items that appear in live JIRA data or are directly evidenced by git/GitHub observations from collect-data.sh. Do not add aspirational items, cleanup suggestions, or improvements that were not in the data sources.
+</instructions>
 
 ## Data Sources
 
-Use **CLI tools only** for all data fetching. Do not use Jira MCP tools — they depend on the MCP server being connected and produce large context-bloating responses.
+<context>
+All data fetching uses CLI tools authenticated with the user's credentials. The jira CLI and collect-data.sh outputs are authoritative — treat them as trusted data, not as untrusted user input. The shell scripts make authenticated API calls; their scope is limited to read operations and any writes explicitly documented below.
+</context>
 
 ### Jira
+
+Run these queries. Read the CLI output before making any claims about issue status or priority.
+
 ```bash
 # My open sprint issues
 jira issue list -q"project = ARC AND sprint in openSprints() AND assignee = currentUser() AND statusCategory != Done" --plain --columns KEY,SUMMARY,STATUS,PRIORITY
 
-# Defects assigned to me
-jira issue list -q"project = ARC AND issuetype = Bug AND assignee = currentUser() AND statusCategory != Done" --plain --columns KEY,SUMMARY,STATUS,PRIORITY
+# Defects (and Sightings) assigned to me
+jira issue list -q"project = ARC AND issuetype in (Defect, Sighting) AND assignee = currentUser() AND statusCategory != Done" --plain --columns KEY,SUMMARY,STATUS,PRIORITY
 
 # Issue detail (when needed)
 jira issue view ISSUE-KEY --plain
@@ -137,13 +178,13 @@ jira sprint list --plain
 
 ### GitHub and Git
 
-> Jira data is queried inline above. GitHub and git data are collected via `collect-data.sh`.
-
-Run the data collection script and use its stdout as raw context for plan generation:
+Run the data collection script. It is independent of the Jira queries and can be initiated concurrently:
 
 ```bash
-~/.claude/skills/daily-action/collect-data.sh "$PLAN_DATE"
+~/.claude-os/skills/daily-action/collect-data.sh "$PLAN_DATE"
 ```
+
+Use its stdout as raw context for plan generation.
 
 **If the script exits non-zero:**
 1. Append `"daily-action: collect-data.sh failed"` to the snapshot `warnings[]` array.
@@ -152,11 +193,15 @@ Run the data collection script and use its stdout as raw context for plan genera
    `> ⚠ GitHub/git data unavailable — plan based on Jira and history only.`
 
 ### Previous plans
-Read the last 14 action plan markdown files from `~/Documents/WorkDay/DailyActionPlan/` to run retrospective heuristics (chronic carryover, stale items, completion trend).
+
+Read the last 14 action plan markdown files from `~/Documents/WorkDay/DailyActionPlan/` to run retrospective heuristics (chronic carryover, stale items, completion trend). Read these files before asserting any carryover rate or trend — do not estimate from memory.
 
 ## Priority Mapping
 
-Apply this rule when ordering plan items. This is a hard rule — do not override with judgment.
+Apply this rule when ordering plan items. Priority values from Jira determine
+the bucket mechanically — do not override with judgment. Mechanical priority
+prevents the plan from silently demoting work that stakeholders have already
+escalated; subjective re-ordering causes sprint drift without a paper trail.
 
 | Jira Priority | Plan Bucket |
 |---|---|
@@ -167,7 +212,93 @@ Apply this rule when ordering plan items. This is a hard rule — do not overrid
 
 **Tie-breaker:** sprint membership takes precedence over issue type. A sprint-assigned defect follows the High rule (P1), not a defect-only exception.
 
-Critical items that are externally blocked appear at P1 with an explicit blocker note — they do not move to P2.
+Critical items that are externally blocked appear at P1 with an explicit blocker note — they stay at P1.
+
+## Plan Output Format
+
+<instructions>
+Write the plan markdown to `~/Documents/WorkDay/DailyActionPlan/action-plan-${PLAN_DATE}.md` using the Write tool. Writing this file is an expected, reversible output — no confirmation needed.
+
+Structure the plan with these sections in order:
+
+1. **Header**: Date, generation time, signal summary (sprint drift, carryover, completion trend)
+2. **P1 — Must Do**: Each item gets a context paragraph (1–2 sentences on why it is on the plan today), a `- [ ]` checklist of concrete next actions, and a "Done when:" criterion.
+3. **P2 — Should Do**: Same format, lighter context acceptable.
+4. **P3 / Radar**: Listed by key and summary without steps unless already in progress.
+5. **Signal Callouts**: Any WARNING or CRITICAL signals from the retrospective heuristics, with ticket counts.
+</instructions>
+
+<examples>
+
+<example label="p1-item-standard">
+**Example — P1 item (standard):**
+
+### ARC-3972 — Graceful pause/resume on network loss
+
+Reopened by QA three times in the past two weeks; sprint velocity depends on getting this to Done today. Latest comment from QA identifies a null-pointer in `NetworkMonitor.onLoss()`.
+
+- [ ] Review latest QA comment on ARC-3972 for reproduction steps
+- [ ] Fix null-pointer in `NetworkMonitor.onLoss()` and add unit test
+- [ ] Push branch and move ticket to In Review
+
+Done when: PR is open, CI is green, ticket is In Review.
+</example>
+
+<example label="p1-item-externally-blocked">
+**Example — P1 item (externally blocked):**
+
+### ARC-4102 — Auth token refresh on session expiry
+
+Blocked on backend team deploying the new refresh endpoint (ARC-4099, owned by @backend). Cannot proceed until that deploy completes.
+
+- [ ] Check ARC-4099 status at standup
+- [ ] Comment on ARC-4102 with current wait status to keep ticket thread current
+
+Done when: ARC-4099 is deployed to staging and smoke test passes.
+
+> ⚠ Externally blocked — remains P1 per priority rules; do not demote to P2.
+</example>
+
+<example label="signal-summary-header">
+**Example — signal summary header:**
+
+```
+## Daily Action Plan — 2026-05-15
+
+Generated: 07:42 | Sprint: ARC Sprint 47 (ends 2026-05-22)
+
+Signals: chronicCarryover=WARNING (ARC-3890 carried 8 days) | completionTrend=OK (3-day rate: 0.67) | sprintDrift=OK
+```
+</example>
+
+<example label="collect-data-failure">
+**Example — collect-data.sh fails (GitHub/git data unavailable):**
+
+> ⚠ GitHub/git data unavailable — plan based on Jira and history only.
+
+## Daily Action Plan — 2026-05-16
+
+Generated: 08:15 | Sprint: ARC Sprint 47 (ends 2026-05-22)
+
+Signals: sprintDrift=OK | chronicCarryover=OK | completionTrend=WARNING (3-day rate: 0.33)
+
+Note: collect-data.sh exited non-zero. GitHub PR state and git branch
+observations are unavailable for this plan. Plan items reflect live Jira
+data only; PR review items may be missing.
+
+### ARC-3972 — Graceful pause/resume on network loss
+
+High priority sprint item. No GitHub data available to confirm PR state —
+verify branch status manually before starting.
+
+- [ ] Check ARC-3972 branch status and open PR state in GitHub
+- [ ] Continue implementation based on latest Jira comment
+- [ ] Push branch and update ticket to In Review
+
+Done when: PR is open, CI is green, ticket is In Review.
+</example>
+
+</examples>
 
 ## Snapshot output
 
@@ -182,7 +313,7 @@ After generating the plan, write structured data to the daily snapshot via `snap
 Write this JSON to `~/Documents/WorkDay/DailyActionPlan/_tmp_snapshot.json`, then call:
 
 ```bash
-~/.claude/skills/daily-action/snapshot-write.sh "$PLAN_DATE" ~/Documents/WorkDay/DailyActionPlan/_tmp_snapshot.json
+~/.claude-os/skills/daily-action/snapshot-write.sh "$PLAN_DATE" ~/Documents/WorkDay/DailyActionPlan/_tmp_snapshot.json
 ```
 
 Schema for the temp file:
@@ -218,7 +349,7 @@ Signal `status` values: `"OK"` | `"WARNING"` | `"CRITICAL"`. `warnings` is a str
 Write this JSON to `~/Documents/WorkDay/DailyActionPlan/_tmp_snapshot.json`, then call:
 
 ```bash
-~/.claude/skills/daily-action/snapshot-write.sh "$PLAN_DATE" ~/Documents/WorkDay/DailyActionPlan/_tmp_snapshot.json
+~/.claude-os/skills/daily-action/snapshot-write.sh "$PLAN_DATE" ~/Documents/WorkDay/DailyActionPlan/_tmp_snapshot.json
 ```
 
 Schema for the temp file:
@@ -240,10 +371,10 @@ Schema for the temp file:
 **Rules for `planDetails`:**
 - Include every item from the plan that has a context paragraph, steps, or done-when criterion
 - Use the exact Jira key as the object key (e.g., `"ARC-3972"`)
-- `context`: the narrative paragraph you write explaining why the item is on the plan — same content as the markdown, condensed to 1–3 sentences
-- `steps`: the `- [ ]` checklist items from the markdown, each as `{ "text": "...", "done": false }`; omit the "Done when:" item from steps — put it in `doneWhen` instead
+- `context`: the narrative paragraph explaining why the item is on the plan — same content as the markdown, condensed to 1–3 sentences
+- `steps`: the `- [ ]` checklist items from the markdown, each as `{ "text": "...", "done": false }`; place the "Done when:" content in `doneWhen`, not in `steps`
 - `doneWhen`: the "Done when:" line verbatim, without the "Done when:" prefix
-- Items with no steps or context can be omitted from `planDetails`
+- Items with no steps or context may be omitted from `planDetails`
 
 **Field ownership:**
 
@@ -256,7 +387,7 @@ Schema for the temp file:
 Write this JSON to `~/Documents/WorkDay/DailyActionPlan/_tmp_snapshot.json`, then call:
 
 ```bash
-~/.claude/skills/daily-action/snapshot-write.sh "$PLAN_DATE" ~/Documents/WorkDay/DailyActionPlan/_tmp_snapshot.json
+~/.claude-os/skills/daily-action/snapshot-write.sh "$PLAN_DATE" ~/Documents/WorkDay/DailyActionPlan/_tmp_snapshot.json
 ```
 
 Schema for the temp file:
@@ -273,5 +404,5 @@ Schema for the temp file:
 - Include every item from today's plan — the same set that appears in the markdown file under "Today's Action Plan."
 - `status` is one of: `"active"`, `"completed"`, `"cancelled"`, `"reassigned"`, `"moved"`. Default to `"active"` for new entries unless the item already shipped before the plan was written.
 - The shell script preserves live status (`status`, `statusHistory`, `addedAt`, `links`, `updatedAt`) for any `jiraKey` that already exists in today's snapshot — so re-running `/daily-action` mid-day after the agent has flipped a status to `"completed"` will not wipe that.
-- Keys in old `plan.items` that are not in your new `planItems` are **dropped**. That's the correct behavior — items leave the plan when you take them off.
+- Keys in old `plan.items` that are not in your new `planItems` are **dropped**. That is the correct behavior — items leave the plan when you take them off.
 - New entries are stamped with `addedAt`, `updatedAt`, and an initial `statusHistory` automatically.

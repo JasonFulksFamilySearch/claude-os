@@ -107,13 +107,17 @@ collect_repo() {
     output+="_None_\n\n"
   fi
 
-  # --- CI status (latest run on main) ---
-  local ci_status
+  # --- CI status (latest run on default branch) ---
+  local default_branch ci_status
+  default_branch=$(gh repo view "$slug" \
+    --json defaultBranchRef \
+    --jq '.defaultBranchRef.name // "main"' 2>/dev/null) || default_branch="main"
+
   ci_status=$(gh run list --repo "$slug" \
-    --branch main --limit 1 \
+    --branch "$default_branch" --limit 1 \
     --json status,conclusion,name,createdAt 2>/dev/null) || true
 
-  output+="**CI status (main):**\n"
+  output+="**CI status (${default_branch}):**\n"
   if [[ -n "$ci_status" && "$ci_status" != "[]" ]]; then
     output+="${ci_status}\n\n"
   else
