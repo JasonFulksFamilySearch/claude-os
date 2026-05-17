@@ -1,0 +1,85 @@
+# proposal-rubric.yaml
+# Used by /grade-proposal to score reflection proposals independently.
+# Total: 100 points. Threshold for "passing": 70.
+
+proposal_rubric:
+  threshold: 70
+
+  dimensions:
+    - name: evidence_strength
+      weight: 30
+      description: |
+        How strong is the evidence backing this proposal?
+      scoring:
+        - range: [25, 30]
+          criteria: 3+ distinct sessions cited with timestamps and command details
+        - range: [18, 24]
+          criteria: 2 distinct sessions cited
+        - range: [10, 17]
+          criteria: 1 session cited OR evidence is hearsay
+        - range: [0, 9]
+          criteria: No specific evidence; pattern asserted without backing
+
+    - name: actionability
+      weight: 25
+      description: |
+        Can this be applied without ambiguity?
+      scoring:
+        - range: [20, 25]
+          criteria: Exact file path + exact text to add/replace + no ambiguity
+        - range: [14, 19]
+          criteria: File path correct, content mostly clear, minor interpretation needed
+        - range: [7, 13]
+          criteria: Vague target ("update CLAUDE.md somewhere")
+        - range: [0, 6]
+          criteria: Cannot be applied without significant decision-making
+
+    - name: impact_estimate
+      weight: 15
+      description: |
+        Is the productivity savings claim realistic?
+      scoring:
+        - range: [12, 15]
+          criteria: Realistic minutes/week saved, bounded, with justification
+        - range: [7, 11]
+          criteria: Reasonable estimate but no justification
+        - range: [0, 6]
+          criteria: Wildly optimistic (>60 min/week) or unestimated
+
+    - name: reversibility
+      weight: 15
+      description: |
+        How easily can this change be undone if it turns out to be wrong?
+      scoring:
+        - range: [12, 15]
+          criteria: Pure git revert undoes everything; no side effects
+        - range: [7, 11]
+          criteria: Reversible but requires coordination
+        - range: [0, 6]
+          criteria: Hard to reverse (e.g., deleting Auto Memory)
+
+    - name: scope_isolation
+      weight: 15
+      description: |
+        Does the change target the correct scope?
+      scoring:
+        - range: [12, 15]
+          criteria: Change targets right scope (user vs project vs path-scoped)
+        - range: [7, 11]
+          criteria: Scope is broader than necessary but not harmful
+        - range: [0, 6]
+          criteria: Wrong scope (e.g., user-level rule for project-specific issue)
+
+  recommendations:
+    - score_range: [90, 100]
+      action: APPROVE_AUTO_RECOMMEND
+      description: Strong proposal; recommend for application
+    - score_range: [70, 89]
+      action: APPROVE
+      description: Solid proposal; present in review queue
+    - score_range: [50, 69]
+      action: REVISE
+      description: Weak signal; revise or wait for more data
+    - score_range: [0, 49]
+      action: REJECT
+      description: Fundamental issue; do not present

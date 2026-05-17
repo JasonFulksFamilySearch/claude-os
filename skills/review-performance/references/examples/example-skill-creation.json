@@ -1,0 +1,21 @@
+{
+  "id": "P002",
+  "priority": "MEDIUM",
+  "category": "SKILL_CREATION",
+  "title": "Create /arc-jira-context skill to pre-load board state",
+  "description": "All 5 recent sessions in arc-* repos started with the agent querying the Jira board manually. This is a deterministic, repeated workflow — perfect skill candidate. The skill would auto-load on repo entry via SessionStart hook.",
+  "evidence": [
+    "session-abc123 (2026-05-16): 3 minutes spent on initial Jira queries before agent had context",
+    "session-def456 (2026-05-16): same pattern, 4 minutes lost",
+    "session-ghi789 (2026-05-17): 2 minutes — user said 'load my Jira context first'"
+  ],
+  "proposed_change": {
+    "file": "/Users/jason/.claude/skills/arc-jira-context/SKILL.md",
+    "action": "CREATE_SKILL",
+    "scope": "user",
+    "content": "---\nname: arc-jira-context\ndescription: Loads current ARC team Jira board state, active sprint, and the user's assigned tickets. Use this skill at the start of any session in arc-record-exchange, orch-service, or other ARC repos. Make sure to invoke this skill when the user mentions sprint work, Jira tickets, ticket transitions, or any task that requires knowing the current sprint context.\nallowed-tools:\n  - mcp__atlassian__jira_search\n  - mcp__atlassian__jira_get_issue\n---\n\n<role>\nYou are loading Jira context for the ARC team. Your job is to surface the current sprint state, the user's assigned tickets, and any blockers.\n</role>\n\n<task>\n1. Query active sprint for ARC board.\n2. List user's assigned tickets in the sprint with status and priority.\n3. Surface any tickets in 'Code Review' awaiting the user's review.\n4. Output a compact summary (5 lines max) so the agent has context without burning tokens.\n</task>"
+  },
+  "impact": "Save ~3 minutes per session in ARC repos. Estimated 4 sessions/week.",
+  "estimated_weekly_savings_minutes": 12,
+  "agent_sentiment": "n/a"
+}

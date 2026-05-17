@@ -1,0 +1,21 @@
+{
+  "id": "P001",
+  "priority": "HIGH",
+  "category": "CLAUDE_MD_RULE",
+  "title": "Add Jira board validation rule for ARC repos",
+  "description": "Across 5 sessions in arc-record-exchange and orch-service, the agent had to be reminded which Jira transition type applies (Simplified vs Defect/Sighting). Pre-loading this context as a user-level rule will eliminate the back-and-forth.",
+  "evidence": [
+    "session-abc123 (2026-05-16T09:42Z): agent asked 'Which board is this ticket on?' — user clarified Simplified",
+    "session-def456 (2026-05-16T14:21Z): agent applied Defect transition to a Simplified board ticket; user corrected",
+    "session-ghi789 (2026-05-17T08:15Z): same correction needed within 2 minutes of session start"
+  ],
+  "proposed_change": {
+    "file": "/Users/jason/.claude/CLAUDE.md",
+    "action": "ADD_RULE",
+    "scope": "user",
+    "content": "**Rule 12 (added 2026-05-17): Jira Board Type Validation**\n\nWhen working in ARC Team repositories (arc-record-exchange, orch-service), validate the Jira board type before applying transitions. Simplified boards use: Open → In Progress → Code Review → Done. Defect/Sighting boards use: New → Analysis → Fixed → Closed. Never apply Defect transitions to Simplified tickets. See `~/.claude/rules/jira-workflow.md` for the full transition matrix."
+  },
+  "impact": "Reduce mid-session corrections by ~80% across ARC repos. Currently averaging 1 correction per session.",
+  "estimated_weekly_savings_minutes": 25,
+  "agent_sentiment": "n/a"
+}

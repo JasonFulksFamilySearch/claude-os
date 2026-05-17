@@ -1,0 +1,21 @@
+{
+  "id": "P003",
+  "priority": "MEDIUM",
+  "category": "CLAUDE_MD_REFINEMENT",
+  "title": "Strengthen Rule 7 rationale (no ticket numbers in commits)",
+  "description": "Rule 7 has blocked the agent 3 times in 24h. The agent's hook-log messages show 'apologetic' sentiment — it understands the constraint but seems to chafe against it. Strengthening the rationale will reduce friction.",
+  "evidence": [
+    "hook-log 2026-05-17T09:15Z: BLOCKED 'git commit -m ARC-123: Fix filter' — agent: 'I know Rule 7 says no ticket numbers but the convention seems standard...'",
+    "hook-log 2026-05-17T11:42Z: BLOCKED 'git commit -m ARC-456: Update component' — agent: 'I was about to commit with the ticket prefix again, my mistake.'",
+    "hook-log 2026-05-17T15:08Z: BLOCKED 'git commit -m ARC-789' — agent: 'Sorry, deferring to Rule 7.'"
+  ],
+  "proposed_change": {
+    "file": "/Users/jason/.claude/rules/commits.md",
+    "action": "UPDATE_RULE_RATIONALE",
+    "scope": "user",
+    "rationale": "Ticket numbers in commit subjects create bidirectional coupling between code history and the tracking system. When tickets are closed, renamed, or migrated between trackers, every historical commit becomes a stale reference. The alternatives are stronger: git log --grep='ARC-123' finds related commits across history, and conventional commits (feat:, fix:) communicate intent to humans and changelog generators without depending on an external system. Cost: a few keystrokes to type 'fix' instead of 'ARC-123'. Benefit: 100% of commit subjects remain meaningful for the next 10 years."
+  },
+  "impact": "Agent will stop trying the same blocked pattern; reduce stderr noise and apologies.",
+  "estimated_weekly_savings_minutes": 8,
+  "agent_sentiment": "apologetic"
+}
