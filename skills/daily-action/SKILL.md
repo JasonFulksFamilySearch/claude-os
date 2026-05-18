@@ -198,10 +198,16 @@ Read the last 14 action plan markdown files from `~/Documents/WorkDay/DailyActio
 
 ## Priority Mapping
 
-Apply this rule when ordering plan items. Priority values from Jira determine
-the bucket mechanically — do not override with judgment. Mechanical priority
-prevents the plan from silently demoting work that stakeholders have already
-escalated; subjective re-ordering causes sprint drift without a paper trail.
+Apply this two-tier rule when ordering plan items. Sprint membership is the **primary**
+key; Jira priority is the **secondary** key within each tier.
+
+**Tier 1 — Sprint items** (returned by the `sprint in openSprints()` query):
+List all sprint-assigned items first, ordered by Jira priority within this group.
+
+**Tier 2 — Non-sprint items** (defects, sightings, backlog items not in current sprint):
+List after all Tier 1 items, ordered by Jira priority within this group.
+
+Priority bucket mapping (applies within each tier):
 
 | Jira Priority | Plan Bucket |
 |---|---|
@@ -210,9 +216,12 @@ escalated; subjective re-ordering causes sprint drift without a paper trail.
 | Medium | P2 |
 | Low | P3 or omit |
 
-**Tie-breaker:** sprint membership takes precedence over issue type. A sprint-assigned defect follows the High rule (P1), not a defect-only exception.
+A sprint-assigned defect or sighting is Tier 1, not Tier 2 — sprint membership overrides
+issue type. Never reorder items within a tier using judgment; apply the priority table
+mechanically to preserve sprint commitment integrity.
 
-Critical items that are externally blocked appear at P1 with an explicit blocker note — they stay at P1.
+Critical items that are externally blocked appear at P1 with an explicit blocker note —
+they stay at P1.
 
 ## Plan Output Format
 
@@ -222,10 +231,28 @@ Write the plan markdown to `~/Documents/WorkDay/DailyActionPlan/action-plan-${PL
 Structure the plan with these sections in order:
 
 1. **Header**: Date, generation time, signal summary (sprint drift, carryover, completion trend)
-2. **P1 — Must Do**: Each item gets a context paragraph (1–2 sentences on why it is on the plan today), a `- [ ]` checklist of concrete next actions, and a "Done when:" criterion.
-3. **P2 — Should Do**: Same format, lighter context acceptable.
-4. **P3 / Radar**: Listed by key and summary without steps unless already in progress.
-5. **Signal Callouts**: Any WARNING or CRITICAL signals from the retrospective heuristics, with ticket counts.
+2. **Sprint Work — P1**: Sprint-assigned Critical/High items. Each item gets a context paragraph
+   (1–2 sentences on why it is on the plan today), a `- [ ]` checklist of concrete next actions,
+   and a "Done when:" criterion.
+3. **Sprint Work — P2**: Sprint-assigned Medium items. Same format, lighter context acceptable.
+4. **Sprint Work — P3 / Radar**: Sprint-assigned Low items. Listed by key and summary without
+   steps unless already in progress.
+5. **Other Work — P1**: Non-sprint Critical/High items (defects, sightings, backlog). Full format
+   with context, steps, and done-when.
+6. **Other Work — P2**: Non-sprint Medium items.
+7. **Other Work — P3 / Radar**: Non-sprint Low items.
+8. **Signal Callouts**: Any WARNING or CRITICAL signals from the retrospective heuristics, with ticket counts.
+
+**Status tag line (required on every item):** Directly under each item heading, include a
+single backtick tag line showing the raw Jira priority and current Jira status:
+- Sprint items: `` `{Jira Priority} · {Jira Status}` `` — e.g., `` `High · In Progress` ``
+- Other Work items: `` `{Jira Priority} · {Jira Status} · non-sprint` `` — e.g., `` `Critical · Open · non-sprint` ``
+
+This makes each item's priority and workflow status scannable in-place. A high-priority
+non-sprint item placed in Other Work remains visible as a potential management reprioritization
+discussion, even though it correctly appears after all sprint commitments.
+
+Omit any section that has no items — do not emit an empty header.
 </instructions>
 
 <examples>
@@ -234,6 +261,7 @@ Structure the plan with these sections in order:
 **Example — P1 item (standard):**
 
 ### ARC-3972 — Graceful pause/resume on network loss
+`High · In Progress`
 
 Reopened by QA three times in the past two weeks; sprint velocity depends on getting this to Done today. Latest comment from QA identifies a null-pointer in `NetworkMonitor.onLoss()`.
 
@@ -248,6 +276,7 @@ Done when: PR is open, CI is green, ticket is In Review.
 **Example — P1 item (externally blocked):**
 
 ### ARC-4102 — Auth token refresh on session expiry
+`High · In Progress`
 
 Blocked on backend team deploying the new refresh endpoint (ARC-4099, owned by @backend). Cannot proceed until that deploy completes.
 
@@ -257,6 +286,22 @@ Blocked on backend team deploying the new refresh endpoint (ARC-4099, owned by @
 Done when: ARC-4099 is deployed to staging and smoke test passes.
 
 > ⚠ Externally blocked — remains P1 per priority rules; do not demote to P2.
+</example>
+
+<example label="other-work-p1-non-sprint">
+**Example — Other Work P1 item (non-sprint, visible for management discussion):**
+
+### ARC-4521 — Null pointer in batch export handler
+`Critical · Open · non-sprint`
+
+Defect raised by QA; not assigned to the current sprint but marked Critical. Ordering reflects
+sprint commitment — complete sprint work first. Flag for standup: discuss with management whether
+this warrants pulling into the sprint before sprint close.
+
+- [ ] Review defect report and reproduce locally
+- [ ] Discuss reprioritization with manager at standup
+
+Done when: Sprint reprioritization decision is made, or defect is resolved if pulled in.
 </example>
 
 <example label="signal-summary-header">
