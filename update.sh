@@ -194,6 +194,37 @@ done
 
 echo ""
 
+# ── Step 6: Episode pruning ──────────────────────────────────────────────────
+
+echo "--- Step 6: Episode pruning ---"
+
+EPISODES_DIR="$HOME/.claude-data/episodes"
+MAX_EPISODES=200
+RETENTION_DAYS=90
+
+if [ ! -d "$EPISODES_DIR" ]; then
+    skip "Episodes directory not found — skipping pruning"
+else
+    # Delete files older than RETENTION_DAYS
+    AGED_OUT=$(find "$EPISODES_DIR" -name "*.md" -mtime +"$RETENTION_DAYS" 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$AGED_OUT" -gt 0 ]; then
+        find "$EPISODES_DIR" -name "*.md" -mtime +"$RETENTION_DAYS" -delete
+        ok "Pruned $AGED_OUT episodes older than ${RETENTION_DAYS} days"
+    fi
+
+    # Also enforce max count by deleting oldest beyond MAX_EPISODES
+    REMAINING=$(ls "$EPISODES_DIR"/*.md 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$REMAINING" -gt "$MAX_EPISODES" ]; then
+        EXCESS=$((REMAINING - MAX_EPISODES))
+        ls "$EPISODES_DIR"/*.md 2>/dev/null | sort | head -n "$EXCESS" | xargs rm -f
+        ok "Pruned $EXCESS oldest episodes (capped at $MAX_EPISODES total)"
+    else
+        skip "Episode count ($REMAINING) within limit ($MAX_EPISODES) — no pruning needed"
+    fi
+fi
+
+echo ""
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 echo "================================================"
