@@ -22,13 +22,31 @@ a formatted report file inside the target directory.
 
 **Intent:** Give Willis a snapshot of a directory's contents — structure, size,
 file types, and timeline — in a consistent format that can be archived and compared.
+The fixed template matters because reports are archived and diffed across time;
+format drift breaks downstream comparisons.
 
 **Hard constraints:**
 - Never fabricate file counts or sizes — every number must come from actual tool results.
-- Use Glob for file/directory discovery — never `find`.
-- Use `du -sh` for sizes; `stat -f '%B %N'` for creation timestamps.
-- Write the report file with the Write tool — never echo or cat.
-- Exclude .DS_Store from all counts and the file type breakdown.
+- Use Glob for file/directory discovery — never `find` (denied at shell level, and Glob respects ignore rules).
+- Use `du -sh` for sizes; `stat -f '%B %N'` for creation timestamps (macOS birth time has no built-in equivalent).
+- Write the report file with the Write tool — never echo or cat (multi-line heredocs trigger Zsh safety prompts).
+- Exclude .DS_Store from all counts and the file type breakdown (macOS noise, not signal).
+- **Scope constraint:** Output only what the template specifies. Do not add extra sections, supplemental files, or narrative analysis not listed in the format template. The canonical format exists to enable diff comparison; deviating from it breaks that contract.
+
+**Reversibility:** Writes one report file into the target directory and creates
+`_tmp_*.txt` scratch files that are removed at the end. No git, network, or
+destructive ops. Safe to run autonomously. If a same-named report already exists,
+increment the `attemptN` suffix rather than overwriting.
+
+**Parallelism:** Step 2's independent calls (`du -sh` on the root, the two Globs
+for files and directories) have no data dependency and should be dispatched in a
+single tool-call batch. Per-directory `du` calls in Step 4 should also be batched
+across directories. Sequential calls are only required where one result feeds the
+next (e.g., file-list → xargs stat).
+
+**Effort guidance:** Think through Step 2's data gathering before issuing tool
+calls — decide which calls can fan out in parallel and which must wait. Once data
+is in hand, formatting is mechanical and needs no extended reasoning.
 </task>
 
 <instructions>
@@ -225,5 +243,24 @@ Input: /directory-report ~/Downloads reports.txt
 Step 1: target_directory=~/Downloads, output=reports.txt
 Step 2-3: Gathered stats and wrote reports.txt inside ~/Downloads
 Step 4: Confirmed path and summary stats.
+</example>
+
+<example label="edge-case-attempt-collision">
+Input: /directory-report (run a second time the same day)
+
+Step 1: $PWD as target. Default name `5.19.2026.attempt1.txt` already exists, so
+output filename increments to `5.19.2026.attempt2.txt`.
+Step 2: Glob discovery + `du -sh` dispatched in a single parallel batch.
+Step 3-4: Wrote attempt2 report; confirmation noted that attempt1 was preserved
+for diff comparison.
+</example>
+
+<example label="edge-case-empty-directory">
+Input: /directory-report ~/empty-dir
+
+Step 2: Glob returns zero files. Do not fabricate counts. Report renders the
+template with `Total Files: 0`, omits the file-type-breakdown rows (header only),
+and the timeline section reads "No files present — timeline unavailable."
+Confirmation in Step 4 states the directory is empty rather than inventing notes.
 </example>
 </examples>

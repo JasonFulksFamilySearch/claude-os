@@ -6,7 +6,7 @@ description: >
   "notify team about PR", "send PR for review", or "send it to the team". Optional
   positional args `pablo` or `olaf` tag additional reviewers beyond the defaults.
 argument-hint: "[pablo] [olaf] [--dry-run]"
-allowed-tools: Bash(gh *) Bash(git *) mcp__slack__slack_post_message mcp__slack__slack_get_channel_history mcp__slack__slack_list_channels
+allowed-tools: Bash(gh *) Bash(git *) mcp__slack__conversations_add_message mcp__slack__conversations_history mcp__slack__channels_list
 ---
 
 <role>
@@ -25,7 +25,7 @@ reviewers can immediately judge whether to prioritize the review.
 
 **Hard constraints:**
 - Read `gh pr view --json title,body,url,headRefName` before composing anything — this prevents fabricating PR details that differ from what GitHub actually contains.
-- Use `~/.claude-os/agents/pr-to-slack/post.sh` as the only path to Slack — it validates Block Kit structure before posting; calling `curl chat.postMessage` directly or `mcp__slack__slack_post_message` bypasses that guard and degrades the message format.
+- Use `~/.claude-os/agents/pr-to-slack/post.sh` as the only path to Slack — it validates Block Kit structure before posting; calling `curl chat.postMessage` directly or `mcp__slack__conversations_add_message` bypasses that guard and degrades the message format.
 - On `--dry-run` invocations, print the assembled Block Kit payload verbatim to Jason and stop — this is Jason's verification path before committing to a live post.
 - If `gh pr view` fails, tell Jason to push the branch and open a PR first. Stop.
 - Write in Jason's direct technical voice: lead with what changed and why it matters; keep attribution lines, greetings, and hedging language out of the summary entirely.
@@ -45,6 +45,17 @@ payload before a live post.
 **Scope:** Write only the summary paragraph. Do not add context beyond the
 1–3 sentence or 3–5 bullet scope, and do not reproduce metadata the script already
 handles (reviewer names, PR URL, file stats, Jira link, message structure).
+
+**Slack MCP tool roles:** The `mcp__slack__channels_list` and
+`mcp__slack__conversations_history` tools are available for verification
+only — use them to confirm the target channel exists or to check recent posts
+for duplicates before re-posting. `mcp__slack__conversations_add_message` is listed so
+the toolset is complete, but posting must go through `post.sh` which validates
+Block Kit structure first; direct MCP posting bypasses that validation.
+
+**Slack MCP authentication:** The Slack MCP server authenticates via a bot token
+configured in Claude Code's MCP server config (`claude mcp get slack`). No additional
+token setup is needed at invocation time — the server handles auth automatically.
 </context>
 
 <instructions>
@@ -54,14 +65,20 @@ optional arg parsing, and script invocation contract.
 
 **Short form:**
 
-1. Run `gh pr view --json title,body,url,headRefName` and `git diff --stat origin/main...HEAD` in parallel.
-2. Write a 1–3 sentence (or 3–5 bullet) summary to `/tmp/_tmp_pr_summary.md` in Jason's voice.
-3. Parse user args: `pablo` → `--pablo`, `olaf` → `--olaf`, dry-run keywords → `--dry-run`.
-4. Invoke:
+1. Run `gh pr view --json title,body,url,headRefName` and `git diff --stat origin/main...HEAD`
+   in parallel — independent reads, no dependency between them.
+2. If the diff output is large (>100 lines), place it above the summary composition
+   step so the model has the full change context before drafting the summary.
+3. Think through what changed and why it matters before writing the summary — one pass
+   of reasoning produces a tighter, more accurate technical summary than composing directly.
+4. Write a 1–3 sentence (or 3–5 bullet) summary to `/tmp/_tmp_pr_summary.md` in Jason's
+   voice. This file is always (re)written fresh — prior contents are overwritten.
+5. Parse user args: `pablo` → `--pablo`, `olaf` → `--olaf`, dry-run keywords → `--dry-run`.
+6. Invoke:
    ```bash
    ~/.claude-os/agents/pr-to-slack/post.sh "" /tmp/_tmp_pr_summary.md [flags]
    ```
-5. Relay the script's stdout verbatim. On live success: confirm channel and reviewers tagged.
+7. Relay the script's stdout verbatim. On live success: confirm channel and reviewers tagged.
 </instructions>
 
 <success_criteria>
@@ -111,5 +128,13 @@ gh pr view fails: "no pull requests found for branch 'feat/ARC-4012-fix-timeout'
 Response: "No open PR found for this branch. Push the branch and open a PR on GitHub
 first, then run /pr-to-slack again."
 Nothing posted. Stop — do not attempt to create the PR or continue the workflow.
+</example>
+
+<example label="channel-verification">
+Input: /pr-to-slack (before first use in a new Slack workspace)
+
+Use mcp__slack__channels_list to confirm #arc-team-devs is present and retrieve
+its channel ID. Store the ID for the post.sh invocation. If the channel is not found,
+report the missing channel to Jason and stop — do not post to an unverified channel.
 </example>
 </examples>

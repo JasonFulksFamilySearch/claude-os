@@ -323,6 +323,15 @@ Pass: The skill or CLAUDE.md names every MCP server it relies on and says
 what it uses it for ("Use the Jira MCP to read issue details and post
 comments — do not use the API directly."). Fail: MCP servers are listed in
 settings but never referenced or explained in the skill.
+**Dead-prefix violation (automatic D1 fail):** Any occurrence of
+`mcp__claude_ai_Atlassian__` in `allowed-tools`, tool call examples, or prose
+is an automatic D1 fail — this prefix refers to the retired claude.ai gateway
+that no longer exists and fails silently. The canonical live prefix is
+`mcp__atlassian__`.
+**Dead-prefix violation (automatic D1 fail):** Any occurrence of
+`mcp__c9b44d58-*` in `allowed-tools`, tool call examples, or prose
+is an automatic D1 fail — this UUID-based prefix refers to the retired
+`atlassian@claude-plugins-official` plugin (deregistered 2026-05-07) and fails silently.
 
 **D2 — Tool allowlist / denylist is configured**
 Pass: The skill either references only the specific tools it needs from each
@@ -422,7 +431,7 @@ Average delta: +22
 <example label="mcp-connector-skill">
 Input: /skill-auditor ~/.claude-os/skills/jira/SKILL.md
 
-Rubric D applies (skill uses mcp__claude_ai_Atlassian__).
+Rubric D applies (skill uses mcp__atlassian__).
 D1=2 (server named + purpose stated), D2=2 (specific tools listed), D3=2 (trust boundary noted),
 D4=2 (OAuth via Claude Code MCP settings documented), D5=2 (example tool calls present).
 D score: 10/10 — No MCP gaps found.

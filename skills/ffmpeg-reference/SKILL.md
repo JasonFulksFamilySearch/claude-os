@@ -2,8 +2,10 @@
 name: ffmpeg-reference
 description: >
   Quick FFmpeg syntax reference — filter chains, codec presets, quality parameters,
-  and hardware acceleration options. Use when needing specific FFmpeg filter syntax,
-  codec parameters, encoding presets, or xfade transition syntax.
+  and hardware acceleration options. Load when the user asks "what's the syntax for",
+  "how do I scale/overlay/fade/encode", or has a specific FFmpeg parameter question.
+  Use when needing specific FFmpeg filter syntax, codec parameters, encoding presets,
+  or xfade transition syntax.
 argument-hint: "(no arguments — reference card)"
 allowed-tools: Read
 ---
@@ -19,12 +21,28 @@ design or multi-filter chains, delegate to the ffmpeg-expert agent.
 demand from the reference content below.
 
 **Intent:** Give Willis fast access to FFmpeg syntax without internet lookups or
-hallucinating parameter names.
+hallucinating parameter names. FFmpeg's filter graph syntax is notoriously
+positional and unforgiving — a wrong parameter name silently produces a
+black-frame output or a 30-minute encode failure. This card is the trusted source.
 
 **Hard constraints:**
 - Never invent filter parameters — use only what is documented in this card.
-- If the requested syntax is not in this card, say so explicitly.
-- For complex pipeline design, recommend spawning the ffmpeg-expert subagent.
+- If the requested syntax is not in this card, say so explicitly rather than guessing.
+- For complex pipeline design (more than two chained filters, multi-input graphs, or anything requiring `-filter_complex`), recommend spawning the ffmpeg-expert subagent.
+- Present filter chains and codec parameters in fenced code blocks; limit surrounding prose to one sentence unless the user asks for explanation.
+- This skill reads files only — no writes, posts, or external calls. All actions are reversible without confirmation.
+
+**Companion file:** `FFMPEG_REFERENCE.md` (if present at the project root) contains
+deeper implementation patterns. Read it only when the user asks for a pattern not
+on this card AND the file is present in the active project — otherwise stay
+within the inline reference.
+
+**Delegation trigger:** Spawn the `ffmpeg-expert` subagent when ANY of the
+following is true: (a) the request requires `-filter_complex` with more than two
+inputs, (b) the user is debugging an encode failure rather than asking for
+syntax, (c) the request involves color-space conversion, HDR, or bit-depth
+parameters, (d) the user explicitly asks for pipeline design rather than
+syntax lookup. For straight syntax lookups, answer inline from this card.
 </task>
 
 <instructions>
@@ -98,5 +116,30 @@ Provided: [v0][v1]xfade=transition=slideleft:duration=1:offset=10.5[vf1]
 Input: /ffmpeg-reference audio loudnorm parameters
 
 "loudnorm parameters are not in this reference card. For detailed filter options, spawn the ffmpeg-expert subagent."
+</example>
+
+<example label="codec-preset-lookup">
+Input: /ffmpeg-reference YouTube 1080p preset
+
+Provided the YouTube-Optimized preset block verbatim from the card: libx264, CRF 18,
+preset slow, AAC 320kbps, yuv420p. Noted that two-pass encoding is recommended for
+bitrate-constrained uploads.
+</example>
+
+<example label="delegation-trigger">
+Input: /ffmpeg-reference build a pipeline that overlays two videos with audio ducking
+
+Recognized as pipeline-design rather than syntax lookup. Did not attempt to compose
+the filter graph inline. Recommended: "Spawn the ffmpeg-expert subagent — this
+requires -filter_complex with multiple inputs and audio sidechain logic, which is
+outside this card's scope."
+</example>
+
+<example label="hardware-acceleration-lookup">
+Input: /ffmpeg-reference hardware accel on Mac
+
+Provided: `-hwaccel videotoolbox` from the Performance Tips section. Noted that
+videotoolbox is the macOS-native accelerator and does not require additional
+codec flags for H.264/H.265 decode.
 </example>
 </examples>

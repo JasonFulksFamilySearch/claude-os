@@ -7,7 +7,7 @@ description: >
   release", "what's shipping in this release", or invokes /jira-release-audit or is
   preparing to cut a release.
 argument-hint: "[target-version] (e.g. v2.13.0 — defaults to auto-detected minor bump)"
-allowed-tools: Bash(git tag *) Bash(git log *) Bash(git describe *)
+allowed-tools: Bash(git tag *) Bash(git log *) Bash(git describe *) mcp__atlassian__getJiraIssue mcp__atlassian__editJiraIssue
 ---
 
 <role>
@@ -31,7 +31,7 @@ the code is already in production.
 - Confirm the target version with Sir before writing any fixVersion to Jira.
 - Flag any ticket whose fixVersions already contain a version — preserve existing values and present for manual review.
 - Run all Jira ticket fetches in parallel (Step 4) and all fixVersion stamps in parallel (Step 6).
-- Always use `mcp__claude_ai_Atlassian__` for all Jira operations.
+- Always use `mcp__atlassian__` for all Jira operations.
 - Scope this audit to fixVersion stamping only — do not transition issue statuses, edit summaries, or make any other Jira changes.
 
 **Reversibility:**
@@ -96,7 +96,7 @@ Using the same latest tag from Step 1 (e.g. `v2.12.0`), default to a **minor bum
 
 ### Step 3 — Find or Create the Jira Version
 
-Use `mcp__claude_ai_Atlassian__` to check whether the version already exists in Jira:
+Use `mcp__atlassian__` to check whether the version already exists in Jira:
 
 ```
 GET https://icseng.atlassian.net/rest/api/3/project/ARC/versions
@@ -118,7 +118,7 @@ Note the `id` from the response — it is needed for all `editJiraIssue` calls.
 
 ### Step 4 — Fetch All Identified Tickets in Parallel
 
-For every ARC ticket extracted in Step 1, call `mcp__claude_ai_Atlassian__getJiraIssue` **in a single parallel batch**:
+For every ARC ticket extracted in Step 1, call `mcp__atlassian__getJiraIssue` **in a single parallel batch**:
 
 ```
 cloudId: icseng.atlassian.net
@@ -135,7 +135,7 @@ fields: ["summary", "status", "fixVersions", "issuetype"]
 
 ### Step 6 — Stamp Missing Tickets in Parallel
 
-For every ticket in the "needs stamping" list, call `mcp__claude_ai_Atlassian__editJiraIssue` **in a single parallel batch**:
+For every ticket in the "needs stamping" list, call `mcp__atlassian__editJiraIssue` **in a single parallel batch**:
 
 ```
 cloudId: icseng.atlassian.net
@@ -170,14 +170,14 @@ After stamping, call out any ticket where:
 | cloudId    | icseng.atlassian.net               |
 | Project    | ARC                                |
 | projectId  | 10647                              |
-| MCP prefix | `mcp__claude_ai_Atlassian__` only  |
+| MCP prefix | `mcp__atlassian__` only  |
 | Bump style | Minor by default (v#.#+1.0)        |
 
 ## Notes
 
 - Flag any ticket with an existing non-empty `fixVersions` for manual review — preserve existing values.
 - Sub-Tasks (issuetype = Sub-Task) may need a status transition in addition to fixVersion — flag them if status is To Do.
-- Always use `mcp__claude_ai_Atlassian__` for all Jira operations.
+- Always use `mcp__atlassian__` for all Jira operations.
 
 </instructions>
 
@@ -199,12 +199,12 @@ Step 1: git log v2.12.0..HEAD → 3 commits → ARC-4201, ARC-4215 extracted.
 Step 2: Feat: commits found → suggesting v2.13.0. Sir confirmed.
 Step 3: v2.13.0 not in Jira → offered to create → Sir confirmed → version id 15321.
 Step 4 (parallel):
-  mcp__claude_ai_Atlassian__getJiraIssue(cloudId: "icseng.atlassian.net", issueKey: "ARC-4201", fields: ["summary","status","fixVersions","issuetype"])
-  mcp__claude_ai_Atlassian__getJiraIssue(cloudId: "icseng.atlassian.net", issueKey: "ARC-4215", fields: ["summary","status","fixVersions","issuetype"])
+  mcp__atlassian__getJiraIssue(cloudId: "icseng.atlassian.net", issueKey: "ARC-4201", fields: ["summary","status","fixVersions","issuetype"])
+  mcp__atlassian__getJiraIssue(cloudId: "icseng.atlassian.net", issueKey: "ARC-4215", fields: ["summary","status","fixVersions","issuetype"])
   → ARC-4201 (fixVersions: empty), ARC-4215 (fixVersions: empty)
 Step 6 (parallel):
-  mcp__claude_ai_Atlassian__editJiraIssue(cloudId: "icseng.atlassian.net", issueKey: "ARC-4201", fields: { fixVersions: [{ id: "15321" }] })
-  mcp__claude_ai_Atlassian__editJiraIssue(cloudId: "icseng.atlassian.net", issueKey: "ARC-4215", fields: { fixVersions: [{ id: "15321" }] })
+  mcp__atlassian__editJiraIssue(cloudId: "icseng.atlassian.net", issueKey: "ARC-4201", fields: { fixVersions: [{ id: "15321" }] })
+  mcp__atlassian__editJiraIssue(cloudId: "icseng.atlassian.net", issueKey: "ARC-4215", fields: { fixVersions: [{ id: "15321" }] })
 
 Summary:
   Stamped this run: ARC-4201, ARC-4215
@@ -223,10 +223,10 @@ Step 1: git log v2.12.0..HEAD → 2 commits → ARC-4210 extracted.
 Step 2: Only Fix: commits found; user passed v2.12.1 explicitly — confirmed.
 Step 3: v2.12.1 already exists in Jira → id 15298 noted.
 Step 4 (parallel):
-  mcp__claude_ai_Atlassian__getJiraIssue(cloudId: "icseng.atlassian.net", issueKey: "ARC-4210", fields: ["summary","status","fixVersions","issuetype"])
+  mcp__atlassian__getJiraIssue(cloudId: "icseng.atlassian.net", issueKey: "ARC-4210", fields: ["summary","status","fixVersions","issuetype"])
   → ARC-4210 (fixVersions: empty)
 Step 6 (parallel):
-  mcp__claude_ai_Atlassian__editJiraIssue(cloudId: "icseng.atlassian.net", issueKey: "ARC-4210", fields: { fixVersions: [{ id: "15298" }] })
+  mcp__atlassian__editJiraIssue(cloudId: "icseng.atlassian.net", issueKey: "ARC-4210", fields: { fixVersions: [{ id: "15298" }] })
 
 Summary:
   Stamped this run: ARC-4210

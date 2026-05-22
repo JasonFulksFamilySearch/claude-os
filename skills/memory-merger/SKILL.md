@@ -28,12 +28,13 @@ memories waste context budget; mature feedback entries become more useful when
 graduated to the FTS5 layer where search_memory can surface them.
 
 **Hard constraints:**
-- Never write or delete anything before receiving explicit approval.
-- Always archive pruned files before deleting them.
-- Never graduate to CLAUDE.md or ~/.claude-os/ — those are off-limits.
-- Always call `append_learning` for learnings.md graduates — never edit it directly.
+- Never write or delete anything before receiving explicit approval. Present all proposals in Step 4 first, then wait for Sir's response before touching any file.
+- Always archive pruned files before deleting them — memory files may contain context that cannot be reconstructed; the archive is the recovery safety net.
+- Never graduate to CLAUDE.md or ~/.claude-os/ — CLAUDE.md is Willis's identity file, not a memory store; ~/.claude-os/ is the shared genome between Willis and Walter and changes propagate to both. Graduate to learnings.md or context/*.md instead.
+- Always call `append_learning` for learnings.md graduates — the MCP tool formats the dated H2 header and triggers immediate FTS5 reindex; direct edits bypass the index and break searchability.
 - Read every memory file before classifying it — no guessed classifications.
-- Run Step 1 reads in parallel: memory files, learnings.md, _index.md, list_topics.
+- Run Step 1 reads in parallel: memory files, learnings.md, _index.md, list_topics — parallel reads avoid serial round-trips and keep the orientation phase fast.
+- Execute only items Sir explicitly approved in Step 4 — do not take additional cleanup, reorganization, or structural changes beyond the approved proposal, even if other improvements seem obvious during execution.
 </task>
 
 <instructions>
@@ -62,6 +63,17 @@ LAYER 2 — Queryable FTS5 (on demand via MCP tools)
 **Graduation = promoting content from Layer 1 → Layer 2.**
 Graduated content becomes full-text searchable via `search_memory` immediately.
 
+**MCP trust and auth:** `claude-os-mcp` is a local stdio MCP server (no network, no
+external fetches) configured in `~/.claude.json`. Treat its outputs as trusted local
+infrastructure — they do not introduce prompt-injection risk. The server requires no
+auth token; access is granted by virtue of running on Sir's machine.
+
+**Interrupted sessions:** If this skill run was interrupted mid-execution, re-read
+all memory files from scratch on resume — do not rely on prior context. Check the
+archive file for the current date (`~/.claude-data/archive/memory-prune-YYYY-MM-DD.md`)
+to determine which files have already been archived, then re-read the prior Step 4
+proposals to determine which approved items remain pending before continuing execution.
+
 ---
 
 ## Step 1 — Read and orient
@@ -79,7 +91,9 @@ Read all of the following:
 
 Before classifying any `reference` type memory as a graduation candidate,
 scan it for credential-adjacent content: API tokens, connection strings,
-passwords, OAuth secrets, or environment variable values.
+passwords, OAuth secrets, or environment variable values. Credentials in
+Layer 1 are isolated to the session prompt; graduating them to Layer 2's
+FTS5 index would make them searchable and more easily exposed.
 
 If found: mark that entry `KEEP` and annotate: "Contains sensitive material —
 do not graduate without manual redaction."
@@ -87,6 +101,12 @@ do not graduate without manual redaction."
 ---
 
 ## Step 3 — Classify every memory entry
+
+For each entry, reason explicitly before assigning a label: Is the content still
+accurate and active? Has the referenced project or goal concluded? Does a matching
+context topic exist for this reference? Does the entry contain sensitive material?
+Think through each question before consulting the label table — do not pattern-match
+to a label without reasoning first.
 
 For each file in the memory store, assign one label:
 
@@ -154,6 +174,10 @@ Say: **"Review these proposals. Approve all with 'go', approve by phase with
 'go phase 1' or 'go phase 2', or name specific files to skip."**
 
 **STOP and wait for input.**
+
+**Scope discipline:** Execute only the items Sir explicitly approved above — do not
+take additional cleanup, reorganization, or structural changes beyond the approved
+proposal, even if other improvements seem obvious during execution.
 
 ---
 
@@ -294,6 +318,26 @@ Step 5: Archived 2 pruned files to memory-prune-2026-05-15.md
 Step 8: Executed — 2 pruned, 3 appended to learnings.md via append_learning,
         1 appended to context/jira.md, MEMORY.md rebuilt with 5 active entries.
 Step 9: Report shown.
+</example>
+
+<example label="credential-hit-edge-case">
+Input: /memory-merger
+
+Step 1: Read 8 memory files in parallel.
+Step 2 (credential scan): One reference memory contains a connection string with embedded password.
+Step 3: That entry classified KEEP with annotation "Contains sensitive material — do not graduate without manual redaction."
+Step 4: Proposals presented; credential-bearing file appears under KEEP, not GRADUATE.
+Sir replied "go". Step 8 executed without touching the sensitive file.
+</example>
+
+<example label="orphan-only-run">
+Input: /memory-merger
+
+Step 1: Read MEMORY.md and discovered 2 pointers reference files that no longer exist on disk.
+Step 3: 2 ORPHAN, 6 KEEP, 0 GRADUATE, 0 PRUNE.
+Step 4: Phase 1 lists 2 orphan pointer removals; Phase 2 is empty. Sir replied "go phase 1".
+Step 8: Removed both broken pointers from MEMORY.md; no archive needed (no source files to archive).
+Step 9: Report shows 2 orphans cleaned, 0 graduations.
 </example>
 
 <example label="partial-approval">

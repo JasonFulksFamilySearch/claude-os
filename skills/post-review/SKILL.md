@@ -3,8 +3,8 @@ name: post-review
 description: >
   Post a structured PR review with inline comments and code suggestions to GitHub.
   Use when the user says "post my review", "submit the review", "review this PR",
-  "post review on #NNN", or invokes /post-review. Also trigger after an AI-assisted
-  code review analysis and the user asks to publish it to GitHub.
+  "post review on #NNN", or invokes /post-review. Also trigger after a code review
+  analysis and the user asks to publish it to GitHub.
 allowed-tools: Bash(gh *) Bash(git *) Read Grep Glob Write
 argument-hint: <PR number> [approve|comment|request-changes]
 ---
@@ -32,7 +32,6 @@ apply, and the tone reinforces collaboration rather than criticism.
 - Use Read and Grep built-in tools for file inspection; shell equivalents (`cat`, `head`, `tail`, `grep`, `sed`, `awk`, `find`) are denied at the shell level.
 - Read the PR diff before asserting anything about the code.
 - Verify that each target line appears in the diff hunk; flag and skip lines that fall outside hunks.
-- Label AI-generated review content as "AI generated, human reviewed" per project convention.
 
 Think step by step through line number resolution (Step 3) before building the payload —
 mismatched line numbers are the most common failure mode and cause silent 422 rejections.

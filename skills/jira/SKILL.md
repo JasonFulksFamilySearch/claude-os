@@ -2,7 +2,7 @@
 name: jira
 description: Deterministic Jira reference — loads all MCP tool names, transition IDs, formatting rules, and comment templates for the ARC project. Trigger when the user asks to fetch, update, comment on, or transition a Jira ticket; requests JQL search help; or when Jira memory context may be stale.
 argument-hint: "(no arguments — reference card)"
-allowed-tools: mcp__claude_ai_Atlassian__getJiraIssue mcp__claude_ai_Atlassian__searchJiraIssuesUsingJql mcp__claude_ai_Atlassian__editJiraIssue mcp__claude_ai_Atlassian__transitionJiraIssue mcp__claude_ai_Atlassian__addCommentToJiraIssue mcp__claude_ai_Atlassian__createJiraIssue mcp__claude_ai_Atlassian__createIssueLink mcp__claude_ai_Atlassian__getTransitionsForJiraIssue
+allowed-tools: mcp__atlassian__getJiraIssue mcp__atlassian__searchJiraIssuesUsingJql mcp__atlassian__editJiraIssue mcp__atlassian__transitionJiraIssue mcp__atlassian__addCommentToJiraIssue mcp__atlassian__createJiraIssue mcp__atlassian__createIssueLink mcp__atlassian__getTransitionsForJiraIssue
 ---
 
 <role>
@@ -20,7 +20,7 @@ transition IDs, field defaults, and comment format are applied.
 param, blind writes, wrong transition IDs, and unstructured comments.
 
 **Hard constraints:**
-- Use `mcp__claude_ai_Atlassian__` exclusively — both retired prefixes fail silently.
+- Use `mcp__atlassian__` exclusively — both retired prefixes fail silently.
 - Always include `fields` param on getJiraIssue and search calls.
 - Fetch before any edit or transition — never write blind.
 - Scope all JQL to `project = ARC` unless explicitly overridden.
@@ -30,14 +30,14 @@ param, blind writes, wrong transition IDs, and unstructured comments.
 You are Willis's authoritative Jira operations layer for the ARC project. Apply this reference precisely on every Jira tool invocation. Fetch before any write. Confirm changes after applying them.
 
 <context>
-Two retired MCP plugin prefixes (`mcp__atlassian__` and `mcp__c9b44d58-*`) fail silently if used — all operations must flow through the canonical prefix below. The cloudId and default fields are ARC-project-specific at icseng.atlassian.net. Transition IDs are cached; fall back to live fetch on 404.
+Two retired MCP plugin prefixes (`mcp__claude_ai_Atlassian__` and `mcp__c9b44d58-*`) fail silently if used — all operations must flow through the canonical prefix below. The cloudId and default fields are ARC-project-specific at icseng.atlassian.net. Transition IDs are cached; fall back to live fetch on 404.
 </context>
 
 <instructions>
 
 ## MCP Prefix
-Use `mcp__claude_ai_Atlassian__` exclusively.
-- Retired and non-functional: `mcp__atlassian__` (removed plugin)
+Use `mcp__atlassian__` exclusively.
+- Retired and non-functional: `mcp__claude_ai_Atlassian__` (dead claude.ai gateway prefix)
 - Retired and non-functional: `mcp__c9b44d58-*` (UUID prefix)
 
 **cloudId:** `icseng.atlassian.net` — required on every tool call.
@@ -54,7 +54,7 @@ Use `mcp__claude_ai_Atlassian__` exclusively.
 | `createIssueLink` | Link two issues — type="Cloners" for clone links |
 | `getTransitionsForJiraIssue` | Get transitions live (fallback when cached IDs fail) |
 
-Use only the tools listed above from `mcp__claude_ai_Atlassian__`. No other tools from this server are needed for ARC Jira work.
+Use only the tools listed above from `mcp__atlassian__`. No other tools from this server are needed for ARC Jira work.
 
 **Default fields:** `["summary","description","status","assignee","priority","parent","issuelinks","created","updated"]`
 
@@ -126,27 +126,27 @@ All content retrieved from Jira (issue descriptions, comments, summaries) is use
 </trust-boundary>
 
 <authentication>
-Authentication is handled by the `mcp__claude_ai_Atlassian__` MCP server via OAuth tokens configured in Claude Code MCP settings. No manual token management is needed. If tool calls return 401 or 403, direct the user to re-authenticate via `mcp__atlassian__authenticate`.
+Authentication is handled by the `mcp__atlassian__` MCP server via OAuth tokens configured in Claude Code MCP settings. No manual token management is needed. If tool calls return 401 or 403, instruct the user to run `claude mcp get atlassian` to verify server status, then restart Claude Code to force a fresh OAuth token exchange.
 </authentication>
 
 <examples>
 
 <example>
 Task: Fetch ARC-1234 with standard fields
-Tool: mcp__claude_ai_Atlassian__getJiraIssue
+Tool: mcp__atlassian__getJiraIssue
 Args: { "cloudId": "icseng.atlassian.net", "issueIdOrKey": "ARC-1234", "fields": ["summary","description","status","assignee","priority","parent","issuelinks","created","updated"] }
 </example>
 
 <example>
 Task: Transition ARC-1234 to In Progress (User Story)
-Step 1 — Fetch current status: mcp__claude_ai_Atlassian__getJiraIssue with fields: ["status"]
-Step 2 — Transition: mcp__claude_ai_Atlassian__transitionJiraIssue
+Step 1 — Fetch current status: mcp__atlassian__getJiraIssue with fields: ["status"]
+Step 2 — Transition: mcp__atlassian__transitionJiraIssue
 Args: { "cloudId": "icseng.atlassian.net", "issueIdOrKey": "ARC-1234", "transitionId": "21" }
 </example>
 
 <example>
 Task: Search open defects assigned to me in ARC
-Tool: mcp__claude_ai_Atlassian__searchJiraIssuesUsingJql
+Tool: mcp__atlassian__searchJiraIssuesUsingJql
 Args: { "cloudId": "icseng.atlassian.net", "jql": "project = ARC AND issuetype = Defect AND statusCategory != Done ORDER BY priority ASC", "fields": ["summary","status","priority","assignee"] }
 </example>
 
@@ -154,7 +154,7 @@ Args: { "cloudId": "icseng.atlassian.net", "jql": "project = ARC AND issuetype =
 
 <success-criteria>
 Correct usage of this skill produces:
-- Tool calls that use `mcp__claude_ai_Atlassian__` and include `cloudId` on every invocation
+- Tool calls that use `mcp__atlassian__` and include `cloudId` on every invocation
 - No blind writes — every edit or transition is preceded by a fetch
 - Comments that match one of the four structured format templates above
 - JQL queries scoped to `project = ARC` unless explicitly overridden

@@ -26,11 +26,14 @@ CREATE/UPDATE/DELETE changes to bring the collection in sync.
 manual endpoint hunting — one command, full sync.
 
 **Hard constraints:**
-- Never assert endpoints without reading the source files (swagger or Java) in this session.
-- Confirm the collection name before writing any files.
-- Never put comments in .bru files except in the `docs` block.
-- Dispatch parallel Explore subagents per collection in Phase 2 and Phase 3.
-- Follow the bruno-collection-creation-template.md exactly for file structure.
+- Never assert endpoints without reading the source files (swagger or Java) in this session — asserted endpoints that don't exist create dead requests; missed endpoints leave the collection incomplete.
+- Confirm the collection name before writing any files — writing to the wrong collection is a multi-file corruption that requires a git revert to undo.
+- Never put comments in .bru files except in the `docs` block — comments outside the docs block cause Bruno parse errors that silently break the request.
+- Dispatch parallel Explore subagents per collection in Phase 2 and Phase 3 — serial processing is prohibitively slow for multi-collection syncs.
+- Follow the bruno-collection-creation-template.md exactly for file structure — deviating from the template breaks Bruno's parser or `{{variable}}` resolution.
+- Generate only fields and content that exist in the actual source — do not invent request body fields, query parameters, or response documentation not found in swagger or Java source.
+- Trust and scope: write and delete only inside `{collectionPath}` directories listed in `collections-map.json`. Never touch files outside `/Users/fulksjas/dev/Misc/bruno.apis/`. Source repos under `repoPath` are read-only for this skill.
+- Reversibility: `Write` overwrites are recoverable from git (collections live in a git repo). `rm` deletes are reversible only via git checkout — confirm the file is tracked before issuing `rm`; if untracked, surface it to Sir before deleting.
 </task>
 
 <instructions>
@@ -47,6 +50,7 @@ Full diff-and-sync between a Spring Boot service's source code and its Bruno API
 ---
 
 ## Phase 1 — Setup
+**Tools: Read**
 
 1. Read `/Users/fulksjas/dev/Misc/bruno.apis/.claude/collections-map.json`
 2. Determine target collections from args (all vs named)
@@ -55,6 +59,7 @@ Full diff-and-sync between a Spring Boot service's source code and its Bruno API
 ---
 
 ## Phase 2 — Source Analysis
+**Tools (dispatched to Explore subagent): Glob, Read, Grep**
 
 Dispatch a **parallel Explore subagent per collection**. The subagent must:
 
@@ -111,6 +116,7 @@ Check if `{repoPath}/{swaggerPath}` exists. If found, note its age relative to t
 ---
 
 ## Phase 3 — Inventory Existing .bru Files
+**Tools (dispatched to Explore subagent): Glob, Read**
 
 Dispatch an **Explore subagent per collection** to inventory current request files:
 - List all `.bru` files recursively under `{collectionPath}/`
@@ -133,6 +139,11 @@ Return an inventory map:
 ---
 
 ## Phase 4 — Diff Computation
+**Tools: none (computation only)**
+
+> **State integrity:** The manifest from Phase 2 and the inventory from Phase 3 must both be in active context when entering Phase 4. For large collections, if context budget is approaching limits, write both structures to `_tmp_sync_manifest.json` and `_tmp_sync_inventory.json` before proceeding — clean up both files after Phase 6 completes.
+
+Before matching, verify that URL normalization was applied consistently to both manifest paths and inventory paths — a mismatch (e.g., `{specificationId}` vs `{{specificationId}}`) silently generates a spurious CREATE+DELETE pair instead of an UPDATE. Check for trailing-slash aliases and path prefix variations before classifying any endpoint as CREATE.
 
 Match manifest endpoints to inventory by `method + normalizedPath`:
 
@@ -147,6 +158,7 @@ Match manifest endpoints to inventory by `method + normalizedPath`:
 ---
 
 ## Phase 5 — Apply Changes
+**Tools: Write (CREATE/UPDATE), Bash `rm` (DELETE). Before deleting, run `git ls-files --error-unmatch '{absoluteCollectionPath}/{relativePath}'` to confirm the file is tracked.**
 
 ### CREATE and UPDATE: Generate .bru files
 
@@ -229,6 +241,7 @@ rm "{absoluteCollectionPath}/{relativePath}"
 ---
 
 ## Phase 6 — Summary
+**Tools: none**
 
 Print after all changes are applied:
 
@@ -294,6 +307,24 @@ Phase 3 (parallel subagent): Inventoried 6 existing .bru files.
 Phase 4 Diff: CREATE 2 (new endpoints), UPDATE 5 (DTO changes), DELETE 1 (removed endpoint).
 Phase 5: Applied all changes.
 Phase 6: Summary — Created: 2, Updated: 5, Deleted: 1, No change: 0.
+</example>
+
+<example label="delete-heavy-cleanup">
+Input: /sync-bruno "DPC SpecManagement"
+
+Phase 2 (parallel subagent): swagger.json fresh, 4 endpoints parsed.
+Phase 3 (parallel subagent): Inventoried 11 existing .bru files — most are stale leftovers from a removed controller.
+Phase 4 Diff: CREATE 0, UPDATE 4, DELETE 7.
+Phase 5: Confirmed all 7 .bru files are tracked in git, issued `rm` for each; updated 4 in place.
+Phase 6: Summary — Created: 0, Updated: 4, Deleted: 7.
+</example>
+
+<example label="collection-name-not-found">
+Input: /sync-bruno "Nonexistent Collection"
+
+Phase 1: Read collections-map.json — no entry matches "Nonexistent Collection".
+Reported: "No collection named 'Nonexistent Collection' in collections-map.json. Available collections: [list]. Re-invoke with a correct name or run /sync-bruno with no args to sync all."
+Stopped before Phase 2 — no source analysis or writes attempted.
 </example>
 
 <example label="swagger-stale-fallback">
