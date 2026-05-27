@@ -133,10 +133,10 @@ npx playwright test <test_file>
 
 Immediately after launching:
 1. Use `Edit` to append a status line to the Response block:
-   `Test suite started at <ISO-timestamp>. Heartbeat updates every 5 min.`
-2. Use `ScheduleWakeup(delaySeconds: 300)` with the prompt set to the same
+   `Test suite started at <ISO-timestamp>. T+1m health check scheduled.`
+2. Use `ScheduleWakeup(delaySeconds: 60)` with the prompt set to the same
    `/playwright-qa-run <ticket>` invocation that started this session, so the
-   heartbeat phase re-enters this skill.
+   T+1m health check in Phase 2.5 fires next.
 
 **Hard stop on flag guard:** If the runner exits immediately (< 30s) with a message
 containing `BLOCKED:` or `HARD STOP:`, use `Edit` to write the exact error text into
@@ -149,37 +149,36 @@ branch's responsibility.
 
 ### First check — T+1 minute
 
-Immediately after launching tests, schedule `ScheduleWakeup(delaySeconds: 60)`.
-
-The latest-snapshot file is always at a fixed path — no directory listing needed:
+On this first wake-up, use `Read` to load `latest.json` from the fixed path:
 `<worktree_path>/tests/playwright/test-results/progress-snapshots/latest.json`
 
 `pollProgressWithSnapshots` overwrites this file after every screenshot interval (every 60s).
-The `testSlug` field inside it identifies which test is currently running.
+The `testSlug` field identifies which test is running.
 
-On this first wake-up, use `Read` to load `latest.json`. Act on its content:
-
-| `latest.json` state                     | Action                                                                                                                                             |
-|-----------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------|
-| File not found                          | Write `[Heartbeat State]` anchoring `test_started_at = now`. Append: `[T+1m] No snapshot yet. Rechecking in 1 min.` `ScheduleWakeup(60)`          |
-| `imagesRemaining > 0`                   | Write `[Heartbeat State]`. Append: `[T+1m] Download confirmed active — <N> images remaining.` `ScheduleWakeup(300)`                               |
-| `imagesRemaining == null`               | Write `[Heartbeat State]` (preserve `test_started_at`). Append: `[T+1m] Download not yet visible. Watching.` `ScheduleWakeup(60)`                 |
-| `hasError: true`                        | Append: `[T+1m] ERROR DETECTED — stopping.` Stop. Do NOT reschedule.                                                                              |
-
-Use `Edit` to append the `[Heartbeat State]` section to the channel file:
+All non-error rows in the table below require writing a `[Heartbeat State]` block to the
+channel file. Use `Edit` to append this block (fill values from `latest.json` and current time):
 
 ```markdown
 ## Heartbeat State
-- **test_started_at:** <ISO-timestamp — set once on first anchor, never overwritten>
+- **test_started_at:** <ISO-timestamp — set on this first wake; never overwrite on subsequent wakes>
 - **Last check:** <ISO-timestamp>
 - **Images remaining:** <N or null>
 - **Progress percent:** <N or null>
 - **Unchanged for:** 0 consecutive checks
-- **Latest snapshot label:** <label field from latest.json>
+- **Latest snapshot label:** <label field from latest.json, or "none">
 ```
 
-On subsequent T+1m wakes (when `imagesRemaining` is still null), use `Edit` to update
-`Last check` and `Latest snapshot label`, but leave `test_started_at` unchanged.
+Act on `latest.json` content:
+
+| `latest.json` state       | Action                                                                                                                               |
+|---------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| File not found            | Write `[Heartbeat State]` with `test_started_at = now`. Append: `[T+1m] No snapshot yet. Rechecking in 1 min.` `ScheduleWakeup(60)` |
+| `imagesRemaining > 0`     | Write `[Heartbeat State]` with `test_started_at = now`. Append: `[T+1m] Download confirmed active — <N> images remaining.` `ScheduleWakeup(300)` |
+| `imagesRemaining == null` | Write `[Heartbeat State]` with `test_started_at = now`. Append: `[T+1m] Download not yet visible. Watching.` `ScheduleWakeup(60)` |
+| `hasError: true`          | Append: `[T+1m] ERROR DETECTED — stopping.` Stop. Do NOT reschedule.                                                                |
+
+On **subsequent** T+1m wakes (when `imagesRemaining` is still null), use `Edit` to update
+`Last check` and `Latest snapshot label` only — never overwrite `test_started_at`.
 
 ### Subsequent checks — every 5 minutes
 
