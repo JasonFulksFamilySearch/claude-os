@@ -119,6 +119,13 @@ Use `Edit` to update the message block:
 - `Lock: Playwright <ISO-timestamp>`
 - `Status: in_progress`
 
+If this is a **re-run** (a second or later message claimed after Dev fixed a stall or failure),
+use `Edit` to reset `[Heartbeat State]` in the channel file:
+- `Unchanged for: 0 consecutive checks`
+- Clear `test_started_at` (remove its value so Phase 2.5 re-anchors it on the next T+1m wake)
+
+This prevents stale counter values from the prior run triggering Rule 3 prematurely.
+
 ### 4. Run the Playwright suite
 
 These tests can run for 30–90 minutes. Launch in the background so the session
@@ -187,6 +194,7 @@ On each 5-minute wake-up:
 1. Use `Read` to reload the channel file. If `Channel Status: CLOSED`, stop.
    Parse `[Heartbeat State]`: extract `test_started_at`, `Images remaining` (stored),
    `Unchanged for` (consecutive-check counter).
+   Re-extract `test_file` from the claimed message's MSG Context block — needed for any STALL MSG.
 2. Use `Read` to load `<worktree_path>/tests/playwright/test-results/progress-snapshots/latest.json`.
 3. Check whether `<worktree_path>/tests/playwright/test-results/agent/all-failures.md` exists.
    If it does, tests have finished — fall through to Phase 3.
@@ -220,7 +228,7 @@ Rule: imagesRemaining unchanged for 2 consecutive 5-min checks.
 Write STALL MSG to Dev. Do NOT reschedule.
 
 **Healthy path (no rules fired):**
-- Compute new `unchanged_for`: increment if `imagesRemaining == prev`; reset to `0` if changed.
+- Compute new `Unchanged for`: increment if `imagesRemaining == prev`; reset to `0` if changed.
 - Use `Edit` to update `[Heartbeat State]`: `Last check`, `Images remaining`,
   `Progress percent`, `Unchanged for`, `Latest snapshot label`.
 - Append heartbeat line to Response block:
