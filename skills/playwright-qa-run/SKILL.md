@@ -184,16 +184,88 @@ On **subsequent** T+1m wakes (when `imagesRemaining` is still null), use `Edit` 
 
 On each 5-minute wake-up:
 
-1. Read the channel file. If `Channel Status: CLOSED`, stop.
-2. Read the latest progress snapshot image. **Always read the image — never just count files.**
-3. Check for `<worktree_path>/tests/playwright/test-results/agent/all-failures.md` to detect completion.
-4. **Error visible in screenshot:** Report the error text immediately, stop the background task, stop polling.
-5. **Tests still running and healthy:** Append heartbeat:
-   `[T+Xm] Still running — <N> snapshots, latest shows <brief description e.g. "32% progress">. Next update in 5 min.`
-   Then `ScheduleWakeup(delaySeconds: 300)` and stop.
-6. **Tests finished:** Fall through to Phase 3 to write final results.
+1. Use `Read` to reload the channel file. If `Channel Status: CLOSED`, stop.
+   Parse `[Heartbeat State]`: extract `test_started_at`, `Images remaining` (stored),
+   `Unchanged for` (consecutive-check counter).
+2. Use `Read` to load `<worktree_path>/tests/playwright/test-results/progress-snapshots/latest.json`.
+3. Check whether `<worktree_path>/tests/playwright/test-results/agent/all-failures.md` exists.
+   If it does, tests have finished — fall through to Phase 3.
 
-**Rule: read the screenshot image at every heartbeat. Snapshot count is not a proxy for progress.**
+**Apply these detection rules in order. Stop on the first match.**
+
+**Rule 1 — Process frozen (stale JSON):**
+Parse `json.timestamp`. Compute age: `now − json.timestamp`.
+If age > 3 minutes:
+```
+⚠️ STALL DETECTED — no new snapshot in <age> min. Process may be frozen or dead.
+Rule: latest.json is stale (last written: <json.timestamp>).
+```
+Write STALL MSG to Dev (format at bottom of this section). Do NOT reschedule.
+
+**Rule 2 — Script hung before download started:**
+If `json.imagesRemaining == null` AND `(now − test_started_at) > 10 minutes`:
+```
+⚠️ STALL DETECTED — download UI never appeared after <elapsed> min.
+Rule: imagesRemaining has been null since test started.
+```
+Write STALL MSG to Dev. Do NOT reschedule.
+
+**Rule 3 — Download frozen mid-run:**
+Let `prev` = `Images remaining` from `[Heartbeat State]`.
+If `json.imagesRemaining == prev` (both non-null) AND `(Unchanged for + 1) >= 2`:
+```
+⚠️ STALL DETECTED — images remaining frozen at <N> for 10+ min.
+Rule: imagesRemaining unchanged for 2 consecutive 5-min checks.
+```
+Write STALL MSG to Dev. Do NOT reschedule.
+
+**Healthy path (no rules fired):**
+- Compute new `unchanged_for`: increment if `imagesRemaining == prev`; reset to `0` if changed.
+- Use `Edit` to update `[Heartbeat State]`: `Last check`, `Images remaining`,
+  `Progress percent`, `Unchanged for`, `Latest snapshot label`.
+- Append heartbeat line to Response block:
+  `[T+Xm] Still running — <N> images remaining (<P>%). Next update in 5 min.`
+- `ScheduleWakeup(delaySeconds: 300)`
+
+---
+
+**STALL MSG format** — write as next `MSG-NNN`, `To: Dev`, after appending the STALL DETECTED
+line to the Response block:
+
+```markdown
+### MSG-NNN
+- **Type:** request
+- **From:** Playwright
+- **To:** Dev
+- **Status:** pending
+- **Lock:** —
+- **Sent:** <ISO-timestamp>
+
+**Request:**
+Investigate suspected download stall.
+
+**Context:**
+Test suite: <test_file>
+Detected at: <ISO-timestamp>
+Rule fired: <Rule 1 | Rule 2 | Rule 3 — one-line description>
+Last known state: <imagesRemaining> images remaining, <progressPercent>%
+Latest snapshot: <worktree_path>/tests/playwright/test-results/progress-snapshots/latest.json
+
+The background test process was not terminated — it may still be running or have exited silently.
+Investigate whether the browser, dev server, or download worker is hung before re-running.
+
+**Definition of done:**
+Fix whatever is hung and signal back.
+
+**Output location:**
+Respond in the next MSG-NNN when ready to re-run.
+
+---
+**Response:**
+- **Status:** pending
+- **Lock:** —
+- **Replied:** —
+```
 
 ---
 
@@ -389,6 +461,7 @@ The execution succeeded if it halted cleanly, wrote the exact error text, and st
 | This handle       | `Playwright`                                                                  |
 | Dev handle        | `Dev`                                                                         |
 | Heartbeat interval | 5 minutes (300s) — during test run AND while waiting for Dev's fix           |
+| Progress snapshot   | `tests/playwright/test-results/progress-snapshots/latest.json` (overwritten each 60s interval)          |
 | Test runner       | `npx playwright test <spec>` from `<worktree>/tests/playwright/`             |
 | Failures report   | `tests/playwright/test-results/agent/all-failures.md` (relative to worktree) |
 | Dev skill         | `playwright-qa-channel`                                                       |
