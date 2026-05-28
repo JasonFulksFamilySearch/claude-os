@@ -30,6 +30,8 @@ converts a well-structured PRD into a parent issue with derivation-based sub-tas
 - Never create labels that don't already exist in JIRA (label sprawl is a long-standing team pain point).
 - Never include file paths or code snippets in JIRA descriptions — they go stale within a sprint.
 - Issue type in ARC is "User Story" (not "Story") — the metadata call confirms this; do not assume.
+- **Acceptance Criteria belongs in `customfield_10085`, NOT in the description body.** ARC has a dedicated Acceptance Criteria custom field; duplicating the criteria in the description bypasses any tooling that filters/reports on the field. Always populate the custom field; never put a `## Acceptance Criteria` section in the description.
+- Custom textarea fields (`customfield_10085` and similar) require **Atlassian Document Format (ADF)** JSON on write — plain strings fail with `"Operation value must be an Atlassian Document"`. The `contentFormat: "markdown"` flag does NOT convert custom-field values; only the system `description` field accepts markdown.
 
 **MCP trust boundary:** The Atlassian MCP connector calls Atlassian's hosted API
 on Jason's behalf. PRD content read from disk is trusted (Jason wrote it). Field
@@ -83,7 +85,7 @@ Map PRD sections to the JIRA description using the team's formatting conventions
 
 **Summary:** Derive from the Problem Statement — noun-phrase or action for User Story, component-impact pattern for Defect, short initiative name for Epic. Keep under 80 characters.
 
-**Description:** Assemble from the PRD using `## Heading` structure:
+**Description:** Assemble from the PRD using `## Heading` structure. **Do NOT include `## Acceptance Criteria` in the description** — that content goes into `customfield_10085` instead (see below).
 
 ```
 ## Problem
@@ -102,14 +104,6 @@ Map PRD sections to the JIRA description using the team's formatting conventions
 
 [Testing Decisions section content]
 
-## Acceptance Criteria
-
-[Derive from the PRD's User Stories section. Convert each user story into a verifiable checklist item that a Product Owner can accept or reject against.]
-
-- [ ] [User-facing behavior derived from user story 1]
-- [ ] [User-facing behavior derived from user story 2]
-- [ ] ...
-
 ## Out of Scope
 
 [Out of Scope section content]
@@ -119,11 +113,31 @@ Map PRD sections to the JIRA description using the team's formatting conventions
 [Further Notes section content — omit if empty]
 ```
 
+**Acceptance Criteria (`customfield_10085`):** Derive from the PRD's User Stories section. Convert each user story into a verifiable checklist item that a Product Owner can accept or reject against. **This field requires ADF JSON on write** — build the bullet list as an Atlassian Document:
+
+```json
+{
+  "type": "doc",
+  "version": 1,
+  "content": [
+    {
+      "type": "bulletList",
+      "content": [
+        { "type": "listItem", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "User-facing behavior derived from user story 1" }] }] },
+        { "type": "listItem", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "User-facing behavior derived from user story 2" }] }] }
+      ]
+    }
+  ]
+}
+```
+
+Pass it via `additional_fields: { customfield_10085: <ADF JSON> }` on `createJiraIssue`, or via `fields: { customfield_10085: <ADF JSON> }` on `editJiraIssue`. Plain markdown strings fail with `"Operation value must be an Atlassian Document"`. The `contentFormat: "markdown"` flag does NOT help here — only the system `description` field accepts markdown.
+
 **Priority:** Ask the user (P1, P2, P3) for User Story and Defect. Leave unset for Epic.
 
 **Labels:** Apply `ARC-backlog` to the parent issue.
 
-Create the issue with `createJiraIssue` in project ARC.
+Create the issue with `createJiraIssue` in project ARC, populating `customfield_10085` in the same call so the field is set atomically.
 
 ## Step 5: Derive Sub-Tasks from Implementation Work
 
@@ -197,6 +211,8 @@ Show the user:
 - Fetch before editing — never edit blind.
 - Do NOT include file paths or code snippets in JIRA descriptions (they go stale).
 - Do NOT put ticket numbers in any code comments (Rule 6).
+- **Acceptance Criteria → `customfield_10085`, never description.** Confirmed via `getJiraIssueTypeMetaWithFields` on Enhancement (issue type 10015) on 2026-05-26. The same field exists on Sub-Task, User Story, Defect, and Epic.
+- **Custom textarea fields require ADF on write.** Plain string fails with `"Operation value must be an Atlassian Document"`. Build a `{ type: "doc", version: 1, content: [{ type: "bulletList", content: [...] }] }` document. The `contentFormat: "markdown"` flag does NOT convert custom-field content; only the system `description` field accepts markdown.
 
 </instructions>
 
@@ -205,7 +221,8 @@ The skill is complete when:
 - PRD file was read and its sections mapped to JIRA fields.
 - Issue type was confirmed with Sir via AskUserQuestion.
 - JIRA metadata was validated via getJiraProjectIssueTypesMetadata and getJiraIssueTypeMetaWithFields.
-- Parent issue was created in project ARC with correct description structure.
+- Parent issue was created in project ARC with correct description structure AND `customfield_10085` populated with ADF acceptance criteria.
+- Description does NOT contain a `## Acceptance Criteria` section (it lives in the custom field instead).
 - Sub-tasks were proposed and Sir approved before any sub-tasks were created.
 - Results page showed parent issue key/URL and list of sub-task keys.
 - No `mcp__claude_ai_Atlassian__` prefix was used — all calls used `mcp__atlassian__`.
@@ -258,5 +275,36 @@ Step 3: `getJiraProjectIssueTypesMetadata` returned 401 Unauthorized. Surfaced
 the error verbatim to Sir and stopped. Did not retry, did not switch to the
 retired `mcp__claude_ai_Atlassian__` prefix, did not attempt to create issues via any
 fallback path.
+</example>
+
+<example label="acceptance-criteria-custom-field-with-adf">
+Input: /prd-to-jira ./feature-x.prd.md (issue type: User Story; PRD has 3 user stories)
+
+Step 4: Created the parent issue with description body (Problem, Solution,
+Implementation Decisions, Testing Decisions, Out of Scope, Further Notes — no
+Acceptance Criteria heading) AND set `customfield_10085` in the same
+`createJiraIssue` call:
+
+```
+additional_fields: {
+  labels: ["ARC-backlog"],
+  customfield_10085: {
+    type: "doc",
+    version: 1,
+    content: [{
+      type: "bulletList",
+      content: [
+        { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Acceptance line 1 derived from user story 1" }]}]},
+        { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Acceptance line 2 derived from user story 2" }]}]},
+        { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Acceptance line 3 derived from user story 3" }]}]}
+      ]
+    }]
+  }
+}
+```
+
+Field is set atomically; no follow-up `editJiraIssue` round-trip needed. If the
+ADF object is omitted or a plain string is sent, JIRA rejects the write with
+`"Operation value must be an Atlassian Document"`.
 </example>
 </examples>

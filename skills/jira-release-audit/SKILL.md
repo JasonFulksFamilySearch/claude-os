@@ -1,5 +1,6 @@
 ---
 name: jira-release-audit
+model: haiku
 description: >
   Audit git commits since the last release tag, identify ARC Jira tickets, and stamp
   missing fixVersion before cutting a release. Auto-detects version from latest git tag
@@ -7,7 +8,7 @@ description: >
   release", "what's shipping in this release", or invokes /jira-release-audit or is
   preparing to cut a release.
 argument-hint: "[target-version] (e.g. v2.13.0 — defaults to auto-detected minor bump)"
-allowed-tools: Bash(git tag *) Bash(git log *) Bash(git describe *) mcp__atlassian__getJiraIssue mcp__atlassian__editJiraIssue
+allowed-tools: Bash(git tag *) Bash(git log *) Bash(git describe *) mcp__atlassian__getJiraIssue
 ---
 
 <role>
@@ -36,7 +37,8 @@ the code is already in production.
 
 **Reversibility:**
 - Steps 1–5 are read-only and run autonomously (git log reads, Jira ticket fetches).
-- Step 6 (stamping fixVersions) writes to Jira — requires Sir's explicit confirmation from Step 2 before executing.
+- Step 6 is a human review gate — present proposed stamps and halt for Sir's explicit approval before writing anything.
+- Step 7 (stamping fixVersions) writes to Jira — only executes after Sir's explicit approval at Step 6.
 - Version creation in Step 3 also writes to Jira — confirm with Sir before creating.
 
 Before presenting the version confirmation, think through the semver bump: if commits
@@ -133,16 +135,31 @@ fields: ["summary", "status", "fixVersions", "issuetype"]
 | `fixVersions` is empty                     | Needs stamping                                            |
 | `fixVersions` has a **different** version  | Flag for manual review — preserve existing value, do not overwrite |
 
-### Step 6 — Stamp Missing Tickets in Parallel
+### Step 6 — Present Proposed Stamps for Human Review
 
-For every ticket in the "needs stamping" list, call `mcp__atlassian__editJiraIssue` **in a single parallel batch**:
+Before writing anything to Jira, present the full list of proposed changes as an aligned markdown table:
+
+| Ticket | Type | Summary | Current fixVersions | Proposed Action |
+|--------|------|---------|---------------------|-----------------|
+| ARC-XXXX | Story | ... | (empty) | Stamp v2.13.0 |
+
+Include only "needs stamping" tickets in this table. Already-stamped and flagged tickets are shown separately in Step 8.
+
+**Halt here and ask Sir explicitly:**
+> "Ready to stamp the X tickets above with fixVersion v2.13.0. Confirm to proceed, or cancel to make no changes."
+
+Do NOT call `mcp__atlassian__editJiraIssue` until Sir replies with explicit approval (e.g. "yes", "go", "stamp them"). If Sir says anything other than clear approval, abort — make no Jira writes.
+
+### Step 7 — Stamp Approved Tickets in Parallel
+
+Only after Sir's explicit approval in Step 6, call `mcp__atlassian__editJiraIssue` for every ticket in the "needs stamping" list **in a single parallel batch**:
 
 ```
 cloudId: icseng.atlassian.net
 fields: { fixVersions: [{ id: "<version-id-from-step-3>" }] }
 ```
 
-### Step 7 — Present the Summary
+### Step 8 — Present the Summary
 
 Produce aligned markdown tables:
 
@@ -155,7 +172,7 @@ Produce aligned markdown tables:
 **Excluded** (no ticket / dependency bumps):
 - Brief list of commit descriptions
 
-### Step 8 — Flag Stale Statuses
+### Step 9 — Flag Stale Statuses
 
 After stamping, call out any ticket where:
 - Code is merged but Jira status is still **To Do** or **In Progress** (may need a manual transition)
@@ -186,7 +203,8 @@ The audit is complete and correct when:
 - `git log` was run to extract ticket IDs — no ticket IDs were guessed.
 - Sir confirmed the target release version before any fixVersion was written to Jira.
 - All ticket fetches ran in a single parallel batch (Step 4).
-- All fixVersion stamps ran in a single parallel batch (Step 6).
+- The proposed stamp list was presented to Sir in Step 6 and Sir explicitly approved before any editJiraIssue call was made.
+- All fixVersion stamps ran in a single parallel batch (Step 7), only after Step 6 approval.
 - All tickets with an existing non-empty fixVersions were flagged — no existing values were overwritten.
 - The summary tables show: already stamped, stamped this run, conflicts flagged, excluded commits.
 </success_criteria>
@@ -202,7 +220,16 @@ Step 4 (parallel):
   mcp__atlassian__getJiraIssue(cloudId: "icseng.atlassian.net", issueKey: "ARC-4201", fields: ["summary","status","fixVersions","issuetype"])
   mcp__atlassian__getJiraIssue(cloudId: "icseng.atlassian.net", issueKey: "ARC-4215", fields: ["summary","status","fixVersions","issuetype"])
   → ARC-4201 (fixVersions: empty), ARC-4215 (fixVersions: empty)
-Step 6 (parallel):
+Step 5: Both tickets classified as "needs stamping".
+Step 6 (human review gate):
+  Presented table:
+  | Ticket   | Type  | Summary              | Current fixVersions | Proposed Action  |
+  |----------|-------|----------------------|---------------------|------------------|
+  | ARC-4201 | Story | Add resume manager   | (empty)             | Stamp v2.13.0    |
+  | ARC-4215 | Task  | Fix null pointer     | (empty)             | Stamp v2.13.0    |
+  Asked: "Ready to stamp 2 tickets with fixVersion v2.13.0. Confirm to proceed?"
+  → Sir replied: "yes"
+Step 7 (parallel, after approval):
   mcp__atlassian__editJiraIssue(cloudId: "icseng.atlassian.net", issueKey: "ARC-4201", fields: { fixVersions: [{ id: "15321" }] })
   mcp__atlassian__editJiraIssue(cloudId: "icseng.atlassian.net", issueKey: "ARC-4215", fields: { fixVersions: [{ id: "15321" }] })
 
@@ -225,7 +252,15 @@ Step 3: v2.12.1 already exists in Jira → id 15298 noted.
 Step 4 (parallel):
   mcp__atlassian__getJiraIssue(cloudId: "icseng.atlassian.net", issueKey: "ARC-4210", fields: ["summary","status","fixVersions","issuetype"])
   → ARC-4210 (fixVersions: empty)
-Step 6 (parallel):
+Step 5: ARC-4210 classified as "needs stamping".
+Step 6 (human review gate):
+  Presented table:
+  | Ticket   | Type | Summary           | Current fixVersions | Proposed Action |
+  |----------|------|-------------------|---------------------|-----------------|
+  | ARC-4210 | Task | Fix filter crash  | (empty)             | Stamp v2.12.1   |
+  Asked: "Ready to stamp 1 ticket with fixVersion v2.12.1. Confirm to proceed?"
+  → Sir replied: "go"
+Step 7 (parallel, after approval):
   mcp__atlassian__editJiraIssue(cloudId: "icseng.atlassian.net", issueKey: "ARC-4210", fields: { fixVersions: [{ id: "15298" }] })
 
 Summary:

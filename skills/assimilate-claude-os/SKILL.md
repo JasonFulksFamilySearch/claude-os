@@ -1,5 +1,6 @@
 ---
 name: assimilate-claude-os
+model: haiku
 description: >
   Pull the latest Claude OS changes from origin into ~/.claude-os/ and rebuild
   the MCP server if needed. Use when the user invokes /assimilate-claude-os,

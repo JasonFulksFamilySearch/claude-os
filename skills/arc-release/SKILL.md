@@ -1,5 +1,6 @@
 ---
 name: arc-release
+model: opus
 description: >
   Coordinate a simultaneous semver release across all four ARC repositories (ARC,
   REOS, DSS, GSS). Use when the user says "cut a release", "release the repos",

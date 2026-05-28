@@ -66,6 +66,10 @@ Dispatch a **parallel Explore subagent per collection**. The subagent must:
 **Step A — Check for Enunciate swagger.json:**
 Check if `{repoPath}/{swaggerPath}` exists. If found, note its age relative to the controller source files (stale = older than most `.java` files).
 
+If swagger.json is **missing**, also check whether `{repoPath}/webapp/target/classes` exists:
+- **Present** → compiled classes on disk; `mvn enunciate:enunciate` alone (~30s, no recompile needed) would regenerate swagger.json. Set `swaggerAge: "missing-compiled"`.
+- **Absent** → no build output at all; a full build is required first. Set `swaggerAge: "missing-no-classes"`.
+
 **Step B — If swagger.json exists:** Parse all `paths` entries. For each path+method, extract:
 - HTTP method and URL path
 - Path parameters (name, type)
@@ -261,10 +265,28 @@ Source: swagger.json ({age}) | java source
 No changes: N files
 ```
 
-If swagger.json was stale or missing, append:
+If swagger.json was stale or missing, append the appropriate message:
+
+**Missing, classes compiled** (`swaggerAge: "missing-compiled"`):
 ```
-⚠ swagger.json not found or stale. Run `mvn enunciate:enunciate` in {repoPath}/webapp for a fresher source.
+⚠ swagger.json not found — but compiled classes exist. A fast enunciate-only build would sharpen
+  constraint and enum documentation without a full recompile:
+    cd {repoPath}/webapp && mvn enunciate:enunciate   (~30s)
   Fell back to Java source analysis.
+```
+
+**Missing, no classes** (`swaggerAge: "missing-no-classes"`):
+```
+⚠ swagger.json not found and no compiled classes found. Run a full build first:
+    cd {repoPath}/webapp && mvn package -DskipTests && mvn enunciate:enunciate
+  Fell back to Java source analysis.
+```
+
+**Stale** (`swaggerAge: "stale"`):
+```
+⚠ swagger.json is stale (older than controller source). Re-run to get fresher constraint docs:
+    cd {repoPath}/webapp && mvn enunciate:enunciate
+  Used stale swagger.json — endpoint shape is likely correct; constraints/enums may lag.
 ```
 
 ---
@@ -330,8 +352,15 @@ Stopped before Phase 2 — no source analysis or writes attempted.
 <example label="swagger-stale-fallback">
 Input: /sync-bruno
 
-Phase 2: swagger.json found but older than most .java files (stale).
-Fell back to Java source analysis — parsed controllers.
-Phase 6 footer: "⚠ swagger.json stale. Run mvn enunciate:enunciate for fresher source."
+Phase 2: swagger.json found but older than most .java files — swaggerAge: "stale". Used it anyway.
+Phase 6 footer: "⚠ swagger.json is stale. Re-run enunciate to freshen constraint docs."
+</example>
+
+<example label="swagger-missing-compiled">
+Input: /sync-bruno "REOS"
+
+Phase 2: swagger.json not found. webapp/target/classes exists — swaggerAge: "missing-compiled".
+Fell back to Java source analysis.
+Phase 6 footer: "⚠ swagger.json not found — compiled classes exist. Run mvn enunciate:enunciate (~30s)."
 </example>
 </examples>

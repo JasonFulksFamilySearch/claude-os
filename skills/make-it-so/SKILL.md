@@ -49,13 +49,13 @@ JIRA story to a downstream state (Step 7), and logging worklog hours (Step 7).
 Hard Gates 1 and 2 are the formal approval checkpoints; do not bypass them under
 any circumstance, including a user reply that says "skip the gate."
 
-**Parallelism guidance:** Step 1's reads — JIRA ticket fetch, linked issue
-fetches, and codebase Glob/Grep for analogous features — have no data dependency
-on each other and should be dispatched in a single parallel tool-call batch.
-Step 5's review findings can be triaged in parallel where the findings touch
-independent files. Step 6's `gh pr checks` and Copilot comment reads are
-independent and should be issued together. Sequential ordering is only required
-where one result feeds the next (e.g., PR creation must precede Copilot reads).
+**Parallelism guidance:** Step 1 delegates discovery to `/investigate`, which
+handles JIRA fetches and codebase exploration in parallel internally — do not
+re-issue those reads directly. Step 5's review findings can be triaged in
+parallel where the findings touch independent files. Step 6's `gh pr checks`
+and Copilot comment reads are independent and should be issued together.
+Sequential ordering is only required where one result feeds the next (e.g.,
+PR creation must precede Copilot reads).
 </task>
 
 # Make It So
@@ -82,24 +82,29 @@ Rigid skill — follow every step exactly. Do not skip gates, because gates are 
 
 <instructions>
 <thinking>
-Before writing the PRD, reason through:
+Before proceeding, reason through:
 1. What does the ticket actually ask for — and what is implied but unstated?
 2. What analogous features already exist in the codebase that establish the correct pattern?
-3. What files will be created vs. modified, and why?
-4. What is genuinely ambiguous and requires stakeholder input vs. what can be assumed?
+3. What is genuinely ambiguous and requires stakeholder input vs. what can be assumed?
 </thinking>
 
-1. Read the JIRA ticket (`jira issue view [TICKET-ID] --plain`). Load linked issues and any referenced tickets for context.
-2. Research the codebase: find analogous features already built, identify the correct architectural pattern to mirror, and map out what files will be created vs. modified.
-3. Use the `grill-me` skill if the ticket lacks acceptance criteria or the architecture approach is ambiguous — because proceeding without clear acceptance criteria causes scope drift and rework.
-4. Produce a PRD saved to the project plans directory per project convention (check `.claude/rules/plans-directory.md` or project CLAUDE.md for the correct path — do not save to `~/.claude/plans/`, because that is the user-scoped directory and project plans must live with the project so teammates can find them). The PRD must cover:
+1. Invoke `/investigate [TICKET-ID]` — run the dedicated investigation skill. Do not read the ticket or search the codebase directly; `/investigate` handles both with parallel Explore agents and produces a structured confidence report.
+
+2. Evaluate the confidence report:
+   - **Low confidence:** Surface the open questions from the report to the user. Do not proceed to PRD drafting until each gap is resolved.
+   - **Medium or High confidence:** Proceed to step 3 using the investigation report as the primary source of context.
+
+3. Invoke `/write-a-prd` with the investigation findings as input context. The skill will conduct its structured interview cycle (problem → codebase verification → design tree resolution → module design confirmation) and save the PRD to the project plans directory per project convention (check `.claude/rules/plans-directory.md` or project CLAUDE.md for the correct path — do not save to `~/.claude/plans/`, because that is the user-scoped directory). Ensure the PRD covers these six sections — pass them as requirements to `/write-a-prd`:
    - Goal and context
    - Open product questions requiring stakeholder confirmation before coding begins
    - Output spec (columns, format, file naming, or equivalent)
    - Architecture approach — which existing pattern this mirrors and why
    - File structure: new files and their responsibilities, modified files and their changes
    - Out-of-scope items
-5. Always post the full PRD content as a comment on the JIRA story — never skip this step, because the JIRA comment is the audit trail that links the written spec to the ticket for reviewers who were not part of this session.
+
+   Use `grill-me` as a secondary fallback if post-investigation gaps remain after the `/write-a-prd` interview cycle — `/investigate` should have caught primary ambiguities; `grill-me` at this point is for residual gaps only.
+
+4. After `/write-a-prd` saves the file, post the full PRD content as a comment on the JIRA story — never skip this step, because the JIRA comment is the audit trail that links the written spec to the ticket for reviewers who were not part of this session.
 
 **If a PRD already exists:** Read it. Verify it covers every section above. Summarize what is present, what is missing, and fill any gaps before proceeding to the gate.
 </instructions>
@@ -107,12 +112,25 @@ Before writing the PRD, reason through:
 **HARD GATE 1 — full stop.**
 
 <output_format>
-Present the PRD in full using GitHub-flavored markdown with section headers matching the six required PRD sections. Then output this gate prompt as a blockquote — no other text after it:
+Present the PRD produced by `/write-a-prd` in full using GitHub-flavored markdown with section headers matching the six required PRD sections. Then output this gate prompt as a blockquote — no other text after it:
 
 > PRD is ready for your review. Reply **"approved"** to proceed to subtask creation, provide feedback for revision, or **"proceed with assumptions"** to document assumptions and continue. I will not advance on silence or an ambiguous reply.
 </output_format>
 
 Do not advance to Step 2 until you receive one of those three responses — because advancing without explicit approval is the single most common source of wasted implementation work.
+
+---
+
+## Architecture Review — conditional, after Gate 1
+
+<instructions>
+After Gate 1 approval, assess the ticket type:
+
+- **Feature tickets and any ticket with architectural scope** (new classes, new patterns, significant modification of existing components): invoke `/design-review` with the approved PRD as input context. If design-review surfaces significant architectural concerns, revise the PRD and re-present Gate 1 before proceeding. Post the design-review outcome as a comment on the JIRA story.
+- **Pure bug fixes and trivial chore tickets** (no new patterns, no new classes, isolated change): skip this step — state explicitly that it was skipped and why, then proceed to Step 2.
+
+Do not create subtasks until the architecture is either reviewed and confirmed, or the skip rationale is stated.
+</instructions>
 
 ---
 
@@ -211,7 +229,9 @@ Do not advance to Step 4 until you receive explicit approval.
 <instructions>
 **MANDATORY:** Always invoke `superpowers:subagent-driven-development` if subagents are available; otherwise invoke `superpowers:executing-plans` — never implement directly without invoking one of these, because bypassing these skills skips the parallelization and progress-tracking discipline they enforce. If the invoked skill produces no usable output or errors, stop and report the specific failure. Do not substitute direct implementation without explicit user direction.
 
-Execute all tasks in order following TDD discipline as specified in the plan. Always commit after every task using the `/commit` skill — never batch commits, because large commits make bisection and rollback harder. Stop and ask if you hit a blocker — do not guess past it.
+Implement only what was spec'd in the approved PRD — do not add unrequested abstractions, extra error paths, or future-proofing beyond the plan's scope, because each unplanned addition is a risk surface that was not reviewed at Gate 2.
+
+Execute all tasks in order following TDD discipline as specified in the plan. Before calling `/commit` for each task, run `prettier --write` on all changed non-Java files (JS, TS, JSON, YAML, HTML, CSS) and resolve any remaining lint warnings — never commit a formatter violation planning to clean it up later, because the fix becomes a reactive cleanup commit that inflates the Reactive Cleanup metric. Always commit after every task using the `/commit` skill — never batch commits, because large commits make bisection and rollback harder. Stop and ask if you hit a blocker — do not guess past it.
 </instructions>
 
 ---
@@ -300,10 +320,13 @@ Present the five verification items as a markdown checklist — one line each, �
 
 <success_criteria>
 The skill is complete when:
+- Step 1 (investigate): /investigate was invoked; confidence level was stated; Low confidence was not bypassed without user resolution.
+- Step 1 (PRD): /write-a-prd was invoked; PRD covers all six required sections; PRD was saved to the project plans directory; PRD was posted as a JIRA comment.
+- Architecture Review: /design-review was invoked for feature/architectural tickets and outcome posted to JIRA; or skip rationale was explicitly stated for bug/chore tickets.
 - Gate 1: Explicit user approval for the PRD was received and quoted.
 - Gate 2: Explicit user approval for the implementation plan was received and quoted.
 - Step 3 (plan): superpowers:writing-plans was invoked — not substituted.
-- Step 4 (implement): superpowers:subagent-driven-development or superpowers:executing-plans was invoked.
+- Step 4 (implement): superpowers:subagent-driven-development or superpowers:executing-plans was invoked; prettier pre-flight was run before each /commit.
 - Step 5 (review): /comprehensive-review:full-review was run; all must-fix findings addressed.
 - Step 6 (PR): PR is open; Copilot comments resolved or declined with documentation; SonarQube gate is green.
 - Step 7 (JIRA): Story In Progress; impl subtasks Done; QA subtask In Progress; hours logged; progress comment posted.
@@ -315,12 +338,13 @@ The skill is complete when:
 Input: /make-it-so ARC-4301
 
 Announced: "Make it so — beginning full delivery cycle for ARC-4301."
-Step 1: Read ticket, explored codebase, wrote PRD. Gate 1 prompt displayed.
+Step 1: /investigate invoked — confidence High. /write-a-prd invoked with investigation context; PRD produced covering all six sections, saved to project plans directory, posted to JIRA. Gate 1 prompt displayed.
 [Sir: "approved"]
+Architecture Review: Feature ticket — /design-review invoked; approach confirmed. Outcome posted to JIRA.
 Step 2: Subtask table proposed. [Sir: "approved"] — 4 subtasks created.
 Step 3: superpowers:writing-plans invoked. Plan saved. Gate 2 prompt displayed.
 [Sir: "approved"]
-Step 4: superpowers:subagent-driven-development invoked. All tasks committed.
+Step 4: superpowers:subagent-driven-development invoked. Prettier pre-flight run before each /commit. All tasks committed clean.
 Step 5: /comprehensive-review:full-review run. 2 must-fix findings addressed, committed.
 Step 6: PR opened ARC-4301. Copilot 3 comments resolved. SonarQube gate: Pass.
 Step 7: JIRA closed out. Hours logged. Progress comment posted.
@@ -330,13 +354,13 @@ Completion checklist: all 5 ✅. "Make it so — delivery complete for ARC-4301.
 <example label="gate-1-revision-loop">
 Input: /make-it-so ARC-5102 (PRD revised twice before approval)
 
-Step 1: Wrote initial PRD. Gate 1 prompt displayed.
+Step 1: /investigate invoked — confidence Medium. /write-a-prd invoked; PRD produced and posted to JIRA. Gate 1 prompt displayed.
 [Sir: "Out of Scope is missing — we explicitly are not touching the legacy
 ingest path. Add that."]
-Revised PRD with the explicit Out of Scope item. Gate 1 prompt displayed again.
+Revised PRD with the explicit Out of Scope item. Re-posted to JIRA. Gate 1 prompt displayed again.
 [Sir: "Architecture approach references the wrong analogous feature — use the
 download-retry pattern, not upload-retry."]
-Revised again. Gate 1 prompt displayed. [Sir: "approved"]
+Revised again. Re-posted to JIRA. Gate 1 prompt displayed. [Sir: "approved"]
 Did NOT advance to Step 2 during either revision. Each revision was posted as
 a comment on the JIRA story so the audit trail shows the evolution.
 </example>

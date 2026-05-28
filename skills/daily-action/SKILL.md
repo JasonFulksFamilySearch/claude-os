@@ -223,6 +223,34 @@ mechanically to preserve sprint commitment integrity.
 Critical items that are externally blocked appear at P1 with an explicit blocker note —
 they stay at P1.
 
+## Parent-Child Deduplication
+
+Before assembling the plan, identify any parent-subtask pairs where **both** a parent
+User Story or Task and one of its Sub-Tasks appear in the raw Jira data.
+
+**Rule — one sub-task blocking the parent:**
+When exactly one Sub-Task of a given parent is on the plan, list **only the Sub-Task**
+as a standalone plan item. Omit the parent as a separate entry.
+
+- Apply the parent's Jira priority and tier to the sub-task entry (Sub-Task priority is
+  `None` by default and inherits from the parent per Jira guardrails).
+- In the sub-task's context paragraph, include one sentence identifying the parent and
+  what completing the sub-task unlocks: e.g., "Sub-task of ARC-4591 — completing QA
+  verification here moves the parent story to Resolved."
+- In the sub-task's "Done when:" criterion, reference the parent's observable gate if
+  relevant: e.g., "ARC-4591 transitions to Resolved."
+
+**Exception — parent has multiple open sub-tasks:**
+If the parent story has two or more open Sub-Tasks and only one of them appears in
+today's plan data, list the **parent** as the plan item and reference the active
+sub-task as the first checklist action. Do not list the sub-task as a separate item.
+
+**Rationale:** Daily Scrum coaching (Schwaber/Sutherland, Cohn) focuses the standup
+on the most granular actionable unit that unblocks sprint progress. The Sub-Task is
+the atomic unit of work; the parent story is the sprint commitment container. Surfacing
+the blocking Sub-Task first eliminates planning noise and orients daily effort toward
+unblocking stories faster.
+
 ## Plan Output Format
 
 <instructions>

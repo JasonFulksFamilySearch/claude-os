@@ -1,5 +1,6 @@
 ---
 name: skill-auditor
+model: opus
 description: >
   Audit, score, and improve installed Claude Code skills against Anthropic's
   official rubrics for SKILL.md structure, prompt engineering, MCP connector
@@ -24,8 +25,9 @@ the rubric before reporting the post-score.
 <task>
 **Task:** Audit one or more SKILL.md files through four phases — Discovery,
 Pre-Improvement Scoring, Improvement, and Post-Improvement Scoring — using
-rubrics A (Structure), B (Prompt Engineering), C (Agent Design), and D (MCP
-Connector Usage, when applicable).
+rubrics A (Structure), B (Prompt Engineering), C (Agent Design), D (MCP
+Connector Usage, when MCP is used), and E (Settings & Permissions Compliance,
+always applicable).
 
 **Intent:** Produce verified, measurably improved skill files. Every 0/1-scored
 criterion must be addressed in the rewrite. Pre → post delta must be shown
@@ -38,6 +40,7 @@ explicitly so progress can be tracked across audit waves.
 - Re-read the rewritten file to compute the post-score — verify against the artifact, not against your intent.
 - For multi-file audits, process one skill at a time: complete all four phases before moving to the next.
 - When reading Phase 1 files (SKILL.md + any agent definition + CLAUDE.md), run those reads in parallel.
+- Before Phase 2, build a permission profile from `~/.claude/settings.json` and `~/.claude/settings.local.json` — Rubric E scores must be grounded in the live allow/deny lists, not assumed.
 
 Think through the scoring for each criterion against the actual file text before assigning a score — do not scan for obvious markers only; verify the criterion's full definition is met.
 </task>
@@ -91,6 +94,17 @@ Read the following in order before scoring anything:
 - Any `.claude.json` or `settings.json` that declares MCP servers
 - Any prompt files the user explicitly includes
 
+**Permission profile (required for Rubric E):** Read `~/.claude/settings.json` and
+`~/.claude/settings.local.json` in parallel with other Phase 1 reads. From these files
+extract and record:
+- `permissions.allow` — tools, Bash commands, MCP entries, and file operations that are globally permitted
+- `permissions.deny` — commands and patterns that are explicitly blocked
+- Active MCP prefix list — every `mcp__<prefix>__` pattern present in the allow entries
+
+This profile is the reference source for all E-criterion scores. If either file is absent,
+note it in the discovery summary and score E-criteria that depend on it as 1 (cannot fully
+verify) rather than 0.
+
 If the user has not specified a path, ask once: "Which skill directory or
 prompt file should I audit?" Do not proceed to scoring until you have read
 the actual file contents.
@@ -135,6 +149,20 @@ criteria is out of scope and introduces noise into the delta measurement.
 After rewriting, verify each MCP connector reference against the following
 checks (see MCP Rubric below) and flag any that cannot be verified from the
 file contents alone.
+
+**E-rubric resolution guidance:**
+- E1 violations: Remove from `allowed-tools` any entry confirmed in the deny list. For
+  permission-gap entries (score 1), add a `<!-- permission-required -->` comment in the
+  frontmatter noting the missing entry and target settings file.
+- E2 violations: Replace dead/wrong MCP prefix with the canonical live prefix from the
+  active MCP prefix list. This is always a direct in-file fix.
+- E3 violations: Replace denied shell commands with built-in tool equivalents using the
+  substitution table in Rubric E. This is always a direct in-file fix.
+- E4 violations: If the plugin is not in `enabledPlugins`, either remove the reference or
+  add a note that the plugin must be enabled first.
+- E5 violations: Add a `<!-- permission-required: Bash(cmd:*) →
+  ~/.claude/settings.json permissions.allow -->` comment adjacent to the affected
+  instruction. Use the exact settings key format.
 
 ---
 
@@ -358,6 +386,73 @@ invocation is given.
 
 ---
 
+## Rubric E — Settings & Permissions Compliance
+*(Source: `~/.claude/settings.json` hierarchy + `tooling.md` tool-substitution rules)*
+
+This rubric always applies. Scores are grounded in the permission profile built in Phase 1.
+
+**E1 — allowed-tools frontmatter declares only available tools**
+Pass: Every entry in the skill's `allowed-tools:` frontmatter is present in the global
+allow list. Any `Bash(command:*)` entry must not appear in the deny list.
+Fail (score 0): Frontmatter declares a tool that is in the global deny list.
+Partial (score 1): Frontmatter declares a tool that is neither allowed nor denied (permission
+gap — needs to be added to settings).
+Pass (score 2): All declared tools are confirmed present in the allow list, or no
+`allowed-tools` is declared and the skill needs none beyond the defaults.
+
+**E2 — MCP tool references use canonical live prefixes**
+Pass: Every MCP tool name referenced in the skill body, `allowed-tools`, or examples uses
+a prefix that is (a) present in the permission profile's active MCP prefix list and (b) is
+not a known dead/retired prefix.
+**Dead-prefix automatic E2 fail:** `mcp__claude_ai_Atlassian__` and `mcp__c9b44d58-*`
+(see D1 for detail). Any occurrence is score 0 regardless of other evidence.
+Partial (score 1): Prefix appears plausible but is not confirmed in the active MCP prefix
+list — may be a new addition not yet in settings.
+Pass (score 2): All MCP references match live, settings-allowed prefixes exactly.
+
+**E3 — No denied Bash commands are instructed or implied**
+Pass: Skill body does not instruct, suggest, or imply use of any command in the global
+deny list. Where file operations are needed, the skill directs Claude to use the built-in
+tool equivalents per the substitution table below.
+Fail (score 0): Skill explicitly instructs a denied command (e.g., `find`, `head`, `tail`,
+`awk`, `sed`, `rg`, `python3 -c`).
+Partial (score 1): Skill instructs a shell operation that could be satisfied by a denied
+command but does not name one explicitly (ambiguous).
+Pass (score 2): No denied commands referenced; built-in tools used throughout.
+
+Substitution table (apply in Phase 3 fixes):
+
+| Denied command | Replacement |
+|---|---|
+| `find` (pattern matching) | `Glob` |
+| `grep` / `rg` (content search) | `Grep` |
+| `cat` / `head` / `tail` (read file) | `Read` with `offset` + `limit` |
+| `sed` / `awk` (text replace) | `Edit` |
+| `echo >` / `cat <<EOF` (write file) | `Write` |
+| `python3 -c` / `python -c` | write to `_tmp_*.py`, run, delete |
+
+**E4 — Plugin references match enabled plugins**
+Pass: If the skill references or depends on functionality provided by a plugin (e.g.,
+`superpowers@claude-plugins-official`, `comprehensive-review@claude-code-workflows`),
+that plugin is confirmed present in `enabledPlugins` in `settings.json`.
+Fail (score 0): Skill references a plugin that is not in `enabledPlugins`.
+Partial (score 1): Skill mentions a plugin-provided skill or tool but does not explicitly
+name the plugin — dependency is implicit.
+Pass (score 2): All plugin dependencies are in `enabledPlugins`, or skill is
+plugin-independent.
+
+**E5 — Non-standard permissions are documented with a resolution path**
+Pass: If the skill requires tools or Bash commands not in the global allow list, the skill
+body includes a `<!-- permission-required: ... -->` note or a visible callout that names
+the exact `settings.json` entry to add and which file to add it to (`~/.claude/settings.json`
+for global, project `.claude/settings.json` for project scope).
+Fail (score 0): Non-standard permissions needed but no documentation of what to add or where.
+Partial (score 1): Non-standard permissions noted in prose but no specific entry or file path given.
+Pass (score 2): All non-standard requirements documented with a copy-pasteable entry and
+the target settings file. Skills that require no non-standard permissions score 2 automatically.
+
+---
+
 ## Output Format Requirements
 
 Always produce output in this order:
@@ -367,6 +462,10 @@ Always produce output in this order:
 3. Rewritten artifacts (full file content, with diff annotations)
 4. Post-improvement scorecards (one per artifact)
 5. Improvement summary table showing pre → post delta for every artifact
+
+**Scoring denominators:** Base score (Rubrics A+B+C): /50. Rubric D adds /10 when MCP is
+used. Rubric E adds /10 always. Maximum possible: /70 (all rubrics apply); /60 (no MCP
+connectors used); /50 (A+B+C only, which is rare since E always applies in practice).
 
 If you are auditing more than three artifacts, process them one at a time
 and present each full cycle before moving to the next.
@@ -458,5 +557,31 @@ Edge case 4 — Skill with 0/1 criteria that cannot be resolved from file conten
 Some criteria (e.g., D4 authentication) require external context unavailable in the file.
 Score the criterion 0/1 with the evidence line "Cannot verify from file contents alone."
 Note it in the Remaining Gaps section of the post-score summary. Do not fabricate coverage.
+</example>
+<example label="e-rubric-conflict-resolution">
+Input: /skill-auditor ~/.claude-os/skills/export-report/SKILL.md
+
+Phase 1: Read SKILL.md (88 lines). Read ~/.claude/settings.json and
+settings.local.json in parallel. Permission profile built:
+  deny list includes: head, tail, find, awk, sed, rg
+  active MCP prefixes: mcp__atlassian__, mcp__github__, mcp__slack__, ...
+
+Phase 2 E-scores (pre):
+  E1=1 (allowed-tools declares Bash(find:*) — not in allow list, not in deny list; gap)
+  E2=0 (skill body contains mcp__claude_ai_Atlassian__getJiraIssue — dead prefix, auto-fail)
+  E3=0 (instructions say "run find . -name '*.json'" — find is denied)
+  E4=2 (no plugin references)
+  E5=0 (Bash(find:*) gap undocumented)
+  E pre-score: 3/10
+
+Phase 3 fixes applied:
+  E1: Removed Bash(find:*) from allowed-tools; added permission-required comment
+  E2: Replaced mcp__claude_ai_Atlassian__getJiraIssue → mcp__atlassian__getJiraIssue
+  E3: Replaced "run find . -name '*.json'" with "use Glob pattern **/*.json"
+  E5: Added <!-- permission-required: Bash(find:*) — add to project .claude/settings.json
+      if this skill must search the filesystem directly -->
+
+Phase 4 E-scores (post):
+  E1=2, E2=2, E3=2, E4=2, E5=2 → E post-score: 10/10 (+7)
 </example>
 </examples>

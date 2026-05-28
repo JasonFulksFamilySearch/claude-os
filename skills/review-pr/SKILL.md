@@ -1,5 +1,6 @@
 ---
 name: review-pr
+model: opus
 allowed-tools: Read, Grep, Glob, Bash, Agent
 description: Comprehensive stack-aware PR review. Detects project stack (JS/TS, Java/Maven, Java/Gradle, Python, Go), dispatches stack-appropriate dead-code / pattern / test checks, and produces a consistent report with PR-type classification, large-PR detection, and a 0–10 quantitative risk score. Use when reviewing PRs or before submitting your own PR.
 ---
@@ -29,9 +30,8 @@ If no marker is detected, fall back to `js` and note `"Stack: unknown — defaul
 
 **Also detect the base branch** so we stop hardcoding `master`:
 
-```bash
-git symbolic-ref --quiet --short refs/remotes/origin/HEAD | sed 's@^origin/@@' || echo main
-```
+- **When a PR number was provided:** read `baseRefName` from the `gh pr view` JSON fetched in Step 1 — it returns the branch name without the `origin/` prefix (e.g. `master`). No extra command needed.
+- **For self-review (no PR number):** `basename $(git symbolic-ref refs/remotes/origin/HEAD)` — `basename` is auto-allowed and strips the `origin/` prefix cleanly.
 
 Use the resulting branch name as `<BASE>` everywhere this skill previously wrote `master`.
 
@@ -122,6 +122,14 @@ Report up to 20 matches per slot. Be specific about file:line.
 Run **in addition** to the six slots above.
 
 - **JS / TS bonus — `dev.flags` cross-package imports.** Grep `pattern: "from.*dev\\.flags\|require.*dev\\.flags"`, `glob: "*.{js,jsx,ts,tsx}"`, once each against `path: "src/plugins/"`, `path: "src/webworkers/"`, `path: "src/components/"`. ARC frontend keeps `dev.flags` scoped — cross-package imports are a smell.
+- **JS / TS bonus — Feature flag retirement gate (BLOCKING).** Run in parallel:
+  1. `git diff <BASE>...HEAD -- src/dev.flags.js` — scan added lines (`+` prefix, not `+++`) for `arc_recordExchange_` to find new flag definitions. Extract each flag name.
+  2. `git diff <BASE>...HEAD -- src/components/session/ConfigFlags.jsx` — scan added lines for `useFeatureFlag('arc_recordExchange_` as a secondary signal.
+  3. Deduplicate — report the union of flag names from both signals.
+  4. **For each new flag found:** A Jira User Story MUST be created in a future sprint to remove the flag once the feature is fully rolled out to production. This is a mandatory, blocking requirement — not a suggestion.
+  5. If a PR number is available, check `gh pr view <PR_NUMBER> --json body` for a Jira ticket reference (pattern `ARC-\d+`) in the PR description. A present reference is treated as evidence the retirement story has been filed or is planned.
+  6. Emit a **BLOCKING** finding for any new flag with no retirement ticket referenced. The PR cannot merge until a retirement ticket is created and its number is added to the PR description or a PR comment.
+  7. If no new flags are found, emit: `✅ No new feature flags — retirement gate not triggered.`
 - **Java bonus — `@SneakyThrows` audit.** Grep `pattern: "@SneakyThrows"`, `path: "src/main/java/"`, `glob: "*.java"`. Lombok's `@SneakyThrows` hides checked exceptions from the type system; flag every occurrence outside any package explicitly named `experimental` or `prototype`.
 - **Python bonus — `# type: ignore` delta.** Parse `git diff <BASE>...HEAD -- "*.py"` for added lines containing `# type: ignore`. Each new ignore should be justified in a comment.
 
@@ -221,6 +229,7 @@ Output both the numeric score and the label in the report overview.
 - Jira refs in code: <slot 4 results>
 - Commit subjects with ticket numbers: <Step 1 commit-subject hygiene results>
 - Stack-specific bonus: <JS dev.flags / Java @SneakyThrows / Python type:ignore>
+- Feature flag retirement tickets: <retirement gate results — **BLOCKING** if any new flag lacks a linked Jira User Story>
 
 ### Bad Error Idioms
 - <slot 5 results>
@@ -250,6 +259,7 @@ Before approving, explicitly answer:
 5. ✅ Do comments explain current code, not removed code?
 6. ✅ Are suppressions scoped, not global?
 7. ✅ Does the risk score match my gut read of the change? If not, which factor is wrong?
+8. ✅ Does every new feature flag have a linked Jira User Story to remove it in a future sprint?
 
 ---
 

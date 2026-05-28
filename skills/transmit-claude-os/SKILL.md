@@ -1,5 +1,6 @@
 ---
 name: transmit-claude-os
+model: haiku
 description: >
   Commit and push all pending changes in ~/.claude-os/ to origin. Use when the
   user invokes /transmit-claude-os, "transmit claude os", "push claude os changes",
