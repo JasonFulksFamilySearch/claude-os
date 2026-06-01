@@ -108,6 +108,9 @@ Sections: Closes · Problem · Solution · Files changed (4+) · How to verify
 - Ticket numbers belong in commits, branches, and PR titles only (never in code comments)
 - Sub-Task priority: leave as None (inherits from parent)
 
+## Parallelism
+When fetching multiple independent tickets (e.g., a release audit across N keys), issue the `getJiraIssue` calls in parallel in a single tool batch — they have no inter-dependency. Sequence calls only when one depends on the other (fetch → edit; fetch status → transition). JQL searches and `getTransitionsForJiraIssue` lookups against different issues are likewise parallel-safe.
+
 </instructions>
 
 <reversibility>

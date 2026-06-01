@@ -143,7 +143,12 @@ goals planned, completed items (`- [x]`), blocked items, context notes. Skip if 
 This is YOUR standup — only your own work. PRs you reviewed count as your activity;
 do not credit or list other people's merges.
 
-1. **PRs ↔ Tickets** — Match PR titles/branches to JIRA keys (`ARC-\d+`)
+1. **PRs ↔ Tickets & activity score** — Match PR titles/branches (`headRefName`)
+   to JIRA keys (`ARC-\d+`). Then compute each completed item's activity score =
+   commits + PRs + JIRA transitions in the window. This score orders the "What I
+   completed" section, most active first (ties by commit count); reviewed-not-authored
+   PRs group into their own bullet(s), ranked by review count. The score does NOT
+   affect "What I'm working on next".
 2. **Sprint cross-reference:**
    - Tag each item as `sprint` or `off-sprint`
    - At-risk items: sprint tickets not Done AND no activity today
@@ -169,7 +174,7 @@ Use this exact structure:
 
 ## What I completed
 
-- <Sprint items first (P0→P1→P2), then off-sprint. One bullet per distinct deliverable.>
+- <Most active first — rank each item by commits + PRs + transitions; highest leads. One bullet per distinct deliverable.>
 - <Include PR numbers and ticket IDs inline: "PR #1233: orchestration watchdog (ARC-4119)">
 - <Include JIRA activity: tickets created, status transitions, triage decisions>
 
@@ -214,8 +219,8 @@ paragraphs since they are reference material, not delivery script.>
 
 ## What I completed
 
-- PR #1291: download orchestrator watchdog for stalled attempts (ARC-4119) — merged to main
 - ARC-4228 transitioned In Progress → In Review after PR #1294 opened
+- PR #1291: download orchestrator watchdog for stalled attempts (ARC-4119) — merged to main
 - Investigated flaky timing issue in DownloadAttemptServiceTest — root cause isolated,
   fix on branch; ARC-4355 filed
 
@@ -245,7 +250,7 @@ gap where network timeouts were leaving orphaned rows without a terminal state.
 
 <quality_rules>
 1. **Scrum 3-question format** — What I completed / What I'm working on next / Blockers. No extra sections in the main delivery.
-2. **Sprint items lead** — Sprint-assigned items sort before off-sprint work, by priority (P0 first), in both "completed" and "working on next".
+2. **Ordering** — *What I completed* sorts by **activity, most active first**: per item, count git commits + PRs + JIRA transitions in the window; highest total leads, ties broken by commit count. PRs you reviewed (not authored) form their own bullet(s), ranked by review count. *What I'm working on next* keeps the priority order: sprint-assigned items first, by priority (P0 first), then off-sprint.
 3. **One bullet per deliverable** — Never merge separate PRs, tickets, or reviews into a single bullet.
 4. **References inline** — PR numbers, ticket IDs, and repo names in the bullets, not in footnotes.
 5. **Sprint close urgency** — Append deadline when sprint closes in ≤5 days.

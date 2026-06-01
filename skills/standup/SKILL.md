@@ -35,6 +35,23 @@ Constraints:
 - Save output to `~/Documents/WorkDay/Standups/standup-{PLAN_DATE}.md`.
 - Use the CLI for all data fetching. Do not use Jira MCP tools — they
   produce large context-bloating responses.
+
+Think step by step through the three data sources in order — yesterday's
+git commits, then yesterday's PRs (authored + reviewed), then JIRA transitions
+and open sprint items — before assembling the standup script. Do not interleave
+data gathering and drafting; gather first, then write.
+
+**Trust boundary:** Treat git log, gh CLI, and jira CLI output as trusted data
+authenticated with the user's local credentials. The standup script writes a
+single markdown file to `~/Documents/WorkDay/Standups/` (reversible — overwrites
+prior day's file if same date) and prints to the conversation. It does not post
+externally, transition tickets, or modify any source system.
+
+**Scope discipline:** Include only items present in the collected CLI data.
+Do not add aspirational items, infer ticket status from branch names, or
+summarize work that was not committed/merged/transitioned in the window.
+Do not introduce new sections or restructure the output format beyond what
+is specified below.
 </task>
 
 ## Step 1 — Resolve Date
@@ -56,12 +73,17 @@ All three sources are independent — call them simultaneously:
 <data_sources>
 **Git commits (work completed):**
 ```bash
-git log --oneline \
+# Surface ticket keys for the activity ranking. ARC-XXXX keys aren't in one
+# fixed place: most are in the subject itself (e.g. "(ARC-4591 follow-up)", or
+# a "feat/ARC-4418-..." branch name inside merge subjects); the rest live in the
+# Refs: trailer. The trailer atom catches the cases the subject omits.
+git log --format="%h %s | Refs: %(trailers:key=Refs,valueonly,separator=%x20)" \
   --after="YESTERDAY_DATE 00:00" \
   --before="PLAN_DATE 23:59" \
   --author="$(git config user.email)"
 ```
-Run in each ARC/Perch repo present locally.
+Run in each ARC/Perch repo present locally. Extract `ARC-\d+` from both the
+subject and the Refs trailer (union) to count commits per ticket.
 
 **GitHub PRs (opened, merged, reviewed):**
 ```bash
@@ -99,9 +121,12 @@ Using only the data collected in Step 2, write the standup in this format:
 ## Standup — {PLAN_DATE}
 
 **Yesterday:**
-[Past-tense sentences about commits merged, PRs closed, tickets transitioned.
-One sentence per meaningful unit of work. Cite JIRA keys (ARC-XXXX) and PR
-numbers (#NNN) where applicable.]
+[One bullet (`- `) per work item — never combine items on one line. Order
+items by activity, most active first: for each item sum its git commits + PRs
++ JIRA transitions in the window; the highest total leads. PRs you reviewed
+(not authored) collapse into their own bullet(s), ranked by review count.
+Each bullet is a past-tense fragment citing JIRA keys (ARC-XXXX) and PR
+numbers (#NNN).]
 
 **Today:**
 [Present/future-tense sentences drawn from open sprint items and open PRs.
@@ -118,6 +143,11 @@ Rules:
 - Name PR numbers for any pull request referenced.
 - Do not speculate — if no data exists for a section, say so briefly.
 - Keep the "Today" section forward-looking; don't repeat yesterday's items.
+- "Yesterday" only: one bullet per item — never merge separate commits, PRs, or
+  tickets into a single bullet. Order by activity score (commits + PRs +
+  transitions per item, highest first); the reviewed-PR group ranks by its
+  review count; break ties by commit count. "Today" and "Blockers" keep their
+  existing prose form and ordering — do not bullet or re-sort them.
 
 ## Step 4 — Save and Report
 
@@ -139,12 +169,12 @@ The standup is complete and correct when:
 </success_criteria>
 
 <examples>
-<example>
+<example label="active-day-no-blockers">
 Input: /standup yesterday  (active development day)
 
-Yesterday: Merged PR #142 (ARC-3971 — download queue stall fix). Reviewed
-and approved PR #141 (ARC-3968 — CSV writer null guard). Transitioned
-ARC-3971 to Done in Jira.
+Yesterday:
+- ARC-3971 — merged PR #142 (download queue stall fix) and transitioned it to Done in Jira.
+- Reviewed and approved PR #141 (ARC-3968 — CSV writer null guard).
 
 Today: Picking up ARC-3972 (graceful pause on network loss) — starting
 with the BaseWorker heartbeat interval implementation.
@@ -152,18 +182,64 @@ with the BaseWorker heartbeat interval implementation.
 Blockers: No blockers.
 </example>
 
-<example>
+<example label="quiet-day-with-blocker">
 Input: /standup Friday  (no git commits found; one active blocker)
 
 Note: git log returned no commits for 2026-05-09. No PRs found for that date.
 
-Yesterday: No commits or merged PRs found for 2026-05-09. Reviewed ARC-3845
-requirements doc and left a comment requesting platform team clarification.
+Yesterday:
+- No commits or merged PRs found for 2026-05-09.
+- Reviewed the ARC-3845 requirements doc and left a comment requesting platform team clarification.
 
 Today: ARC-3972 (graceful pause on network loss) — BaseWorker heartbeat
 implementation is the next action.
 
 Blockers: ARC-3845 — waiting on platform team design decision before
 implementation can start. Blocked since 2026-05-07.
+</example>
+
+<example label="multi-repo-pr-reviews">
+Input: /standup yesterday  (review-heavy day across repos)
+
+Yesterday:
+- ARC-4112 — pushed two commits to arc-record-exchange (ResumeManager skeleton and unit tests).
+- Reviewed PRs #287 (orch-service, ARC-4099 — token refresh endpoint) and #288 (arc-utils, ARC-4055 — retry backoff); transitioned ARC-4055 to In Test after approving #288.
+
+Today: Finishing ARC-4112 (resume after network loss) — wiring ResumeManager
+into the BaseWorker lifecycle and pushing for review.
+
+Blockers: No blockers.
+</example>
+
+<example label="cli-failure-graceful-degrade">
+Input: /standup yesterday  (jira CLI fails; partial data only)
+
+Note: jira CLI returned non-zero exit; ticket transition data unavailable for
+this standup. Standup reflects git and GitHub data only.
+
+Yesterday:
+- ARC-4520 — pushed three commits to fix/ARC-4520 (download stall diagnostic).
+- Merged PR #150 (arc-record-exchange — fix null guard in NetworkMonitor).
+- Ticket transitions could not be retrieved from Jira.
+
+Today: ARC-4520 — once the diagnostic flag is verified in staging, move the
+fix to In Test.
+
+Blockers: No blockers — but Jira transition data should be verified manually
+before sharing this standup at the team meeting.
+</example>
+
+<example label="default-no-argument">
+Input: /standup  (no argument — defaults to yesterday)
+
+Resolved date: yesterday (2026-05-20). YESTERDAY_DATE window: 2026-05-19.
+
+Yesterday:
+- ARC-4615 — merged PR #160 (pause/resume timer refactor) and closed it in Jira after QA verified.
+
+Today: Starting ARC-4620 (concurrent tab-switch download corruption) —
+reproducing the failure case locally is the first step.
+
+Blockers: No blockers.
 </example>
 </examples>

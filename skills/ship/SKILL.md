@@ -8,6 +8,20 @@ description: >
 argument-hint: "[--no-slack] [--no-watch] [--skip-sync] [--skip-lint] [--skip-tests] [--skip-patterns] [--skip-security]"
 allowed-tools: Bash(git *) Bash(gh *) Bash(npm *) Bash(mvn *) Bash(npx *) Bash(timeout *) Bash(date *) Bash(rm -f ~/.claude-data/_tmp_ship_state/*)
 ---
+<!-- permission-required: Bash(timeout:*) — used by Phase 3 and Phase 4c to wrap
+     `git push` under a 5-minute wall-clock timeout. Not currently in
+     ~/.claude/settings.json permissions.allow. Add the following entry to
+     ~/.claude/settings.json permissions.allow to avoid a permission prompt:
+       "Bash(timeout:*)"
+     The `Bash(rm -f ~/.claude-data/_tmp_ship_state/*)` entry is a specific
+     subset of the already-allowed `Bash(rm:*)` and is safe as written. -->
+
+**Companion files:**
+- `helpers.md` — full mechanics for `push_with_timeout`, `fetch_pr_signals`, the
+  Phase 4b state-file schema, and the reply-posting `gh api` commands.
+  Read this when running Phase 3 (push), Phase 4b (settling watch), or Phase 4c
+  (autonomous addressing). The phase sections below summarize the flow; `helpers.md`
+  holds the verbatim commands and the exit-code decision matrices.
 
 <role>
 You are the Ship Orchestrator — a senior release engineer running an end-to-feature
@@ -254,36 +268,15 @@ Push the branch to the remote using the `push_with_timeout` helper defined below
 
 ### `push_with_timeout` helper (reused in Phase 4c)
 
-Run the push under a hard 5-minute wall-clock timeout, then reconcile state if the timeout fires:
+Run the push under a hard 5-minute wall-clock timeout, then reconcile state if the
+timeout fires. **Read `helpers.md` for the verbatim shell block and the full exit-code
+decision matrix** (exit 0, exit 124 with reconcile, any other non-zero).
 
-```bash
-BRANCH=$(git branch --show-current)
-PUSH_START=$(date +%s)
-PUSH_OUTPUT=$(timeout 300 git push -u origin "$BRANCH" 2>&1)
-PUSH_EXIT=$?
-PUSH_ELAPSED=$(( $(date +%s) - PUSH_START ))
-```
-
-**Decision matrix on `PUSH_EXIT`:**
-
-- **0** → push succeeded. Report `Push: completed in ${PUSH_ELAPSED}s`.
-- **124** (GNU `timeout` SIGTERM) → wall-clock hit 5:00. Reconcile before declaring stall:
-  ```bash
-  LOCAL_SHA=$(git rev-parse HEAD)
-  UPSTREAM_SHA=$(git rev-parse "@{u}" 2>/dev/null || echo "missing")
-  git status --short
-  ```
-  - If `UPSTREAM_SHA == LOCAL_SHA` → push actually landed before the kill; report `Push: completed under timeout (reconciled)` and continue.
-  - If `UPSTREAM_SHA != LOCAL_SHA` (or missing) → real stall. Report:
-    ```
-    ❌ Push stalled at 5:00 — upstream did not advance.
-       Local:    <LOCAL_SHA>
-       Upstream: <UPSTREAM_SHA>
-       Last 20 lines of push output:
-       <tail of $PUSH_OUTPUT>
-    ```
-    Then stop. No retry, no prompt — the stall details are written to the Final Report and `/ship` exits. The pushed-or-not state is recoverable: re-invoke `/ship` after checking the remote, or push manually.
-- **any other non-zero** → real push failure (auth, conflict, hook reject). Report `$PUSH_OUTPUT` and stop.
+Summary of behavior:
+- Wrap `git push -u origin "$BRANCH"` in `timeout 300`.
+- On exit 124, check `git rev-parse HEAD` vs `git rev-parse "@{u}"` to determine if
+  the push landed before SIGTERM (reconciled success) or actually stalled.
+- On real stall or any other failure, write to the Final Report and stop. No retry.
 
 ### After successful push
 
@@ -400,28 +393,14 @@ while clean_poll_count < REQUIRED_CLEAN_POLLS:
 
 ### `fetch_pr_signals(pr)` — what counts
 
-Run these three `gh` calls and union the resulting `id` values. All three filter to comments newer than `state.started_at` and skip resolved threads where the API exposes that field.
+Read `helpers.md` for the three verbatim `gh` calls (PR view + inline pulls comments
++ issue comments). The function unions the resulting `id` values across all three
+sources to capture human reviews, Copilot inline comments, and SonarQube bot comments.
 
-```bash
-# Human review comments + PR-level discussion
-gh pr view "$PR_NUMBER" --json reviews,comments,reviewThreads \
-  --jq '[
-    (.reviews[]? | select(.state != "PENDING") | {id: ("review-" + (.id|tostring)), user: .author.login, body: .body, created_at: .submittedAt}),
-    (.comments[]? | {id: ("comment-" + (.id|tostring)), user: .author.login, body: .body, created_at: .createdAt})
-  ]'
-
-# Inline code-review comments — this is where Copilot lives
-gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER/comments" \
-  --jq '[.[] | {id: ("inline-" + (.id|tostring)), user: .user.login, body: .body, path: .path, line: .line, created_at: .created_at, in_reply_to_id: .in_reply_to_id}]'
-
-# Bot/issue comments — SonarQube typically posts here
-gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/comments" \
-  --jq '[.[] | {id: ("issue-" + (.id|tostring)), user: .user.login, body: .body, created_at: .created_at}]'
-```
-
-(Replace `{owner}/{repo}` by reading from `gh repo view --json nameWithOwner --jq .nameWithOwner` once at watch entry.)
-
-**Critical detail:** the watch's `started_at` is set when Phase 4b *begins*, NOT when `/ship` itself started. Comments that landed during the CI wait will be seen as "new" on the first poll and trigger an addressing cycle — that's the PR #49 failure mode this phase exists to prevent.
+**Critical detail:** the watch's `started_at` is set when Phase 4b *begins*, NOT when
+`/ship` itself started. Comments that landed during the CI wait will be seen as "new"
+on the first poll and trigger an addressing cycle — that's the PR #49 failure mode
+this phase exists to prevent.
 
 ### Successful exit
 
@@ -476,17 +455,8 @@ Re-enter the Phase 4 polling block exactly — same 20-minute timeout, same poll
 
 ### Step 6 — Post replies
 
-For each addressed inline comment, post a brief reply via:
-```bash
-gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER/comments/<comment-id>/replies" \
-  -f body="Addressed in <short-SHA>: <one-line summary of fix>"
-```
-
-For PR-level / issue comments (Sonar, top-level reviews), post a single follow-up issue comment summarizing the addressing pass:
-```bash
-gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/comments" \
-  -f body="Cycle ${cycle_count}: addressed ${N} comments in <short-SHA>. See thread replies for details."
-```
+Post a reply on each addressed inline comment, then a single summary comment for
+PR-level / issue comments. Read `helpers.md` for the verbatim `gh api` commands.
 
 This closes the threads visibly so reviewers know the work was handled.
 
@@ -540,6 +510,43 @@ Dispatching addressing sub-agent (Phase 4c)...
 Sub-agent addressed 1 comment. Pre-flight clean. Committed, pushed, CI re-passed.
 Phase 4b: 2/2 clean polls after addressing cycle.
 Phase 5: ✅ Slack posted.
+</example>
+
+<example label="preflight-test-failure">
+Input: /ship (tests fail in Phase 1)
+
+Phase 0: Branch fix/ARC-4520-stall-fix | Ticket ARC-4520 | Changed files: 3
+Phase 0.5: ✅ pulled in 4 commits from origin/main
+Phase 1: ❌ Tests FAILED
+   2 failing tests in DownloadWorkerTest:
+   - shouldRetryOnNetworkLoss: AssertionError: expected 3 retries, got 0
+   - shouldStopAfterMaxRetries: NullPointerException at line 142
+Ship halted. Fix failing tests and re-invoke /ship. No commit, no push.
+
+─── Ship Report ─────────────────────────────────
+Branch:    fix/ARC-4520-stall-fix
+Ticket:    ARC-4520
+Phase 1 Pre-flight:  ❌ Tests failed (2 failures in DownloadWorkerTest)
+─────────────────────────────────────────────────
+</example>
+
+<example label="max-cycles-hit">
+Input: /ship (Copilot keeps finding new issues — 8 addressing cycles)
+
+Phase 4b cycle 8: 1 new signal — Copilot suggested additional null check.
+❌ Hit MAX_CYCLES (8) addressing rounds. Stopping for manual review.
+State preserved at ~/.claude-data/_tmp_ship_state/142.json.
+
+─── Ship Report ─────────────────────────────────
+Branch:    feat/ARC-3971-download-fix
+Ticket:    ARC-3971
+Phase 4b Settling:  ❌ MAX_CYCLES exceeded (8 cycles, last cycle 1 unresolved signal)
+Phase 5 Slack:      ⏭ SKIPPED — settling did not complete
+─────────────────────────────────────────────────
+
+Recommendation: review the Phase 4c cycle history in the state file, decide whether
+remaining Copilot suggestions are blocking, then either push a manual fix or
+re-invoke /ship to resume the watch.
 </example>
 </examples>
 

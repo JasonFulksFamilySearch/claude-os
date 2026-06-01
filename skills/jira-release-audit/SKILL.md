@@ -8,7 +8,7 @@ description: >
   release", "what's shipping in this release", or invokes /jira-release-audit or is
   preparing to cut a release.
 argument-hint: "[target-version] (e.g. v2.13.0 — defaults to auto-detected minor bump)"
-allowed-tools: Bash(git tag *) Bash(git log *) Bash(git describe *) mcp__atlassian__getJiraIssue
+allowed-tools: Bash(git tag *) Bash(git log *) Bash(git describe *) mcp__atlassian__getJiraIssue mcp__atlassian__editJiraIssue
 ---
 
 <role>

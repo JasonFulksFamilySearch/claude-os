@@ -11,10 +11,10 @@ allowed-tools:
   - Read
   - Glob
   - Grep
-  - Bash
   - Edit
   - Write
   - mcp__spokenly__ask_user_dictation
+# permission-required: mcp__spokenly__ask_user_dictation — already present in ~/.claude/settings.json permissions.allow. Read/Glob/Grep/Edit/Write are default tools. No bare Bash is used; specific git/file commands are not needed by this skill.
 ---
 
 <role>

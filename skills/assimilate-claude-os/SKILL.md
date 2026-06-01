@@ -6,7 +6,8 @@ description: >
   the MCP server if needed. Use when the user invokes /assimilate-claude-os,
   "assimilate claude os", "pull claude os updates", or "sync walter's changes".
 argument-hint: "(no arguments)"
-allowed-tools: Bash(~/.claude-os/update.sh) Bash(bash *)
+allowed-tools: Bash(~/.claude-os/update.sh) Bash(bash:*)
+# permission-required: Bash(~/.claude-os/update.sh) — add to ~/.claude/settings.json permissions.allow if not already covered. Bash(bash:*) is the diagnostic fallback and is already present in ~/.claude/settings.local.json permissions.allow.
 ---
 
 <role>
@@ -30,7 +31,7 @@ Walter (the counterpart agent) transmitted from the personal machine.
 - Never fabricate commit counts or file names — report only what the script outputs.
 - Trust boundary: `~/.claude-os/update.sh` pulls from the configured git remote (origin) into the shared genome directory. Treat incoming commits as trusted (Walter is the only other writer), but never auto-resolve merge conflicts — surface them to Sir for manual resolution.
 - Reversibility: `git pull` advances local refs and may rebuild the MCP server. Reversal requires `git reset --hard <prior-sha>` in `~/.claude-os/` plus an MCP rebuild — do not attempt this autonomously; if Sir wants to roll back, surface the prior SHA from the script output and wait for confirmation.
-- **Tool scope:** `Bash(~/.claude-os/update.sh)` is the primary tool for all normal runs. The broader `Bash(bash *)` allowance in the frontmatter exists only as a diagnostic fallback when `update.sh` itself cannot be invoked (e.g., checking `git status` or verifying network connectivity before retrying). Do not run arbitrary bash commands outside this fallback scenario.
+- **Tool scope:** `Bash(~/.claude-os/update.sh)` is the primary tool for all normal runs. The broader `Bash(bash:*)` allowance in the frontmatter exists only as a diagnostic fallback when `update.sh` itself cannot be invoked (e.g., checking `git status` or verifying network connectivity before retrying). Do not run arbitrary bash commands outside this fallback scenario.
 </task>
 
 <instructions>

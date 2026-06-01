@@ -51,11 +51,14 @@ collect_repo() {
     return
   fi
 
-  # Git log
+  # Git log — surface ticket keys for the activity ranking. Most ARC-XXXX keys
+  # are already in the subject (or a branch name inside merge subjects); the
+  # Refs: trailer catches commits whose subject omits the key. Claude extracts
+  # ARC-\d+ from both the subject and the trailer (union) to attribute commits.
   local commits
   commits=$(git -C "$path" log --all --author="$GIT_AUTHORS" \
     --since="$SINCE" --until="$UNTIL" \
-    --format="%h %s (%an, %ar)" 2>/dev/null) || true
+    --format="%h %s (%an, %ar) | Refs: %(trailers:key=Refs,valueonly,separator=%x20)" 2>/dev/null) || true
 
   output+="**Git commits:**\n"
   if [[ -n "$commits" ]]; then
@@ -70,7 +73,7 @@ collect_repo() {
     --author="@me" --state=merged \
     --search="merged:>=${ACTIVITY_DATE}" \
     --limit 20 \
-    --json number,title,url,mergedAt,additions,deletions 2>/dev/null) || true
+    --json number,title,url,mergedAt,additions,deletions,headRefName 2>/dev/null) || true
 
   output+="**My merged PRs:**\n"
   if [[ -n "$merged_prs" && "$merged_prs" != "[]" ]]; then
@@ -84,7 +87,7 @@ collect_repo() {
   open_prs=$(gh pr list --repo "$(git -C "$path" remote get-url origin 2>/dev/null | sed 's/.*github.com[:/]\(.*\)\.git/\1/' | sed 's/.*github.com[:/]\(.*\)/\1/')" \
     --author="@me" --state=open \
     --limit 10 \
-    --json number,title,url,createdAt 2>/dev/null) || true
+    --json number,title,url,createdAt,headRefName 2>/dev/null) || true
 
   output+="**My open PRs:**\n"
   if [[ -n "$open_prs" && "$open_prs" != "[]" ]]; then
@@ -99,7 +102,7 @@ collect_repo() {
     --state=all \
     --search="reviewed-by:@me merged:>=${ACTIVITY_DATE}" \
     --limit 20 \
-    --json number,title,url,author 2>/dev/null) || true
+    --json number,title,url,author,headRefName 2>/dev/null) || true
 
   output+="**PRs I reviewed:**\n"
   if [[ -n "$reviewed_prs" && "$reviewed_prs" != "[]" ]]; then

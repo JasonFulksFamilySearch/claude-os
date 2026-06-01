@@ -8,7 +8,10 @@ description: >
   topic READMEs, USAGE, CONSTRAINTS, and DESIGN docs, and automatically updates
   documentation when code changes affect topics.
 argument-hint: "[mode: quick | task] [topic-name...]"
-allowed-tools: Read Glob Agent
+allowed-tools: Read Glob Task
+# permission-required: Task tool is built-in to Claude Code (subagent dispatch) and
+# requires no settings.json entry. The earlier "Agent" token was a legacy name and is
+# replaced by "Task" to match the live tool registry.
 ---
 
 <role>

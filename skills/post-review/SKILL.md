@@ -1,5 +1,6 @@
 ---
 name: post-review
+model: opus
 description: >
   Post a structured PR review with inline comments and code suggestions to GitHub.
   Use when the user says "post my review", "submit the review", "review this PR",

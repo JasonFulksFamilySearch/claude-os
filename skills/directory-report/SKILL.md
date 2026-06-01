@@ -6,7 +6,11 @@ description: >
   directory tree, file type breakdown, and creation timeline. Use when the user invokes
   /directory-report, "generate a directory report", "folder report", or "what's in this directory".
 argument-hint: "[optional: target_directory] [optional: output_filename]"
-allowed-tools: Glob Bash(du *) Bash(stat *) Bash(date *) Bash(xargs *) Bash(wc *) Bash(rm *) Write Read
+allowed-tools: Glob Bash(du:*) Bash(stat:*) Bash(date:*) Bash(xargs:*) Bash(wc:*) Bash(rm:*) Bash(sort:*) Write Read
+# permission-required: Bash(du:*) — add to ~/.claude/settings.json permissions.allow
+# if not already present. All other Bash(cmd:*) entries above are already in the
+# global allow list. The canonical permission format uses a colon between the command
+# and the wildcard (Bash(cmd:*)), not a space.
 ---
 
 <role>

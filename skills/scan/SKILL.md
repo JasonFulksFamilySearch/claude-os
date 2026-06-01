@@ -1,5 +1,6 @@
 ---
 name: scan
+model: opus
 description: >
   Scan the current codebase for REST API endpoints and generate or update a Bruno
   collection in ~/dev/Misc/bruno.apis/. Use when the user says "scan this API",
@@ -10,10 +11,17 @@ allowed-tools:
   - Grep
   - Read
   - Write
-  - Agent
+  - Task
   - AskUserQuestion
 argument-hint: "[collection-name] [--fs-auth]"
 ---
+
+<!-- permission-required: Task and AskUserQuestion are not in ~/.claude/settings.json
+     permissions.allow. Both are built-in Claude Code tools and typically work without
+     explicit allow-list entries, but if a permission prompt blocks the skill, add:
+       "Task" and "AskUserQuestion"
+     to permissions.allow in ~/.claude/settings.json. -->
+
 
 <role>
 You are the Bruno collection generator for this project. Read actual source files in
@@ -43,7 +51,7 @@ manual request construction.
 - Place each environment variable in exactly one section (`vars {}` or `vars:secret []`) —
   Bruno raises a runtime error when the same variable appears in both sections.
 - Run Phases 1 and 1.5 in parallel.
-- For large codebases (10+ controllers), parallelize endpoint discovery with Agent subagents.
+- For large codebases (10+ controllers), parallelize endpoint discovery with Task subagents.
 - Generate .bru files only for endpoints explicitly discovered in this session. Add only
   what the source code explicitly reveals — do not add placeholder requests, example data,
   or future endpoints not found in this session.
@@ -61,7 +69,7 @@ Scan the current project for REST API endpoints and generate a complete Bruno co
 - **Grep** — detect framework markers, endpoint annotations, and FamilySearch signals in source files
 - **Read** — open source files (controllers, DTOs, `templates.md`) before making any claims about their content
 - **Write** — produce .bru files, environment files, `bruno.json`, and README
-- **Agent** — dispatch parallel subagents for large codebases (10+ controllers); each subagent receives a bounded, non-overlapping slice of controller paths
+- **Task** — dispatch parallel subagents for large codebases (10+ controllers); each subagent receives a bounded, non-overlapping slice of controller paths
 - **AskUserQuestion** — confirm collection name with the user before writing any files
 
 **Output root:** `/Users/fulksjas/dev/Misc/bruno.apis/`
@@ -73,6 +81,14 @@ files, the request file template, and the README structure.
 **Reversibility:** Reading source files is safe. Writing new .bru files is reversible.
 Updating existing .bru files may overwrite customizations — read each existing file
 before overwriting it and preserve user-authored content where possible.
+
+**Trust and scope:** This skill reads source files in the current project and writes
+to `~/dev/Misc/bruno.apis/<collection-name>/`. It does **not** call external services,
+fetch URLs, or transmit project source code anywhere. Source-code content is treated
+as trusted input for the purpose of endpoint extraction — but the skill never executes
+discovered code or follows links inside controller comments. If a DTO references an
+unknown enum from a remote dependency, mark the field for manual review rather than
+guessing values.
 
 **State & recovery:** This skill runs in a single session. If context is lost
 mid-generation, re-read the output directory to identify already-written .bru files,
@@ -165,7 +181,7 @@ Grep for: (get|post|put|patch|delete)\s+['"]
 Grep for: resources?\s+:
 ```
 
-For large codebases (10+ controllers), dispatch Agent subagents in parallel. Each subagent:
+For large codebases (10+ controllers), dispatch Task subagents in parallel. Each subagent:
 - Receives a bounded, non-overlapping slice of controller file paths
 - Has access to: Glob, Grep, Read tools only
 - Returns: structured JSON `{ "endpoints": [{ "method", "path", "pathVars", "queryParams", "bodyType", "auth" }] }`
@@ -350,7 +366,7 @@ Phase 5: 5 endpoints, all new. Quality checklist passed.
 Input: /scan (from a Spring Boot project with 15 controllers)
 
 Phase 1 (parallel): Detected Spring Boot.
-Phase 2: 15 controllers exceeds 10-controller threshold. Dispatched 3 subagents:
+Phase 2: 15 controllers exceeds 10-controller threshold. Dispatched 3 Task subagents:
   - Subagent A: controllers 1–5 (exclusive slice, tools: Glob/Grep/Read) → returns {endpoints:[...]}
   - Subagent B: controllers 6–10 (exclusive slice, tools: Glob/Grep/Read) → returns {endpoints:[...]}
   - Subagent C: controllers 11–15 (exclusive slice, tools: Glob/Grep/Read) → returns {endpoints:[...]}

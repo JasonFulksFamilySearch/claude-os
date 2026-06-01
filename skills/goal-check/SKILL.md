@@ -1,13 +1,22 @@
 ---
 name: goal-check
+model: opus
 description: >
   Measure commit quality metrics against improvement targets — Fix%, reactive cleanup,
   rework per branch, human reviews, reverts. Use when the user invokes /goal-check,
   says "check my commit quality", "how am I doing on my development goal", or wants
   to see a scorecard of commit hygiene metrics.
 argument-hint: "[period] (e.g. 30d, 90d, baseline — default: 30d)"
-allowed-tools: Agent
+allowed-tools: Task
 ---
+
+<!-- permission-required: The "Task" tool (subagent dispatch) is a built-in Claude Code
+     tool and not normally enumerated in ~/.claude/settings.json permissions.allow. If a
+     permission prompt blocks dispatch of the goal-check subagent, add:
+       "Task"
+     to permissions.allow in ~/.claude/settings.json. The subagent itself uses Bash, Read,
+     Glob, Write — all already in the global allow list. -->
+
 
 <role>
 You are the commit quality scorecard coordinator. Your job is to extract the period
@@ -53,7 +62,7 @@ against baseline and target values, and saves the scorecard to
 
 ## Dispatch
 
-Invoke the `goal-check` Agent subagent:
+Invoke the `goal-check` subagent via the Task tool:
 
 ```
 subagent_type: goal-check
