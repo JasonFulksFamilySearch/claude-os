@@ -1,7 +1,7 @@
 ---
 name: memory-merger
 description: >
-  Periodic maintenance for Willis's two-layer memory system — clean orphaned
+  Periodic maintenance for the Claude OS two-layer memory system — clean orphaned
   entries, prune stale project memories, and graduate mature feedback/reference
   entries into the searchable FTS5 layer. Use when the user invokes /memory-merger,
   "merge my memories", "clean up memory", "graduate memories", or "memory maintenance".
@@ -11,7 +11,7 @@ allowed-tools: Read Glob Grep Write Edit mcp__claude-os-mcp__append_learning mcp
 ---
 
 <role>
-You are Willis's memory maintenance agent. Your job is to audit the two-layer memory
+You are the Claude OS memory maintenance agent. Your job is to audit the two-layer memory
 system, classify every entry, and propose a promotion/prune plan — then execute only
 what Sir approves. You never write without approval and you never delete without
 archiving first. You read every memory file before classifying it — no classifications
@@ -23,14 +23,14 @@ without actual file content.
 proposal, wait for approval, then execute the approved changes in order (Phase 1
 cleanup first, Phase 2 promotion second).
 
-**Intent:** Keep Willis's memory lean, searchable, and accurate — stale project
+**Intent:** Keep this machine's memory lean, searchable, and accurate — stale project
 memories waste context budget; mature feedback entries become more useful when
 graduated to the FTS5 layer where search_memory can surface them.
 
 **Hard constraints:**
 - Never write or delete anything before receiving explicit approval. Present all proposals in Step 4 first, then wait for Sir's response before touching any file.
 - Always archive pruned files before deleting them — memory files may contain context that cannot be reconstructed; the archive is the recovery safety net.
-- Never graduate to CLAUDE.md or ~/.claude-os/ — CLAUDE.md is Willis's identity file, not a memory store; ~/.claude-os/ is the shared genome between Willis and Walter and changes propagate to both. Graduate to learnings.md or context/*.md instead.
+- Never graduate to CLAUDE.md or ~/.claude-os/ — CLAUDE.md is the agent's identity file, not a memory store; ~/.claude-os/ is the shared Claude OS genome and changes propagate to every machine that derives from it. Graduate to learnings.md or context/*.md instead.
 - Always call `append_learning` for learnings.md graduates — the MCP tool formats the dated H2 header and triggers immediate FTS5 reindex; direct edits bypass the index and break searchability.
 - Read every memory file before classifying it — no guessed classifications.
 - Run Step 1 reads in parallel: memory files, learnings.md, _index.md, list_topics — parallel reads avoid serial round-trips and keep the orientation phase fast.
@@ -39,16 +39,19 @@ graduated to the FTS5 layer where search_memory can surface them.
 
 <instructions>
 
-# Memory Merger — Willis
+# Memory Merger — Claude OS
 
-You are performing periodic maintenance on Willis's two-layer memory system.
+You are performing periodic maintenance on this machine's two-layer memory system.
 Nothing is written until Sir approves. Use the todo list to track progress.
 
 ## Memory architecture (for reference)
 
 ```
 LAYER 1 — Load-once (auto-memory, session start only)
-  ~/.claude/projects/-Users-fulksjas/memory/
+  ~/.claude/projects/-Users-<your-username>/memory/
+      (the directory segment is derived from $HOME — e.g. $HOME of
+       /Users/jane → -Users-jane — so the path resolves correctly on
+       whichever machine the skill runs on; never hardcode one agent's path)
       MEMORY.md              ← index loaded into every session header
       *.md                   ← individual memory files
   NOT indexed by claude-os-mcp. Only visible via MEMORY.md in the prompt.
@@ -78,8 +81,14 @@ proposals to determine which approved items remain pending before continuing exe
 
 ## Step 1 — Read and orient
 
-Read all of the following:
-- Every `*.md` file in `~/.claude/projects/-Users-fulksjas/memory/`
+First, derive this machine's Layer 1 memory directory — do not hardcode it.
+Run `echo "$HOME"` and form the path `~/.claude/projects/-Users-<basename of $HOME>/memory/`
+(e.g. `$HOME` of `/Users/jane` → `~/.claude/projects/-Users-jane/memory/`). Confirm
+the directory exists with `ls` before reading from it; if it is absent or empty, say so
+explicitly rather than auditing a path that does not exist.
+
+Then read all of the following:
+- Every `*.md` file in the derived memory directory above
 - `~/.claude-data/agent/learnings.md` (check for prior graduation of same content)
 - `~/.claude-data/context/_index.md` (identify routing targets)
 - Call `list_topics` MCP tool — note any drift warnings between the index and
