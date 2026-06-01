@@ -48,10 +48,12 @@ Nothing is written until Sir approves. Use the todo list to track progress.
 
 ```
 LAYER 1 — Load-once (auto-memory, session start only)
-  ~/.claude/projects/-Users-<your-username>/memory/
-      (the directory segment is derived from $HOME — e.g. $HOME of
-       /Users/jane → -Users-jane — so the path resolves correctly on
-       whichever machine the skill runs on; never hardcode one agent's path)
+  ~/.claude/projects/<sanitized-cwd>/memory/
+      (the directory is named after the session's sanitized working directory,
+       NOT the username — e.g. a session launched from /Users/jane/Dev/x maps to
+       -Users-jane-Dev-x. Both the username and the launch location differ per
+       machine, so never hardcode OR compute this path from $HOME — DISCOVER it
+       on disk, see Step 1.)
       MEMORY.md              ← index loaded into every session header
       *.md                   ← individual memory files
   NOT indexed by claude-os-mcp. Only visible via MEMORY.md in the prompt.
@@ -81,14 +83,26 @@ proposals to determine which approved items remain pending before continuing exe
 
 ## Step 1 — Read and orient
 
-First, derive this machine's Layer 1 memory directory — do not hardcode it.
-Run `echo "$HOME"` and form the path `~/.claude/projects/-Users-<basename of $HOME>/memory/`
-(e.g. `$HOME` of `/Users/jane` → `~/.claude/projects/-Users-jane/memory/`). Confirm
-the directory exists with `ls` before reading from it; if it is absent or empty, say so
-explicitly rather than auditing a path that does not exist.
+First, DISCOVER this session's Layer 1 memory directory — do not hardcode it and
+do not compute it from `$HOME` or `pwd` (the directory is named after the sanitized
+working directory, whose encoding and launch location both vary per machine, so any
+computed path is just another assumption). Instead, find it on disk and confirm by
+matching the index you already have:
+
+1. The active `MEMORY.md` is already loaded into this session's prompt at startup
+   (it appears in the system context). Note its contents — that is the ground truth
+   for which store is active.
+2. List candidate stores: `ls ~/.claude/projects/*/memory/MEMORY.md`.
+3. Identify the active directory as the one whose `MEMORY.md` matches the index loaded
+   in this session. If exactly one exists, that is it. If several plausibly match,
+   prefer the one whose name corresponds to this session's working directory; if you
+   cannot disambiguate with confidence, list the candidates and ask Sir which to audit
+   rather than guessing.
+4. Confirm the chosen directory exists and is non-empty before reading; if it is absent
+   or empty, say so explicitly rather than auditing a path that does not exist.
 
 Then read all of the following:
-- Every `*.md` file in the derived memory directory above
+- Every `*.md` file in the discovered memory directory above
 - `~/.claude-data/agent/learnings.md` (check for prior graduation of same content)
 - `~/.claude-data/context/_index.md` (identify routing targets)
 - Call `list_topics` MCP tool — note any drift warnings between the index and
