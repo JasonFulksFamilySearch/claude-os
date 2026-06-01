@@ -52,16 +52,6 @@ truncate_to() {
   fi
 }
 
-# "Arc" → "an", "Zion" → "a". Simple first-letter rule.
-article_for() {
-  local first
-  first="$(printf '%s' "${1:0:1}" | tr '[:upper:]' '[:lower:]')"
-  case "$first" in
-    a|e|i|o|u) printf 'an' ;;
-    *)         printf 'a'  ;;
-  esac
-}
-
 # "arc-record-exchange" → "Arc Record Exchange"
 repo_display_name() {
   local raw="$1"
@@ -143,7 +133,6 @@ REPO_JSON="$(gh repo view --json name,owner)"
 REPO_NAME="$(printf '%s' "$REPO_JSON" | jq -r .name)"
 OWNER="$(printf '%s' "$REPO_JSON" | jq -r .owner.login)"
 REPO_DISPLAY="$(repo_display_name "$REPO_NAME")"
-REPO_ART="$(article_for "$REPO_DISPLAY")"
 
 # ----------------------------- pre-flight gate -------------------------------
 # Fail-open: zero comments / no quality-gate verdict yet ≠ block.
@@ -210,7 +199,6 @@ jq \
   --arg fb       "$FALLBACK_TEXT" \
   --arg hdr      "$HEADER_TEXT" \
   --arg pings    "$REVIEWER_PINGS" \
-  --arg art      "$REPO_ART" \
   --arg repo     "$REPO_DISPLAY" \
   --arg summary  "$SUMMARY_TEXT" \
   --arg url      "$PR_URL" \
@@ -221,7 +209,6 @@ jq \
         (split("{{FALLBACK_TEXT}}")      | join($fb))
       | (split("{{HEADER_TEXT}}")        | join($hdr))
       | (split("{{REVIEWER_PINGS}}")     | join($pings))
-      | (split("{{REPO_ARTICLE}}")       | join($art))
       | (split("{{REPO_DISPLAY_NAME}}")  | join($repo))
       | (split("{{SUMMARY_MRKDWN}}")     | join($summary))
       | (split("{{PR_URL}}")             | join($url))
@@ -255,7 +242,7 @@ if [ "$DRY_RUN" = "1" ]; then
   echo
   echo "Block-by-block structure:"
   echo "  [0] header   : ${HEADER_TEXT}"
-  echo "  [1] section  : ${REVIEWER_PINGS} I have ${REPO_ART} ${REPO_DISPLAY} PR ready for review."
+  echo "  [1] section  : ${REVIEWER_PINGS} ${REPO_DISPLAY} — review requested."
   echo "  [2] divider  : ─────────────────────────────────────────────"
   echo "  [3] section  : <summary below>   +  PRIMARY 'View PR' BUTTON (flush-right accessory)"
   echo "  [4] context  : ${FOOTER_MRKDWN}"

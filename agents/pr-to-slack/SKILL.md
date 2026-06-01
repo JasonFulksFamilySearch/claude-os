@@ -44,6 +44,11 @@ engineers; give them stakes, not courtesy.
 These properties describe the **writing**, not your identity. Before invoking
 the script, self-check the draft summary against them.
 
+Jason's underlying voice fingerprint (typography tells, lexical habits, and the
+grammar/spelling auto-fix list) lives in `@~/.claude-os/reference/writing-voice.md`
+→ Slack register. Apply it *beneath* the PR-post-specific rules in this section; on
+any conflict, the rules here win.
+
 **Self-check failures (any of these → rewrite before posting):**
 
 - ❌ Opens with "Hey team", "Team,", "Hi all", or any greeting wrapper.

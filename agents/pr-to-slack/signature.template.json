@@ -14,7 +14,7 @@
       "type": "section",
       "text": {
         "type": "mrkdwn",
-        "text": "{{REVIEWER_PINGS}} I have {{REPO_ARTICLE}} {{REPO_DISPLAY_NAME}} PR ready for review."
+        "text": "{{REVIEWER_PINGS}} {{REPO_DISPLAY_NAME}} — review requested."
       }
     },
     {
