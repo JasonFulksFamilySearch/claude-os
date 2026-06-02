@@ -43,7 +43,7 @@ A successful review satisfies all of the following:
 - Every inline comment is anchored to a line that appears in the diff hunk (no 422 errors on post).
 - The review body opens with at least one specific, named strength before listing findings.
 - Each finding includes the *why* — the underlying principle or risk, not just the fix.
-- The review event (APPROVE / REQUEST_CHANGES) matches the severity table in approval-logic.
+- The review event (APPROVE / COMMENT / REQUEST_CHANGES) matches the originating verdict when handed off from `/review-pr`, or the severity table in approval-logic when composing from scratch.
 - The user has read and approved the full preview (event + body + comment list) before the `gh api` call is made.
 - Line numbers were verified against the actual diff (not guessed) for every comment.
 </success-criteria>
@@ -126,6 +126,13 @@ Determine the review event based on the nature of feedback:
 | Missing error handling that could crash prod      | `REQUEST_CHANGES` |
 | Architectural issues requiring significant rework | `REQUEST_CHANGES` |
 
+**When invoked as a handoff from `/review-pr`:** the review event is already set by that skill's
+verdict→event mapping (`CLEAN→APPROVE`, `REVISE→COMMENT` or `REQUEST_CHANGES`, `ESCALATE→REQUEST_CHANGES`).
+That verdict-derived event **takes precedence over the table above** — the table is only for
+composing a review from scratch when no prior verdict exists. In particular, **never downgrade a
+`REVISE` or `ESCALATE` verdict to `APPROVE`**: a non-blocking `REVISE` posts as `COMMENT`, not
+`APPROVE`. (This is the consistency rule — the posted event must match the verdict.)
+
 **The user can override** the event via the second argument (e.g., `/post-review 1164 approve`).
 </approval-logic>
 
@@ -187,6 +194,11 @@ Look back through the conversation for:
 1. **Overall assessment** — Strengths, concerns, verdict
 2. **Inline feedback** — Specific comments tied to files/code
 3. **Code suggestions** — Concrete replacement code
+
+**If `/review-pr` handed off to this skill**, the analysis is already in context: take its verdict
+and the **recommended event from its verdict→event mapping** as the Step 6 event (verdict wins —
+see Approval Logic), and its inline findings as the comment set below. Don't re-derive the event
+loosely from the Approval Logic table.
 
 Organize each piece of inline feedback into this structure:
 

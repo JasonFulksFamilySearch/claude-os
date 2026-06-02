@@ -41,8 +41,10 @@ them, they do not edit them (a measured agent must not author its own measure).
 
 ## mode: `diff` — Gate 3 (implemented diff vs. ticket + PRD + tests)
 
-**Ground truth:** the diff; the ticket; the PRD; the test suite. This is the only gate that
-can judge the *implemented* fix, not merely the intended one.
+**Ground truth:** the diff; the ticket; the PRD; the test suite; **the codebase / working tree**.
+This is the only gate that can judge the *implemented* fix, not merely the intended one. The
+codebase is required ground truth here — G3/G4 cannot be scored without grepping it for callers
+and consumers, so a run that omits it must mark those lines UNRESOLVED (evidence), not PASS.
 
 *Fidelity*
 - **D1** Every PRD requirement / plan task is reflected in the diff. (nothing silently dropped)
@@ -52,8 +54,9 @@ can judge the *implemented* fix, not merely the intended one.
 - **G1** Addresses the root cause named in the PRD at the cited location — not a downstream symptom.
 - **G2** The new/changed test would FAIL if the production change were reverted. (anti-tautological-test — the challenger may demand this be demonstrated, e.g. by reasoning about the revert or by `git stash`+run)
 - **G3** Not symptom suppression: no swallowed exception, widened type, or test-input special-casing standing in for a fix.
-- **G4** No adjacent behavior is broken — name an edge case / caller and show it is covered.
+- **G4** No adjacent behavior is broken — for every symbol, guard, or behavior the diff **removes or changes**, name its consumers (grep the codebase) and show each still holds. Removing a guard counts: name what depended on it *or on its side effects*, including consumers in other layers (UI, workers, telemetry).
 - **G5** A regression test reproduces the original bug. `[applies-if: bug ticket]`
+- **G6** If the change's correctness depends on behavior outside the diff's reach — a server contract, a deploy ordering, another service's response — that dependency is UNRESOLVED (product or evidence) → **ESCALATE**, never PASS. Name the contract and what must be verified.
 
 ---
 
