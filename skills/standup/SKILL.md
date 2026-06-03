@@ -30,8 +30,9 @@ the three Scrum standup questions:
 
 Constraints:
 - Use only verifiable data (git log, GitHub CLI, JIRA CLI). No guesses.
-- Output must be spoken-word style — first person, natural tense.
-- Target length: 90 seconds spoken (~200–250 words).
+- Headline lines are spoken-word style — first person, natural tense; the indented
+  detail beneath them is the written record, read aloud only if asked.
+- Target length for the spoken headlines: ~90 seconds (~200–250 words).
 - Save output to `~/Documents/WorkDay/Standups/standup-{PLAN_DATE}.md`.
 - Use the CLI for all data fetching. Do not use Jira MCP tools — they
   produce large context-bloating responses.
@@ -96,18 +97,34 @@ gh pr list --reviewer "@me" --state all \
   --json number,title,state,url
 ```
 
-**JIRA (transitions and open sprint items):**
+**JIRA (completed, in-progress, and open sprint items):**
 ```bash
-# Issues transitioned to Done yesterday
+# Completed yesterday (transitioned to Done/Closed) — feeds the "Completed" subsection
 jira issue list \
   -q"project = ARC AND assignee = currentUser() AND statusCategory = Done AND updated >= YESTERDAY_DATE" \
-  --plain --columns KEY,SUMMARY,STATUS
+  --plain --columns KEY,TYPE,PRIORITY,STATUS,SUMMARY
 
-# Open sprint issues (for Today section)
+# Worked on but not finished (in-progress items touched in the window) — feeds "Worked on"
+jira issue list \
+  -q"project = ARC AND assignee = currentUser() AND statusCategory != Done AND updated >= YESTERDAY_DATE" \
+  --plain --columns KEY,TYPE,PRIORITY,STATUS,SUMMARY
+
+# Open sprint issues (forward-looking — for Today)
 jira issue list \
   -q"project = ARC AND sprint in openSprints() AND assignee = currentUser() AND statusCategory != Done" \
-  --plain --columns KEY,SUMMARY,STATUS,PRIORITY
+  --plain --columns KEY,TYPE,PRIORITY,STATUS,SUMMARY
 ```
+
+**Resolve the highest non-epic parent for grouping.** ARC sub-tasks hang off a Defect or
+User Story; `--columns` cannot return the parent. For every ticket whose TYPE is
+`Sub-Task`, resolve its parent and walk up until the parent is an Epic or there is none —
+the last non-epic ancestor is the grouping key:
+```bash
+jira issue view <KEY> --raw | jq -r '.fields.parent.key // "none"'
+```
+Defects, Stories, and Tasks with no parent (or only an Epic parent) are their own group.
+ARC priorities are literal (`P1`, `P2`, …); a `None`/empty priority renders
+"(priority unset)" and sorts last. Do not remap priority names.
 </data_sources>
 
 If a command fails, note the gap explicitly — do not invent data to fill it.
@@ -121,33 +138,49 @@ Using only the data collected in Step 2, write the standup in this format:
 ## Standup — {PLAN_DATE}
 
 **Yesterday:**
-[One bullet (`- `) per work item — never combine items on one line. Order
-items by activity, most active first: for each item sum its git commits + PRs
-+ JIRA transitions in the window; the highest total leads. PRs you reviewed
-(not authored) collapse into their own bullet(s), ranked by review count.
-Each bullet is a past-tense fragment citing JIRA keys (ARC-XXXX) and PR
-numbers (#NNN).]
 
-**Today:**
-[Present/future-tense sentences drawn from open sprint items and open PRs.
-Name the specific tickets and what the next action is.]
+_Completed:_
+- **{P#}** · {KEY} · {Type} — {outcome — what changed for the product, not the task title}
+    - ✓ {CHILD-KEY} · Sub-Task — {outcome of the sub-task} *(commit type — `hash`)*
+- **{P#}** · {KEY} · {Type} — {outcome}   ← standalone item with no children
 
-**Blockers:**
-[Named blockers only — specific ticket or person. Write "No blockers." if none.
-Never write "blocked by" without naming exactly what or who.]
+_Worked on (in progress):_
+- **{P#}** · {KEY} · {Type} — {outcome/state, e.g. "fix merged, gated on QA"}
+    - {supporting commits / mechanics — `hash`}
+    - ↳ {CHILD-KEY} · Sub-Task — {in-progress sub-task}
+
+_PRs:_
+- Authored — #{NNN} ({KEY}, short purpose) · merged|open
+- Reviewed — #{NNN} (short purpose) · approved|changes-requested
+
+**Today:** [Forward-looking prose, highest priority first. Name the specific tickets and
+the next concrete action; a sub-task names its parent defect/story.]
+
+**Blockers & risks:** [Named blockers (specific ticket or person) AND at-risk items —
+work gated on QA, review, or others, with what slips if it doesn't clear. Write
+"No hard blockers." only if genuinely clear, and still surface any risk.]
 ```
 </output_format>
 
 Rules:
-- Name JIRA ticket keys for any issue referenced.
-- Name PR numbers for any pull request referenced.
-- Do not speculate — if no data exists for a section, say so briefly.
-- Keep the "Today" section forward-looking; don't repeat yesterday's items.
-- "Yesterday" only: one bullet per item — never merge separate commits, PRs, or
-  tickets into a single bullet. Order by activity score (commits + PRs +
-  transitions per item, highest first); the reviewed-PR group ranks by its
-  review count; break ties by commit count. "Today" and "Blockers" keep their
-  existing prose form and ordering — do not bullet or re-sort them.
+- **Priority-first ordering.** In _Completed_ and _Worked on_, sort top-level items by
+  priority descending — P1 → P2 → … → unset (unset sorts last). Tie-break by activity
+  score (commits + PRs + transitions). The single most important item leads; never open
+  with a P3 when a P1 was worked.
+- **Priority badge.** Lead each top-level line with the literal Jira priority (**P1**).
+  Sub-tasks inherit the parent's priority — never repeat a badge on a child.
+- **Parent grouping.** Group work under its highest non-epic ancestor. A parent may
+  appear in both _Completed_ (for finished children) and _Worked on_ (when the parent
+  itself is still open) — annotate each so the state is unambiguous.
+- **Commit attribution.** When a commit references multiple ARC keys, attribute it to the
+  most specific one (the sub-task), then group that sub-task under its parent.
+- **Outcome-first headlines.** Each top-level line states the product outcome, not the
+  activity. Commit hashes, file paths, and mechanics belong in the indented sub-bullets —
+  the written record. The headline lines alone are the ~90-second spoken script.
+- **One item per bullet** — never merge separate tickets, PRs, or reviews onto one line.
+- Cite JIRA keys and PR numbers wherever work is referenced. No speculation; if a
+  subsection has no data, write one line saying so (e.g. "_Completed:_ nothing closed.").
+- _Today_ and _Blockers & risks_ stay prose; order _Today_ by priority, highest first.
 
 ## Step 4 — Save and Report
 
@@ -169,77 +202,67 @@ The standup is complete and correct when:
 </success_criteria>
 
 <examples>
-<example label="active-day-no-blockers">
-Input: /standup yesterday  (active development day)
+<example label="active-day-parent-grouped">
+Input: /standup  (P1 defect with sub-tasks, plus standalone closures)
 
-Yesterday:
-- ARC-3971 — merged PR #142 (download queue stall fix) and transitioned it to Done in Jira.
-- Reviewed and approved PR #141 (ARC-3968 — CSV writer null guard).
+## Standup — 2026-06-02
 
-Today: Picking up ARC-3972 (graceful pause on network loss) — starting
-with the BaseWorker heartbeat interval implementation.
+**Yesterday:**
 
-Blockers: No blockers.
+_Completed:_
+- **P1** · ARC-4684 · Defect — CSV error-flag completion-race fix built and tested; both
+  implementation sub-tasks closed  *(parent defect still In Progress — see Worked on)*
+    - ✓ ARC-4686 · Sub-Task — `verifyBatchCounts` now returns `failedCount` so partial-failure
+      batches are detectable *(refactor — `ca81d4d4`)*
+    - ✓ ARC-4687 · Sub-Task — CSV error flag now correct on the completion race, with
+      regression tests guarding it *(fix `c5c6fd09` + test `ccca080a`)*
+- **P1** · ARC-4590 · Defect — large-download item-count mismatch resolved and verified;
+  the 742-item gap on RID-12081 is closed
+- **P1** · ARC-4567 · Defect — `error.log` now records the first failed file in a batch
+- **P1** · ARC-4522 · Defect — status-CSV Error column and image count correct on a failed download
+
+_Worked on (in progress):_
+- **P1** · ARC-4684 · Defect — completion-race fix merged (PR #1377); code-complete, now
+  gated on QA before In Test
+    - 4 commits in arc-record-exchange; closing commit clarified the error-flag comment
+      and `verifyBatchCounts` JSDoc *(docs — `5294e376`)*
+    - ↳ ARC-4688 · Sub-Task — QA verification in progress
+
+_PRs:_
+- Authored — #1377 (ARC-4684, CSV completion-race fix) · merged
+- Reviewed — #1376 (IDB → `navigator.locks` token-refresh refactor) · approved
+
+**Today:** Closing ARC-4688 (QA verification under P1 ARC-4684) so ARC-4684 can move
+In Progress → In Test once #1377 clears staging. If QA passes, picking up ARC-4536 · Defect —
+Active Projects not displaying in Record Exchange *(priority unset)*.
+
+**Blockers & risks:** No hard blockers. At risk: ARC-4684's move to In Test depends on
+ARC-4688 QA clearing today; if QA surfaces issues, that slips.
 </example>
 
-<example label="quiet-day-with-blocker">
-Input: /standup Friday  (no git commits found; one active blocker)
+<example label="cli-degraded-quiet-day">
+Input: /standup Friday  (jira CLI fails — git/GitHub only)
 
-Note: git log returned no commits for 2026-05-09. No PRs found for that date.
+Note: jira CLI returned non-zero — ticket type, priority, and parent data unavailable.
+Items are listed flat (no priority ordering or parent grouping) from git/GitHub only.
 
-Yesterday:
-- No commits or merged PRs found for 2026-05-09.
-- Reviewed the ARC-3845 requirements doc and left a comment requesting platform team clarification.
+## Standup — 2026-05-09
 
-Today: ARC-3972 (graceful pause on network loss) — BaseWorker heartbeat
-implementation is the next action.
+**Yesterday:**
 
-Blockers: ARC-3845 — waiting on platform team design decision before
-implementation can start. Blocked since 2026-05-07.
-</example>
+_Completed:_
+- nothing confirmed closed (Jira unavailable).
 
-<example label="multi-repo-pr-reviews">
-Input: /standup yesterday  (review-heavy day across repos)
+_Worked on (in progress):_
+- ARC-4520 — pushed three commits narrowing the download-stall diagnostic
+  *(fix `a1b2c3d`, `e4f5g6h`, `i7j8k9l`)*
 
-Yesterday:
-- ARC-4112 — pushed two commits to arc-record-exchange (ResumeManager skeleton and unit tests).
-- Reviewed PRs #287 (orch-service, ARC-4099 — token refresh endpoint) and #288 (arc-utils, ARC-4055 — retry backoff); transitioned ARC-4055 to In Test after approving #288.
+_PRs:_
+- Authored — #150 (ARC-4520, NetworkMonitor null guard) · merged
 
-Today: Finishing ARC-4112 (resume after network loss) — wiring ResumeManager
-into the BaseWorker lifecycle and pushing for review.
+**Today:** Once the diagnostic flag is verified in staging, move ARC-4520 to In Test.
 
-Blockers: No blockers.
-</example>
-
-<example label="cli-failure-graceful-degrade">
-Input: /standup yesterday  (jira CLI fails; partial data only)
-
-Note: jira CLI returned non-zero exit; ticket transition data unavailable for
-this standup. Standup reflects git and GitHub data only.
-
-Yesterday:
-- ARC-4520 — pushed three commits to fix/ARC-4520 (download stall diagnostic).
-- Merged PR #150 (arc-record-exchange — fix null guard in NetworkMonitor).
-- Ticket transitions could not be retrieved from Jira.
-
-Today: ARC-4520 — once the diagnostic flag is verified in staging, move the
-fix to In Test.
-
-Blockers: No blockers — but Jira transition data should be verified manually
-before sharing this standup at the team meeting.
-</example>
-
-<example label="default-no-argument">
-Input: /standup  (no argument — defaults to yesterday)
-
-Resolved date: yesterday (2026-05-20). YESTERDAY_DATE window: 2026-05-19.
-
-Yesterday:
-- ARC-4615 — merged PR #160 (pause/resume timer refactor) and closed it in Jira after QA verified.
-
-Today: Starting ARC-4620 (concurrent tab-switch download corruption) —
-reproducing the failure case locally is the first step.
-
-Blockers: No blockers.
+**Blockers & risks:** No hard blockers — but verify Jira transition data manually before
+sharing, since the CLI was down when this ran.
 </example>
 </examples>
