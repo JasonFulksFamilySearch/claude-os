@@ -20,12 +20,13 @@ async function main(): Promise<void> {
   }
 }
 
-main().then(
-  () => process.exit(0),
-  (err: unknown) => {
-    const msg = err instanceof Error ? (err.stack ?? err.message) : String(err);
-    log("error", "reembed failed", { error: msg });
-    console.error("reembed failed:", msg);
-    process.exit(1);
-  },
-);
+// Deliberately NO process.exit(). onnxruntime-node's native thread pool aborts
+// ("mutex lock failed") when static destructors run during the abrupt teardown
+// process.exit() forces. Setting process.exitCode and letting the event loop drain
+// naturally tears the model down cleanly (verified: process.exit → SIGABRT; natural → exit 0).
+main().catch((err: unknown) => {
+  const msg = err instanceof Error ? (err.stack ?? err.message) : String(err);
+  log("error", "reembed failed", { error: msg });
+  console.error("reembed failed:", msg);
+  process.exitCode = 1;
+});
