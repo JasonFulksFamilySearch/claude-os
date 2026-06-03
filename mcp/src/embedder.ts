@@ -5,6 +5,9 @@ import { log } from "./logger.js";
 
 export const MODEL_ID = "nomic-ai/nomic-embed-text-v1.5";
 export const EMBEDDING_DIM = 768;
+// int8-quantized weights load ~4x smaller in RAM (~1.5GB → ~400MB) than fp32.
+// The model still outputs 768-dim float32, so stored vectors and search are unchanged.
+export const EMBEDDING_DTYPE = "q8";
 
 // Prefixes required by nomic-embed-text for quality results
 const DOC_PREFIX = "search_document: ";
@@ -28,7 +31,7 @@ async function getPipeline(): Promise<FeatureExtractionPipeline> {
   _pipeline = (await (pipeline as (task: string, model: string, opts: object) => Promise<unknown>)(
     "feature-extraction",
     MODEL_ID,
-    { dtype: "fp32" },
+    { dtype: EMBEDDING_DTYPE },
   )) as FeatureExtractionPipeline;
 
   log("info", "Embedding model ready", { model: MODEL_ID });

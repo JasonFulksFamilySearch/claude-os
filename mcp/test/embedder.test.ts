@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { serializeVector, EMBEDDING_DIM, MODEL_ID } from "../src/embedder.js";
+import { serializeVector, EMBEDDING_DIM, MODEL_ID, EMBEDDING_DTYPE } from "../src/embedder.js";
 
 describe("constants", () => {
   it("EMBEDDING_DIM matches nomic-embed-text output size", () => {
@@ -8,6 +8,11 @@ describe("constants", () => {
 
   it("MODEL_ID references nomic-embed-text-v1.5", () => {
     expect(MODEL_ID).toContain("nomic-embed-text");
+  });
+
+  it("EMBEDDING_DTYPE is q8 (int8 quantized weights — the RAM-saving choice)", () => {
+    // Pins the chosen precision; catches an accidental revert to fp32.
+    expect(EMBEDDING_DTYPE).toBe("q8");
   });
 });
 
