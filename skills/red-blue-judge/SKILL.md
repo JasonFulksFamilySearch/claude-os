@@ -5,9 +5,9 @@ description: >
   verified against a source of truth (a ticket, a PRD, the codebase, tests) before work
   proceeds without human approval. Use inside make-it-so's gates, or any time you need an
   auditable CLEAN / REVISE / ESCALATE verdict on whether an artifact faithfully matches its
-  source and represents a genuine fix. Invoked by other skills, not auto-fired.
+  source and represents a genuine fix. Invoked by other skills, or directly when an
+  artifact needs verification before proceeding.
 allowed-tools: Read Grep Glob Bash Agent Write
-disable-model-invocation: true
 ---
 
 # Red-Blue-Judge
