@@ -2,26 +2,31 @@
 
 Local MCP server backing Jason's `claude-os` memory system. Indexes curated
 markdown under `~/.claude-data/` plus `CLAUDE.md` / `README.md` from a
-configurable list of project repos, and exposes five tools to Claude Code via
-the stdio transport.
+configurable list of project repos, and exposes **seven** tools to Claude Code
+over the stdio transport.
 
-This is the Phase 2 deliverable. The schema and architecture are designed to
-absorb Phases 3 (transcript extraction + hooks), 4 (vector embeddings), and 5
-(claude.ai bridge) without migration.
+Search is **hybrid**: BM25 full-text (FTS5) fused with semantic vector search
+(sqlite-vec + a locally-run embedding model). The store is at `schema_version = 2`,
+`phase = 4` — episodic memory (Haiku session digests) and vector embeddings are
+both live; the claude.ai bridge (Phase 5) is the remaining future phase.
 
 ---
 
 ## What it does
 
 - Reads markdown from `~/.claude-data/agent/`, `~/.claude-data/context/`,
-  `~/.claude-data/projects/<slug>/`, and the `CLAUDE.md` / `README.md` of every
-  project listed in `~/.claude-os/config/watched-projects.json`.
-- Stores a searchable mirror in `~/.claude-data/memory.db` (SQLite + FTS5).
-- Exposes five MCP tools: `search_memory`, `get_topic`, `append_learning`,
-  `list_topics`, `get_recent_learnings`.
+  `~/.claude-data/projects/<slug>/`, `~/.claude-data/episodes/`, and the
+  `CLAUDE.md` / `README.md` of every project listed in
+  `~/.claude-os/config/watched-projects.json`.
+- Stores a searchable mirror in `~/.claude-data/memory.db` (SQLite + FTS5 + sqlite-vec).
+- Embeds each observation with **nomic-embed-text-v1.5** (loaded at int8 / `q8`
+  quantization) into a 768-dim vector, so recall works by meaning as well as keyword.
+- Exposes seven MCP tools: `search_memory`, `get_topic`, `append_learning`,
+  `list_topics`, `get_recent_learnings`, `list_episodes`, `mark_episode_promoted`.
 - Stays current via a chokidar file watcher (instant on file change) and a
   15-minute in-process backstop reindex.
-- Skips `~/.claude-data/archive/` and any `_legacy*` files.
+- Skips `~/.claude-data/archive/`, `_legacy*` files, `_index.md`,
+  `_`-prefixed episodes, and files > 1 MB.
 
 ---
 
@@ -30,6 +35,7 @@ absorb Phases 3 (transcript extraction + hooks), 4 (vector embeddings), and 5
 | Path | Purpose |
 |---|---|
 | `~/.claude-os/mcp/src/` | TypeScript source |
+| `~/.claude-os/mcp/src/scripts/reembed.ts` | One-time re-embed migration (`npm run reembed`) |
 | `~/.claude-os/mcp/dist/` | Compiled output (gitignored) — what Claude Code runs |
 | `~/.claude-os/mcp/test/` | vitest suite |
 | `~/.claude-os/config/watched-projects.json` | List of project repos to index |
@@ -41,10 +47,12 @@ absorb Phases 3 (transcript extraction + hooks), 4 (vector embeddings), and 5
 ## Tools
 
 ### `search_memory`
-Full-text BM25 search across the entire index. Returns ranked snippets with
-`<mark>` highlighting plus the source path. Filters by `source_type`
+Hybrid search: FTS5 BM25 **and** semantic vector (KNN) search, merged into one
+ranked list with `<mark>` highlighting and source paths. Filters by `source_type`
 (`context`, `learning`, `decision`, `project_claude_md`, `project_readme`,
-`agent`) and `project` slug.
+`agent`, `episode`) and `project` slug. Use `source_filter: ["episode"]` to scope
+to episodic memory. The vector half degrades gracefully to FTS-only if the model
+can't load or the vector index is empty.
 
 ### `get_topic`
 Loads `~/.claude-data/context/<topic>.md` from disk (not from the index — disk
@@ -64,6 +72,69 @@ Enumerates every topic file in `~/.claude-data/context/`. Cross-references
 Parses `## YYYY-MM-DD — title` headings from `learnings.md` files. Returns
 the N newest entries across `agent`, a single `project`, or `all` scopes.
 
+### `list_episodes`
+Lists recent session episodes from `~/.claude-data/episodes/` — Haiku-generated
+session digests of decisions, corrections, and discoveries. Filters by `project`
+slug and `promoted` status; newest first (ties broken on `session_id`). For
+full-text search across episode bodies, use `search_memory` with
+`source_filter: ["episode"]`.
+
+### `mark_episode_promoted`
+Sets `promoted: true` in an episode file's frontmatter (atomic write via
+temp-file + rename) after its content has been graduated into `learnings.md` or
+a context topic. Takes the `path` returned by `list_episodes`, enforces episode-
+directory containment, and re-indexes the file immediately.
+
+---
+
+## Embeddings & semantic search
+
+- **Model:** `nomic-ai/nomic-embed-text-v1.5` via `@huggingface/transformers`
+  (onnxruntime), loaded with **`dtype: "q8"`** (int8-quantized weights). Output is
+  a 768-dim float32 vector — identical shape to fp32, so the vector store is
+  dtype-agnostic and no schema change is needed to switch precision.
+- **The dtype is a named constant:** `EMBEDDING_DTYPE` in `src/embedder.ts`.
+  Change it there (e.g. back to `"fp32"`) and re-run the migration to switch.
+- **Lazy-loaded:** the model loads on the first embed — a `search_memory` query,
+  or indexing a new/changed file (including the startup reindex when files
+  changed) — not eagerly at startup. RAM per server: **~120 MB idle, ~600 MB
+  warmed at q8** (vs ~1.1–1.5 GB at fp32).
+- **Storage:** vectors live in the `vec_items` virtual table (sqlite-vec `vec0`).
+  `search_memory` embeds the query, runs a KNN match, and fuses the hits with FTS.
+- **Quantization tradeoff:** q8 trades a measured recall dip (≈0.94 mean cosine vs
+  fp32, recall@5 ≈0.80) for roughly half the RAM. fp16 is **not** usable for this
+  model — its ONNX export crashes on long inputs (rotary-embedding broadcast) — so
+  the practical choice is q8 vs fp32.
+
+---
+
+## Re-embedding (one-time migration)
+
+`npm run reembed` rebuilds the entire vector index from the `observations` table.
+
+```bash
+cd ~/.claude-os/mcp
+# quiesce other Claude Code sessions first (see below)
+npm run reembed
+```
+
+- **When to run it:** after changing `EMBEDDING_DTYPE` (or the model), or on a
+  fresh machine to populate `vec_items` for the first time.
+- **Atomic:** embeds every observation into memory first, then clears and
+  repopulates `vec_items` in a single transaction — an interruption leaves the
+  *prior* index fully intact (no half-rebuilt state).
+- **Idempotent & lossless:** `vec_items` is a pure derivative of `observations`,
+  so re-running is safe and doubles as **rollback** — revert `EMBEDDING_DTYPE` to
+  `"fp32"` and re-run.
+- **Quiesce sessions first:** the migration is run by hand, not wired into
+  startup. The one uncovered risk is another session's server writing between the
+  migration's read and its swap, so close other sessions before running it.
+- Prints `cleared` / `reembedded` counts and duration on completion.
+
+It is deliberately **not** wired into server startup — a precision change is a
+rare, one-and-done event per machine, and an always-on rebuild would cause a
+concurrent-rebuild storm when several sessions start at once.
+
 ---
 
 ## Rebuilding
@@ -73,10 +144,12 @@ cd ~/.claude-os/mcp
 npm install      # only when dependencies change
 npm run build    # tsc → dist/
 npm test         # vitest, must be zero failures
+npm run reembed  # one-time, after an embedding dtype/model change (sessions quiesced)
 ```
 
 `dist/index.js` is what Claude Code launches. After rebuilding, restart any
-active Claude Code session for the new code to be loaded.
+active Claude Code session for the new code to load (each session runs its own
+server process and loads the model lazily).
 
 ---
 
@@ -90,10 +163,16 @@ active Claude Code session for the new code to be loaded.
   `frontmatter` (raw YAML or NULL).
 - **`observations_fts`** — FTS5 virtual table mirroring `title`, `content`,
   `topic`. Triggers keep it in sync on insert/update/delete.
-- **`meta`** — small key/value table with `schema_version` and `phase`.
+- **`vec_items`** — sqlite-vec `vec0` virtual table: `observation_id INTEGER
+  PRIMARY KEY`, `embedding FLOAT[768]`. One row per embedded observation;
+  `observation_id` mirrors `observations.id`. *Implementation note:* better-sqlite3
+  binds JS numbers as `SQLITE_FLOAT`, which the `vec0` integer PK rejects — every
+  insert/delete against `vec_items` must bind `BigInt(id)`.
+- **`meta`** — key/value table: `schema_version` (`2`), `phase` (`4`).
 
-Phase 4 will add an `embedding BLOB` column via `ALTER TABLE` without
-migration.
+Relational columns can grow via `ALTER TABLE` + a `schema_version` bump without a
+reset; the indexer backfills on the next pass. The vector index is regenerated
+with `npm run reembed`, never migrated in place.
 
 ---
 
@@ -120,7 +199,7 @@ migration.
 ## Logging
 
 All log lines are structured JSON, one event per line, written to
-`~/.claude-data/.logs/mcp-server.log`. Important log events:
+`~/.claude-data/.logs/mcp-server.log`. Important events:
 
 - `claude-os-mcp starting` — process started
 - `startup reindex complete` — initial walk finished
@@ -128,40 +207,55 @@ All log lines are structured JSON, one event per line, written to
 - `stdio transport connected, ready for requests` — ready for MCP traffic
 - `backstop reindex complete` — every 15 minutes
 - `tool call failed` — tool handler threw; check `meta.tool` and `meta.error`
-- `Skipping oversized file` — file > 1 MB; curated content shouldn't be that
-  big
+- `shutting down` — SIGINT/SIGTERM received
 
-`console.log` is **never** used — stdout carries the MCP wire protocol and
-any stray writes corrupt it.
+The **server** never uses `console.log` — stdout carries the MCP wire protocol
+and any stray write corrupts it (use the structured logger instead). Standalone
+scripts like `npm run reembed` are not on the transport and print to stdout
+normally.
 
 ---
 
 ## Troubleshooting
 
-**"Tool not available" in Claude Code session.** The MCP server is launched
-on demand at session start. Restart Claude Code after editing the config.
+**"Tool not available" in Claude Code session.** The MCP server is launched on
+demand at session start. Restart Claude Code after editing the config.
 
-**Search returns no hits but the file exists.** Look for one of: file not
-under a configured path; file in `archive/` or with `_legacy*` basename; file
-> 1 MB; `_index.md` (deliberately excluded). Inspect with:
+**Search returns only keyword hits, or no results for a meaning-based query.**
+The vector index may be empty (e.g. on a fresh machine, or after a model change).
+Check and repair:
+```bash
+sqlite3 ~/.claude-data/memory.db "SELECT count(*) FROM vec_items"   # 0 → not embedded
+cd ~/.claude-os/mcp && npm run reembed                              # repopulate (sessions quiesced)
+```
+Note also that FTS5 implicitly ANDs query tokens — a long multi-word phrase can
+match zero rows on the keyword side; the vector half still contributes if the
+index is populated.
+
+**Search returns no hits but the file exists.** Look for one of: file not under a
+configured path; file in `archive/` or with `_legacy*` basename; file > 1 MB;
+`_index.md` or a `_`-prefixed episode (deliberately excluded). Inspect with:
 ```bash
 sqlite3 ~/.claude-data/memory.db "SELECT source_path FROM observations WHERE source_path LIKE '%fragment%'"
 ```
 
+**`mutex lock failed` / `libc++abi` on exit.** A harmless onnxruntime-node
+teardown artifact that can appear as a process exits *after* the model was
+loaded — data is unaffected. The `reembed` CLI avoids it by letting the event
+loop drain instead of calling `process.exit()`; never add `process.exit()` to a
+script that loads the embedder.
+
 **Server appears hung at startup.** Check the log for the most recent
-`fullReindex complete` event. If reindex is slow, look for an unintentional
-giant directory in the watched paths (Phase 2 expects watched roots to hold
-hundreds of files at most).
+`fullReindex complete` event. If reindex is slow, look for an unintentional giant
+directory in the watched paths (watched roots are expected to hold on the order
+of hundreds to low-thousands of files). The first embed also loads the model,
+which can take a few seconds — separate from reindex.
 
 **better-sqlite3 won't build.** macOS Command Line Tools may need updating:
 `xcode-select --install`. Then rerun `npm install`.
 
-**"database is locked" errors.** A previous server instance may still hold
-the WAL lock. Kill any stray `node …/dist/index.js` processes and restart.
-
-**Schema needs to change.** Add a new column via `ALTER TABLE` and bump
-`meta.schema_version`. Don't reset existing rows; the indexer handles
-backfill on the next pass.
+**"database is locked" errors.** A previous server instance may still hold the
+WAL lock. Kill any stray `node …/dist/index.js` processes and restart.
 
 ---
 
@@ -171,11 +265,16 @@ backfill on the next pass.
 npm test
 ```
 
-Three suites:
+Five suites:
 - `db.test.ts` — schema idempotency, FTS5 trigger correctness
+- `embedder.test.ts` — vector serialization + constants (incl. `EMBEDDING_DTYPE`);
+  never loads the real model
 - `indexer.test.ts` — `classify`, `indexFile` (upsert/no-op), `fullReindex`,
-  archive/oversize skip behavior
-- `tools.test.ts` — all five tool handlers against seeded fixture data
+  archive/oversize skip behavior, and `vec_items` population
+- `reembed.test.ts` — `reembedAll`: full re-embed + count reporting, idempotency,
+  losslessness (observations & FTS untouched), and atomic rollback when an insert
+  fails inside the swap transaction
+- `tools.test.ts` — all seven tool handlers against seeded fixture data
 
-Tests redirect the logger to tmpdir and use a tmpdir database, so they never
-touch `~/.claude-data/`.
+Tests mock the embedder module (the real model is never loaded) and use a tmpdir
+database + logger, so they never touch `~/.claude-data/`.
