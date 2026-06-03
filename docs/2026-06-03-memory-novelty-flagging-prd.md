@@ -20,7 +20,7 @@ Memory writes are append-only with no awareness of what's already there. Three p
 A2 adds duplicate/contradiction **flagging** — never automatic mutation — at the unit users actually write: the dated learning *entry*.
 
 1. **Write-time (immediate, cheap).** When `append_learning` writes a new entry, it runs a fast *lexical* near-duplicate check against the target file's existing entries, records any hit as a pending candidate, and returns a warning in its result so the writer sees "this looks like your 2026-05-12 entry" right away.
-2. **Review-time (thorough, human-gated).** `/memory-merger` gains a supersession-review phase: a server-side *semantic* scan embeds every learning entry, clusters near-duplicates and high-similarity (possible-contradiction) pairs, and — because vectors show proximity, not polarity — the agent labels each pair *duplicate / contradiction / distinct*. These, merged with the persisted write-time flags, are presented in `/memory-merger`'s existing propose-then-wait gate.
+2. **Review-time (thorough, human-gated).** `/memory-merger` gains a supersession-review phase: a server-side *semantic* scan embeds every learning entry and clusters **near-duplicates** (cosine ≥ the near-duplicate threshold). Because vectors show proximity, not polarity, the agent labels each flagged pair *duplicate / contradiction / distinct* during review. These, merged with the persisted write-time flags, are presented in `/memory-merger`'s existing propose-then-wait gate. (Surfacing the lower-similarity *possible-contradiction* band is deferred — see Out of Scope.)
 3. **Supersession (human-gated, reversible).** For each pair the user approves, the older entry is **archived then retired** from the live file (reusing `/memory-merger`'s archive-before-delete discipline), so it stops surfacing in retrieval — nothing is destroyed, and the file reindexes automatically.
 
 Nothing is auto-deleted or auto-invalidated; write-time only *flags*. The whole-file row model is left untouched — A2 operates on parsed dated entries in application code.
@@ -60,7 +60,7 @@ Nothing is auto-deleted or auto-invalidated; write-time only *flags*. The whole-
 - This catches the common bloat case (re-recording a near-verbatim lesson). Semantic-but-reworded duplicates are left to the review scan.
 
 ### Review-time detection (semantic, server-side)
-- A new MCP tool performs the thorough scan: parse all learning entries, embed each with the document-prefixed embedder (reusing A1's embedder), cluster by cosine similarity above a fixed near-duplicate threshold, and additionally surface high-similarity same-project/topic pairs as possible-contradiction candidates. Distance is L2 over unit-normalized vectors (cosine-equivalent), matching A1.
+- A new MCP tool performs the thorough scan: parse all learning entries, embed each with the document-prefixed embedder (reusing A1's embedder), and cluster by cosine similarity at or above a fixed near-duplicate threshold. Distance is L2 over unit-normalized vectors (cosine-equivalent), matching A1. **v1 surfaces near-duplicates only**; the lower-similarity *possible-contradiction* band is deferred (see Out of Scope), so its threshold constant is reserved but unused by the scan.
 - The scan **merges** its findings with persisted pending flags (from write-time) and returns candidate pairs with both entries' text, similarity, and provenance. It does not itself judge duplicate-vs-contradiction — that is the agent's job in the skill (vectors give proximity, not polarity).
 - Embeddings are computed fresh per scan run (no persistent per-entry embedding cache); acceptable for a periodic, human-initiated maintenance operation.
 
@@ -76,7 +76,7 @@ Nothing is auto-deleted or auto-invalidated; write-time only *flags*. The whole-
 - A second new MCP tool persists a flag's resolution (status update), built in the narrow, path/shape-validated, atomic style of the existing episode-promotion tool. Supersession of the markdown itself is done by the skill via its existing file-edit tools — not auto-fired anywhere.
 
 ### Configuration
-- Detection thresholds (lexical overlap ratio, near-duplicate cosine threshold, contradiction-candidate similarity band, scan top-k) are fixed, documented defaults added to the existing search-config constants module, following A1's "principled defaults, not fit to any eval set" discipline.
+- Detection thresholds (lexical overlap ratio, near-duplicate cosine, a reserved contradiction-candidate cosine, scan neighbor count) are fixed, documented defaults added to the existing search-config constants module, following A1's "principled defaults, not fit to any eval set" discipline. The contradiction-candidate threshold is defined but unused by v1's scan (contradiction surfacing deferred).
 
 ### Modules built or modified (this feature only)
 - **Entry/novelty helper module (new):** `parseEntries` (shared dated-entry parser), `entryIdentity` + `matchByIdentity` (compute an entry's (path, date, content-hash) identity and find the 0 / 1 / N current blocks matching a stored identity — the re-location and collapse primitive), `lexicalSimilarity` (write-time), and `findNearDuplicateEntries` (embed + cosine cluster, review-time). Pure/near-pure, unit-tested.
@@ -112,7 +112,7 @@ A good test asserts external behavior — parsed entries, similarity verdicts ab
 - **Write-time flagging on the Stop-hook flush path and episodic worker.** Those write off-disk with no DB handle. They are covered instead by the review-time scan (which sees every entry regardless of write path), so write-time flagging is `append_learning`-only and this gap is intentional, not silent.
 - **Novelty flagging of episodes and context topics.** v1 is learnings-focused (the documented bloat source). The scan could extend later.
 - **Automatic supersession or invalidation.** Never. Write-time only flags; supersession is always human-approved.
-- **Contradiction *detection* by vectors.** Vectors give proximity, not polarity; A2 flags high-similarity candidates and the agent/human judges contradiction.
+- **Contradiction-candidate *surfacing* (deferred from v1).** v1's scan surfaces only near-duplicates (cosine ≥ the near-duplicate threshold). The lower-similarity contradiction band is **not** surfaced: a real-corpus run showed it is mostly thematically-related noise (≈34 candidates from ~80 entries, none true contradictions), and vectors give proximity, not polarity. The threshold constant is reserved for a future iteration that adds polarity judgment. During review the agent may still label a flagged near-duplicate a contradiction if it genuinely reverses an earlier entry.
 - **A persistent per-entry embedding cache.** The review scan embeds fresh each run; acceptable for a periodic manual operation.
 
 ---
