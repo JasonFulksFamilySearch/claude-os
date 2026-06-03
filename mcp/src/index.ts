@@ -36,6 +36,11 @@ import {
   resolveNoveltyFlag,
   resolveNoveltyFlagDefinition,
 } from "./tools/resolve_novelty_flag.js";
+import { scanExperience, scanExperienceDefinition } from "./tools/scan_experience.js";
+import {
+  validateExperienceProposal,
+  validateExperienceProposalDefinition,
+} from "./tools/validate_experience_proposal.js";
 
 const CONFIG_PATH = join(homedir(), ".claude-os", "config", "watched-projects.json");
 const REINDEX_INTERVAL_MS = 15 * 60 * 1000;
@@ -121,6 +126,8 @@ async function main(): Promise<void> {
       markEpisodePromotedDefinition,
       scanNoveltyDefinition,
       resolveNoveltyFlagDefinition,
+      scanExperienceDefinition,
+      validateExperienceProposalDefinition,
     ],
   }));
 
@@ -146,6 +153,10 @@ async function main(): Promise<void> {
           return jsonResult(await scanNovelty(db, args ?? {}, config));
         case "resolve_novelty_flag":
           return jsonResult(resolveNoveltyFlag(db, args ?? {}));
+        case "scan_experience":
+          return jsonResult(scanExperience(db, args ?? {}, config));
+        case "validate_experience_proposal":
+          return jsonResult(validateExperienceProposal(args ?? {}, config));
         default:
           throw new Error(`Unknown tool: ${name}`);
       }

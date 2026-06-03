@@ -21,7 +21,8 @@ without actual file content.
 <task>
 **Task:** Read all memory files, classify each entry, present a promotion/prune
 proposal, wait for approval, then execute the approved changes in order (Phase 1
-cleanup first, Phase 2 promotion second, Phase 3 supersession last).
+cleanup first, Phase 2 promotion second, Phase 3 supersession last), then run Phase 4
+(cross-session experience synthesis) as a delegated pass with its own approval gate.
 
 **Intent:** Keep this machine's memory lean, searchable, and accurate — stale project
 memories waste context budget; mature feedback entries become more useful when
@@ -213,6 +214,8 @@ older one), or **distinct** (false positive — keep both). Propose an action pe
 
 Say: **"Review these proposals. Approve all with 'go', approve by phase with
 'go phase 1', 'go phase 2', or 'go phase 3', or name specific files/flags to skip."**
+(Phase 4 — experience synthesis — is a separate delegated pass that runs after phases 1–3
+and has its OWN approval gate; say 'skip phase 4' to opt out of it this run.)
 
 **STOP and wait for input.**
 
@@ -322,6 +325,15 @@ entries. Full reconstruction is safer than surgical removes for a small file.
 Preserve the existing section headers (User, Feedback, Project, Reference).
 Remove entries for graduated, pruned, or orphaned files.
 
+**Phase 4 — Experience synthesis (delegated):**
+Unless Sir opted out ('skip phase 4'), once phases 1–3 are complete invoke the
+`/experience-synthesis` skill (optionally scoped to a project). It runs its own full pipeline —
+cluster the unpromoted episode backlog, distill candidate experience-learnings, filter them
+through the grounding + /grade-proposal + red-blue-judge gates, and present survivors at its OWN
+approval gate before writing via `append_learning` and promoting the cited source episodes.
+memory-merger delegates the entire pass: it does not synthesize, gate, or write these learnings
+itself. Run Phase 4 last so synthesis clusters over an already cleaned, deduplicated corpus.
+
 ---
 
 ## Step 9 — Report
@@ -344,6 +356,9 @@ Remove entries for graduated, pruned, or orphaned files.
 - Flags dismissed as false positives: [N]
 - Stale flags skipped (entry no longer present): [N]
 
+### Phase 4 — Experience synthesis (delegated)
+- /experience-synthesis: [ran | skipped]; learnings appended: [N]; source episodes promoted: [E]
+
 ### Unchanged
 - Entries kept: [N]
 
@@ -364,6 +379,8 @@ The skill is complete when:
 - MEMORY.md was rebuilt from surviving entries (not surgically edited).
 - Duplicate/contradiction supersessions (Phase 3) were human-approved before any learnings.md
   edit, archived before retiring, and their flags resolved via resolve_novelty_flag.
+- Phase 4 ran as a delegated pass via /experience-synthesis (or was explicitly skipped), with its
+  own human-gated approval before any synthesized learning was written.
 - Final report showed counts for each category.
 </success_criteria>
 

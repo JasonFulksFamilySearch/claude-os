@@ -61,6 +61,28 @@ and consumers, so a run that omits it must mark those lines UNRESOLVED (evidence
 
 ---
 
+## mode: `experience` — Gate (synthesized experience-learning vs. source episodes + existing learnings)
+
+**Ground truth:** the cited source episodes (read them); the existing learnings (agent + project).
+A synthesized cross-session "experience" learning is only as good as its grounding. These lines
+test that the abstraction is *earned* and *not redundant or contradictory* — the anti-"insight
+inflation" bar the strategic briefing's B1 ruling requires. An LLM will happily manufacture a
+profound-sounding lesson from a coincidental cluster; this rubric is what catches that.
+
+*Grounding — is the claim actually supported by the evidence?*
+- **E1** Every claim in the proposed learning is supported by at least one cited source episode (read the episodes — a claim no cited episode supports is ungrounded). (grounding)
+- **E2** Every cited episode is real and genuinely pertains to the claim — no fabricated, mismatched, or padding citation. (citation integrity)
+
+*Non-redundancy — does it actually add knowledge?*
+- **E3** The proposed learning is not contradicted by an existing learning; if it reverses one, that supersession is named explicitly, not silently asserted. (non-contradiction)
+- **E4** The proposed learning is not already stated by an existing learning. (no redundant re-derivation)
+
+*Earned abstraction — is the cluster real?*
+- **E5** The episodes share a genuine recurring situation, and the learning names that shared situation — not a coincidental embedding proximity dressed up as a pattern. A cluster that is only superficially related is an E5 FAIL. (coherence, not coincidence)
+- **E6** Scope and altitude are correct: agent scope only if the lesson generalizes beyond a single project, and the learning is a concrete, actionable rule, not a platitude. (scope & specificity)
+
+---
+
 ## Adding a rubric (for reuse beyond make-it-so)
 
 red-blue-judge is reusable for any artifact with a checkable source of truth (PR review,
