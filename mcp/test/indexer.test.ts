@@ -356,3 +356,25 @@ describe("fullReindex", () => {
     expect(paths).not.toContain(join(dataRoot, "archive", "old.md"));
   });
 });
+
+describe("fullReindex — vector index", () => {
+  it("populates vec_items for indexed observations", async () => {
+    writeFileSync(
+      join(dataRoot, "context", "vec.md"),
+      "# Vec\n\nembed me into the vector store\n",
+      "utf8",
+    );
+
+    await fullReindex(db, config);
+
+    const obs = db
+      .prepare("SELECT id FROM observations WHERE source_path = ?")
+      .get(join(dataRoot, "context", "vec.md")) as { id: number } | undefined;
+    expect(obs).toBeDefined();
+
+    const vec = db
+      .prepare("SELECT count(*) AS c FROM vec_items WHERE observation_id = ?")
+      .get(BigInt(obs!.id)) as { c: number };
+    expect(vec.c).toBe(1);
+  });
+});

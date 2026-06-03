@@ -209,7 +209,8 @@ export function indexFile(
 export function removeFile(db: Database.Database, absPath: string): void {
   const row = db.prepare("SELECT id FROM observations WHERE source_path = ?").get(absPath) as { id: number } | undefined;
   db.prepare("DELETE FROM observations WHERE source_path = ?").run(absPath);
-  if (row) db.prepare("DELETE FROM vec_items WHERE observation_id = ?").run(row.id);
+  // BigInt: sqlite-vec vec0 PKs must bind as INTEGER; better-sqlite3 sends numbers as FLOAT.
+  if (row) db.prepare("DELETE FROM vec_items WHERE observation_id = ?").run(BigInt(row.id));
 }
 
 export async function embedObservation(
@@ -217,14 +218,15 @@ export async function embedObservation(
   id: number,
   content: string,
 ): Promise<void> {
-  // Skip if already embedded — content hash guard on observations means content hasn't changed
-  const existing = db.prepare("SELECT observation_id FROM vec_items WHERE observation_id = ?").get(id);
+  // Skip if already embedded — content hash guard on observations means content hasn't changed.
+  // BigInt: sqlite-vec vec0 PKs must bind as INTEGER; better-sqlite3 sends numbers as FLOAT.
+  const existing = db.prepare("SELECT observation_id FROM vec_items WHERE observation_id = ?").get(BigInt(id));
   if (existing) return;
 
   try {
     const vector = await embedDocument(content);
     const bytes = serializeVector(vector);
-    db.prepare("INSERT OR REPLACE INTO vec_items(observation_id, embedding) VALUES (?, ?)").run(id, bytes);
+    db.prepare("INSERT OR REPLACE INTO vec_items(observation_id, embedding) VALUES (?, ?)").run(BigInt(id), bytes);
   } catch (err) {
     log("error", "embedObservation failed", {
       id,
