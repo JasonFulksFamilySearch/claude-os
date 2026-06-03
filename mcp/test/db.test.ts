@@ -103,3 +103,34 @@ describe("db", () => {
     expect(ftsSearch("kangaroo").map((h) => h.rowid)).not.toContain(id);
   });
 });
+
+describe("access_stats", () => {
+  it("creates the access_stats table (idempotent across opens)", () => {
+    db.close();
+    db = openDb(dbPath);
+    const id = insertObservation({ source_path: "/tmp/acc-create.md" });
+    db.prepare(
+      "INSERT INTO access_stats(observation_id, last_accessed, access_count) VALUES (?, ?, ?)",
+    ).run(id, 1000, 1);
+    const row = db
+      .prepare("SELECT access_count FROM access_stats WHERE observation_id = ?")
+      .get(id) as { access_count: number } | undefined;
+    expect(row?.access_count).toBe(1);
+  });
+
+  it("cascades delete: removing an observation drops its access_stats row", () => {
+    const id = insertObservation({ source_path: "/tmp/acc-cascade.md" });
+    db.prepare(
+      "INSERT INTO access_stats(observation_id, last_accessed, access_count) VALUES (?, ?, ?)",
+    ).run(id, 1000, 3);
+    expect(
+      db.prepare("SELECT 1 FROM access_stats WHERE observation_id = ?").get(id),
+    ).toBeTruthy();
+
+    db.prepare("DELETE FROM observations WHERE id = ?").run(id);
+
+    expect(
+      db.prepare("SELECT 1 FROM access_stats WHERE observation_id = ?").get(id),
+    ).toBeUndefined();
+  });
+});

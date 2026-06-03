@@ -68,6 +68,16 @@ export function initSchema(db: Database.Database): void {
       embedding FLOAT[768]
     );
 
+    -- Per-observation access reinforcement state, kept in a side table (not columns
+    -- on observations) so the access-bump write never fires the observations FTS-sync
+    -- triggers. Mirrors vec_items: a derived, per-observation table keyed by id.
+    -- ON DELETE CASCADE (foreign_keys is enabled in openDb) auto-cleans on removal.
+    CREATE TABLE IF NOT EXISTS access_stats (
+      observation_id INTEGER PRIMARY KEY REFERENCES observations(id) ON DELETE CASCADE,
+      last_accessed  INTEGER,
+      access_count   INTEGER NOT NULL DEFAULT 0
+    );
+
     CREATE TABLE IF NOT EXISTS meta (
       key   TEXT PRIMARY KEY,
       value TEXT NOT NULL

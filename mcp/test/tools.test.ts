@@ -132,6 +132,63 @@ describe("search_memory", () => {
     expect(results.length).toBe(1);
     expect(results[0].project).toBe("demo");
   });
+
+  it("returns a fused 'score' field, sorted descending, with no sentinel values", async () => {
+    const results = await searchMemory(db, { query: "java OR jira OR lesson" });
+    expect(results.length).toBeGreaterThan(0);
+    for (const r of results) {
+      expect(typeof r.score).toBe("number");
+      expect(r.score).toBeLessThan(1); // never the old 999+distance sentinel
+    }
+    for (let i = 1; i < results.length; i++) {
+      expect(results[i - 1].score).toBeGreaterThanOrEqual(results[i].score);
+    }
+  });
+
+  it("reinforces exactly the returned rows in access_stats, and increments on re-query", async () => {
+    const results = await searchMemory(db, { query: "checkstyle" });
+    expect(results.length).toBeGreaterThan(0);
+
+    // Exactly one access_stats row per returned row — and none for un-returned rows.
+    const statsCount = (
+      db.prepare("SELECT COUNT(*) AS c FROM access_stats").get() as { c: number }
+    ).c;
+    expect(statsCount).toBe(results.length);
+
+    const topId = results[0].id;
+    const row = db
+      .prepare("SELECT access_count, last_accessed FROM access_stats WHERE observation_id = ?")
+      .get(topId) as { access_count: number; last_accessed: number } | undefined;
+    expect(row?.access_count).toBe(1);
+    expect(row?.last_accessed).toBeGreaterThan(0);
+
+    // Re-querying reinforces (increments), it does not duplicate or reset.
+    await searchMemory(db, { query: "checkstyle" });
+    const row2 = db
+      .prepare("SELECT access_count FROM access_stats WHERE observation_id = ?")
+      .get(topId) as { access_count: number };
+    expect(row2.access_count).toBe(2);
+  });
+
+  it("reinforcement does not disturb the full-text index", async () => {
+    const before = await searchMemory(db, { query: "checkstyle" });
+    const topId = before[0].id;
+    // After the reinforcement write, the row is still found by FTS unchanged.
+    const again = await searchMemory(db, { query: "checkstyle" });
+    expect(again[0].id).toBe(topId);
+  });
+
+  it("truncates to exactly limit when many candidates match", async () => {
+    const results = await searchMemory(db, {
+      query: "java OR jira OR lesson OR demo OR identity",
+      limit: 2,
+    });
+    expect(results.length).toBe(2);
+  });
+
+  it("does not throw on a malformed FTS query", async () => {
+    await expect(searchMemory(db, { query: '"unbalanced' })).resolves.toBeDefined();
+  });
 });
 
 describe("get_topic", () => {
