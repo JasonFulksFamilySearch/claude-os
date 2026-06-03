@@ -21,6 +21,9 @@ import { listTopics } from "../src/tools/list_topics.js";
 import { getRecentLearnings } from "../src/tools/get_recent_learnings.js";
 import { listEpisodesImpl } from "../src/tools/list_episodes.js";
 import { markEpisodePromotedImpl } from "../src/tools/mark_episode_promoted.js";
+import { scanNovelty } from "../src/tools/scan_novelty.js";
+import { resolveNoveltyFlag } from "../src/tools/resolve_novelty_flag.js";
+import { embedDocument } from "../src/embedder.js";
 
 let workDir: string;
 let dataRoot: string;
@@ -660,5 +663,103 @@ describe("markEpisodePromoted", () => {
     expect(updated).toMatch(/^turns: 7$/m);
     // The original `promoted:` line should be fully replaced — no stray empty value
     expect(updated.match(/^promoted:/gm)).toHaveLength(1);
+  });
+});
+
+describe("append_learning novelty flagging (A2)", () => {
+  it("flags a near-duplicate entry at write time and records a pending novelty_flag", () => {
+    // The agent learnings.md fixture already holds a "first lesson" entry whose body is
+    // "body of first lesson"; re-recording that body should be flagged.
+    const res = appendLearning(
+      db,
+      { scope: "agent", content: "body of first lesson", title: "re-record of first" },
+      config,
+    );
+    expect(res.novelty_warning).toBeTruthy();
+    const pending = (
+      db.prepare("SELECT COUNT(*) AS c FROM novelty_flags WHERE status = 'pending'").get() as {
+        c: number;
+      }
+    ).c;
+    expect(pending).toBeGreaterThan(0);
+  });
+
+  it("does not flag a genuinely novel entry", () => {
+    const res = appendLearning(
+      db,
+      { scope: "agent", content: "unrelated zebra quasar nimbus content", title: "novel" },
+      config,
+    );
+    expect(res.novelty_warning).toBeUndefined();
+  });
+
+  it("does not fail the write when there are no prior entries to compare", () => {
+    const res = appendLearning(
+      db,
+      { scope: "project", project: "fresh-novelty-proj", content: "first ever entry", title: "kickoff" },
+      config,
+    );
+    expect(res.bytes_appended).toBeGreaterThan(0);
+    expect(res.novelty_warning).toBeUndefined();
+  });
+
+  it("still succeeds when the novelty-flag write fails (best-effort)", () => {
+    // Force the flagging INSERT to throw by removing its table; without the best-effort
+    // catch in append_learning this call would throw. The write itself must still succeed.
+    db.exec("DROP TABLE novelty_flags");
+    const res = appendLearning(
+      db,
+      { scope: "agent", content: "body of first lesson", title: "dup under failure" },
+      config,
+    );
+    expect(res.bytes_appended).toBeGreaterThan(0);
+    expect(res.novelty_warning).toBeUndefined();
+  });
+});
+
+describe("scan_novelty + resolve_novelty_flag (A2)", () => {
+  it("returns pending flags re-located to current entries; resolve excludes them", async () => {
+    // A write-time near-dup creates a pending flag (re-recording an existing entry's body).
+    appendLearning(
+      db,
+      { scope: "agent", content: "body of first lesson", title: "re-record" },
+      config,
+    );
+    let scan = await scanNovelty(db, {}, config);
+    expect(scan.candidates.length).toBeGreaterThan(0);
+    const flagId = scan.candidates[0].flag_id;
+    expect(scan.candidates[0].a.title).toBeTruthy();
+    expect(scan.candidates[0].b.title).toBeTruthy();
+
+    const r = resolveNoveltyFlag(db, { id: flagId, status: "dismissed" });
+    expect(r.updated).toBe(true);
+
+    scan = await scanNovelty(db, {}, config);
+    expect(scan.candidates.some((c) => c.flag_id === flagId)).toBe(false);
+  });
+
+  it("resolve_novelty_flag reports updated=false for an unknown id", () => {
+    expect(resolveNoveltyFlag(db, { id: 999999, status: "superseded" }).updated).toBe(false);
+  });
+
+  it("clusters seeded entries at scan time and persists a scan-detected flag", async () => {
+    // The default mock embeds everything to the zero vector, so the semantic-scan
+    // persistence path never fires. Override it to a unit vector so the two distinct
+    // fixture entries cosine to 1.0 and cluster — exercising the scan INSERT + canonical
+    // pair ordering end-to-end (no write-time flag is created in this test).
+    const unit = new Float32Array(768).fill(1 / Math.sqrt(768));
+    vi.mocked(embedDocument).mockResolvedValue(unit);
+    try {
+      const scan = await scanNovelty(db, {}, config);
+      expect(scan.candidates.some((c) => c.detected_by === "scan")).toBe(true);
+      const persisted = (
+        db.prepare("SELECT COUNT(*) AS c FROM novelty_flags WHERE detected_by = 'scan'").get() as {
+          c: number;
+        }
+      ).c;
+      expect(persisted).toBeGreaterThan(0);
+    } finally {
+      vi.mocked(embedDocument).mockResolvedValue(new Float32Array(768).fill(0));
+    }
   });
 });

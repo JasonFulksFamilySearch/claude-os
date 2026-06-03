@@ -8,6 +8,10 @@ import {
   W_REINFORCE,
   W_EXACT_TITLE,
   W_EXACT_CONTENT,
+  NOVELTY_LEXICAL_DUP,
+  NOVELTY_NEAR_DUP_COSINE,
+  NOVELTY_CONTRADICTION_COSINE,
+  NOVELTY_SCAN_NEIGHBORS,
 } from "../src/search_config.js";
 
 describe("search_config constants", () => {
@@ -33,5 +37,20 @@ describe("search_config constants", () => {
     // stay below one retriever's rank-1 contribution 1/(RRF_K+1) so reinforcement can
     // only reorder candidates whose RRF scores already sit within that band.
     expect(W_REINFORCE).toBeLessThan(1 / (RRF_K + 1));
+  });
+});
+
+describe("novelty (A2) constants", () => {
+  it("pins the write-time lexical and review-time semantic thresholds", () => {
+    expect(NOVELTY_LEXICAL_DUP).toBe(0.8);
+    expect(NOVELTY_NEAR_DUP_COSINE).toBe(0.92);
+    expect(NOVELTY_CONTRADICTION_COSINE).toBe(0.82);
+    expect(NOVELTY_SCAN_NEIGHBORS).toBe(5);
+  });
+
+  it("orders the bands: contradiction-candidate threshold below the near-duplicate threshold", () => {
+    // Pairs at cosine >= NEAR_DUP are duplicate candidates; those in
+    // [CONTRADICTION, NEAR_DUP) are possible-contradiction candidates (agent judges polarity).
+    expect(NOVELTY_CONTRADICTION_COSINE).toBeLessThan(NOVELTY_NEAR_DUP_COSINE);
   });
 });

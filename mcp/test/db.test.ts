@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { openDb } from "../src/db.js";
+import { canonicalPairOrder } from "../src/novelty.js";
 
 let workDir: string;
 let dbPath: string;
@@ -132,5 +133,65 @@ describe("access_stats", () => {
     expect(
       db.prepare("SELECT 1 FROM access_stats WHERE observation_id = ?").get(id),
     ).toBeUndefined();
+  });
+});
+
+describe("novelty_flags", () => {
+  const insertFlag = (over: Record<string, unknown> = {}) =>
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO novelty_flags(source_path, entry_date, entry_hash, match_path, match_date, match_hash, similarity, kind, detected_by, detected_at)
+         VALUES (@source_path, @entry_date, @entry_hash, @match_path, @match_date, @match_hash, @similarity, @kind, @detected_by, @detected_at)`,
+      )
+      .run({
+        source_path: "/a/learnings.md",
+        entry_date: "2026-06-01",
+        entry_hash: "h1",
+        match_path: "/a/learnings.md",
+        match_date: "2026-05-01",
+        match_hash: "h2",
+        similarity: 0.95,
+        kind: "duplicate",
+        detected_by: "write",
+        detected_at: 1000,
+        ...over,
+      });
+
+  it("creates the novelty_flags table (idempotent across opens) with a pending default", () => {
+    db.close();
+    db = openDb(dbPath);
+    insertFlag();
+    const row = db
+      .prepare("SELECT status, kind FROM novelty_flags WHERE entry_hash = ?")
+      .get("h1") as { status: string; kind: string } | undefined;
+    expect(row?.status).toBe("pending");
+    expect(row?.kind).toBe("duplicate");
+  });
+
+  it("dedups an identical flagged pair via the unique constraint", () => {
+    insertFlag({ entry_hash: "ha", match_hash: "hb" });
+    insertFlag({ entry_hash: "ha", match_hash: "hb" });
+    const count = (
+      db
+        .prepare("SELECT COUNT(*) AS c FROM novelty_flags WHERE entry_hash = 'ha' AND match_hash = 'hb'")
+        .get() as { c: number }
+    ).c;
+    expect(count).toBe(1);
+  });
+
+  it("dedups a pair inserted in either side-order via canonical ordering", () => {
+    const A = { path: "/a/learnings.md", date: "2026-05-01", hash: "hA" };
+    const B = { path: "/a/learnings.md", date: "2026-06-01", hash: "hB" };
+    const insertCanon = (x: typeof A, y: typeof A): void => {
+      const [e, m] = canonicalPairOrder(x, y);
+      db.prepare(
+        `INSERT OR IGNORE INTO novelty_flags(source_path, entry_date, entry_hash, match_path, match_date, match_hash, similarity, kind, detected_by, detected_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(e.path, e.date, e.hash, m.path, m.date, m.hash, 1, "duplicate", "test", 1);
+    };
+    insertCanon(A, B); // write-time order (newer, older)
+    insertCanon(B, A); // scan order (older, newer) — must collapse to the same row
+    const count = (db.prepare("SELECT COUNT(*) AS c FROM novelty_flags").get() as { c: number }).c;
+    expect(count).toBe(1);
   });
 });
