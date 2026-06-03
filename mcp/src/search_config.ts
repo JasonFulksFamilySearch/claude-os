@@ -31,3 +31,21 @@ export const W_REINFORCE = 0.01;
 // verbatim title match is the stronger signal; a body phrase match the weaker one.
 export const W_EXACT_TITLE = 0.016;
 export const W_EXACT_CONTENT = 0.008;
+
+// --- A2 novelty flagging (write-time lexical + review-time semantic) ---
+// Fixed, principled defaults — not fit to any labeled set.
+
+// Write-time lexical near-duplicate: token-overlap (Jaccard) ratio at or above which a
+// newly-appended entry is flagged as a likely duplicate of an existing entry in the same file.
+export const NOVELTY_LEXICAL_DUP = 0.8;
+
+// Review-time semantic threshold (cosine over unit-normalized embeddings). v1 surfaces only
+// near-duplicates (cosine >= NEAR_DUP). NOVELTY_CONTRADICTION_COSINE is RESERVED for a future
+// contradiction-detection pass (the [CONTRADICTION, NEAR_DUP) band): deferred because a
+// real-corpus run showed that band is mostly thematically-related noise, and vectors give
+// proximity, not polarity.
+export const NOVELTY_NEAR_DUP_COSINE = 0.92;
+export const NOVELTY_CONTRADICTION_COSINE = 0.82;
+
+// Top-k nearest neighbors considered per entry during the review-time scan.
+export const NOVELTY_SCAN_NEIGHBORS = 5;

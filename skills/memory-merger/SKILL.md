@@ -7,7 +7,7 @@ description: >
   "merge my memories", "clean up memory", "graduate memories", or "memory maintenance".
   Run monthly or when MEMORY.md starts to feel noisy.
 argument-hint: "(no arguments)"
-allowed-tools: Read Glob Grep Write Edit mcp__claude-os-mcp__append_learning mcp__claude-os-mcp__list_topics mcp__claude-os-mcp__search_memory
+allowed-tools: Read Glob Grep Write Edit mcp__claude-os-mcp__append_learning mcp__claude-os-mcp__list_topics mcp__claude-os-mcp__search_memory mcp__claude-os-mcp__scan_novelty mcp__claude-os-mcp__resolve_novelty_flag
 ---
 
 <role>
@@ -21,7 +21,7 @@ without actual file content.
 <task>
 **Task:** Read all memory files, classify each entry, present a promotion/prune
 proposal, wait for approval, then execute the approved changes in order (Phase 1
-cleanup first, Phase 2 promotion second).
+cleanup first, Phase 2 promotion second, Phase 3 supersession last).
 
 **Intent:** Keep this machine's memory lean, searchable, and accurate — stale project
 memories waste context budget; mature feedback entries become more useful when
@@ -107,6 +107,10 @@ Then read all of the following:
 - `~/.claude-data/context/_index.md` (identify routing targets)
 - Call `list_topics` MCP tool — note any drift warnings between the index and
   actual files on disk
+- Call `scan_novelty` MCP tool — returns pending near-duplicate candidate pairs among
+  Layer-2 learning entries (write-time flags + a fresh semantic scan), each with a `flag_id`
+  and both entries' text. These feed Phase 3 below. (v1 surfaces near-duplicates; you still
+  judge each pair duplicate/contradiction/distinct.)
 
 ---
 
@@ -191,10 +195,24 @@ move and where.
 
 ### KEEP
 - [filename] — [reason it stays]
+
+## Phase 3 — Supersession review (duplicate / contradictory learnings)
+
+For each candidate pair from `scan_novelty`, read both entries and label the pair
+**duplicate** (the same lesson restated), **contradiction** (a newer entry reverses an
+older one), or **distinct** (false positive — keep both). Propose an action per label:
+
+### SUPERSEDE (archive then retire the older entry)
+- flag [flag_id] — [duplicate|contradiction], similarity [score]
+  KEEP:   [source_path] · [date] — [title]: [snippet]
+  RETIRE: [match_path] · [date] — [title]: [snippet]
+
+### DISMISS (false positive — keep both, suppress the flag)
+- flag [flag_id] — [why the pair is genuinely distinct]
 ```
 
 Say: **"Review these proposals. Approve all with 'go', approve by phase with
-'go phase 1' or 'go phase 2', or name specific files to skip."**
+'go phase 1', 'go phase 2', or 'go phase 3', or name specific files/flags to skip."**
 
 **STOP and wait for input.**
 
@@ -255,7 +273,7 @@ Do not write anything to disk during this step.
 
 ## Step 8 — Execute
 
-Work through approved items in this order: Phase 1 first, then Phase 2.
+Work through approved items in this order: Phase 1 first, then Phase 2, then Phase 3 (supersessions last, so the live learnings.md is only edited once cleanup and promotion have settled).
 
 **ORPHAN cleanup:** Remove the broken pointer line from MEMORY.md only.
 Do not attempt to recreate the missing file.
@@ -285,6 +303,19 @@ Append with a clear label, e.g.:
 1. Write the new context file at `~/.claude-data/context/[slug].md`
 2. Add a new entry to `~/.claude-data/context/_index.md`
 
+**SUPERSEDE (approved Phase 3 pairs):** for each approved pair —
+1. Re-locate the entry to RETIRE by re-parsing the current learnings.md and matching its
+   identity (date + content-hash). If it matches several byte-identical blocks, retire all
+   but the first occurrence (collapse). If it matches none, the flag is stale — skip it and
+   note so in the report.
+2. Archive the retired block(s) per Step 5.
+3. Remove the retired block(s) from the live learnings.md with the **Edit** tool — removal
+   has no `append_learning` equivalent; the MCP server's file watcher reindexes the change.
+4. Call `resolve_novelty_flag` with status `superseded`.
+
+**DISMISS (approved Phase 3 false positives):** call `resolve_novelty_flag` with status
+`dismissed` so the pair is not re-proposed on the next scan.
+
 **MEMORY.md rebuild:**
 After all changes are complete, reconstruct MEMORY.md from the surviving
 entries. Full reconstruction is safer than surgical removes for a small file.
@@ -308,6 +339,11 @@ Remove entries for graduated, pruned, or orphaned files.
 - Reference/feedback entries graduated to context files: [N]
 - New context topics created: [N] → [slugs]
 
+### Phase 3 — Supersessions
+- Duplicate/contradiction pairs superseded (older entry archived + retired): [N]
+- Flags dismissed as false positives: [N]
+- Stale flags skipped (entry no longer present): [N]
+
 ### Unchanged
 - Entries kept: [N]
 
@@ -326,6 +362,8 @@ The skill is complete when:
 - Pruned files were archived to ~/.claude-data/archive/memory-prune-YYYY-MM-DD.md before deletion.
 - Graduates used append_learning for learnings.md — no direct edits.
 - MEMORY.md was rebuilt from surviving entries (not surgically edited).
+- Duplicate/contradiction supersessions (Phase 3) were human-approved before any learnings.md
+  edit, archived before retiring, and their flags resolved via resolve_novelty_flag.
 - Final report showed counts for each category.
 </success_criteria>
 

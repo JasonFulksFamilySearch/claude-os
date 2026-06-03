@@ -3,6 +3,7 @@ import {
   appendFileSync,
   existsSync,
   mkdirSync,
+  readFileSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -10,6 +11,13 @@ import { homedir } from "node:os";
 import { z } from "zod";
 import { indexFile, defaultConfig } from "../indexer.js";
 import type { IndexerConfig } from "../indexer.js";
+import {
+  parseEntries,
+  lexicalSimilarity,
+  canonicalPairOrder,
+  type ParsedEntry,
+} from "../novelty.js";
+import { NOVELTY_LEXICAL_DUP } from "../search_config.js";
 
 export const appendLearningInput = z.object({
   scope: z.enum(["agent", "project"]),
@@ -25,6 +33,13 @@ export interface AppendLearningResult {
   project: string | null;
   path: string;
   bytes_appended: number;
+  // Set when the just-written entry closely matches an existing entry in the same file
+  // (best-effort write-time lexical check); a pending novelty_flags row is also recorded.
+  novelty_warning?: {
+    matched_date: string;
+    matched_title: string;
+    similarity: number;
+  };
 }
 
 export const appendLearningDefinition = {
@@ -106,10 +121,50 @@ export function appendLearning(
 
   indexFile(db, path, config);
 
+  // A2 write-time novelty: best-effort cheap lexical check of the just-appended entry against
+  // the file's prior entries. Records a pending flag and surfaces a warning; a failure here
+  // must never fail the learning write.
+  let noveltyWarning: AppendLearningResult["novelty_warning"];
+  try {
+    const entries = parseEntries(readFileSync(path, "utf8"));
+    if (entries.length >= 2) {
+      const fresh = entries[entries.length - 1];
+      let best: { entry: ParsedEntry; sim: number } | null = null;
+      for (const prior of entries.slice(0, -1)) {
+        const sim = prior.hash === fresh.hash ? 1 : lexicalSimilarity(fresh.body, prior.body);
+        if (sim >= NOVELTY_LEXICAL_DUP && (best === null || sim > best.sim)) {
+          best = { entry: prior, sim };
+        }
+      }
+      if (best) {
+        const now = Math.floor(Date.now() / 1000);
+        // Canonical pair order so a write-detected flag dedups against a scan-detected one.
+        const [e, m] = canonicalPairOrder(
+          { path, date: fresh.date, hash: fresh.hash },
+          { path, date: best.entry.date, hash: best.entry.hash },
+        );
+        db.prepare(
+          `INSERT OR IGNORE INTO novelty_flags(
+             source_path, entry_date, entry_hash, match_path, match_date, match_hash,
+             similarity, kind, detected_by, status, detected_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'duplicate', 'write', 'pending', ?)`,
+        ).run(e.path, e.date, e.hash, m.path, m.date, m.hash, best.sim, now);
+        noveltyWarning = {
+          matched_date: best.entry.date,
+          matched_title: best.entry.title ?? "(untitled)",
+          similarity: best.sim,
+        };
+      }
+    }
+  } catch {
+    // best-effort: novelty flagging never fails the learning write
+  }
+
   return {
     scope: args.scope,
     project: args.project ?? null,
     path,
     bytes_appended: Buffer.byteLength(block, "utf8"),
+    novelty_warning: noveltyWarning,
   };
 }

@@ -78,6 +78,27 @@ export function initSchema(db: Database.Database): void {
       access_count   INTEGER NOT NULL DEFAULT 0
     );
 
+    -- A2 novelty flags: candidate duplicate/contradiction pairs of dated learning entries,
+    -- awaiting human-gated supersession in /memory-merger. Standalone (own PK, NO foreign key
+    -- to observations) because it references ENTRIES, not observation rows — so its writes
+    -- never fire the observations FTS-sync triggers. Each side's entry identity is
+    -- (path, date-heading, content-hash); the UNIQUE key dedups a re-detected pair.
+    CREATE TABLE IF NOT EXISTS novelty_flags (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_path  TEXT NOT NULL,
+      entry_date   TEXT NOT NULL,
+      entry_hash   TEXT NOT NULL,
+      match_path   TEXT NOT NULL,
+      match_date   TEXT NOT NULL,
+      match_hash   TEXT NOT NULL,
+      similarity   REAL NOT NULL,
+      kind         TEXT NOT NULL,
+      detected_by  TEXT NOT NULL,
+      status       TEXT NOT NULL DEFAULT 'pending',
+      detected_at  INTEGER NOT NULL,
+      UNIQUE(source_path, entry_hash, match_path, match_hash)
+    );
+
     CREATE TABLE IF NOT EXISTS meta (
       key   TEXT PRIMARY KEY,
       value TEXT NOT NULL

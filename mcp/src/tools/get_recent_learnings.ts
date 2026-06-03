@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { z } from "zod";
+import { parseEntries } from "../novelty.js";
 
 export const getRecentLearningsInput = z.object({
   scope: z.enum(["agent", "project", "all"]),
@@ -52,49 +53,20 @@ export const getRecentLearningsDefinition = {
 
 const DATA_ROOT = join(homedir(), ".claude-data");
 
-interface ParsedHeading {
-  date: string;
-  title: string | null;
-  body: string;
-}
-
-const headingRe = /^##\s+(\d{4}-\d{2}-\d{2})(?:\s+—\s+(.+?))?\s*$/;
-
-function parseLearningsFile(text: string): ParsedHeading[] {
-  const lines = text.split(/\r?\n/);
-  const entries: ParsedHeading[] = [];
-  let current: ParsedHeading | null = null;
-  for (const line of lines) {
-    const m = line.match(headingRe);
-    if (m) {
-      if (current) entries.push(current);
-      current = {
-        date: m[1],
-        title: m[2] ? m[2].trim() : null,
-        body: "",
-      };
-    } else if (current) {
-      current.body += line + "\n";
-    }
-  }
-  if (current) entries.push(current);
-  return entries;
-}
-
 function readEntries(
   path: string,
   scope: "agent" | "project",
   project: string | null,
 ): LearningEntry[] {
   if (!existsSync(path)) return [];
-  const text = readFileSync(path, "utf8");
-  return parseLearningsFile(text).map((p) => ({
+  // Use the single shared dated-entry parser (novelty.ts) so "what is an entry" is defined once.
+  return parseEntries(readFileSync(path, "utf8")).map((p) => ({
     scope,
     project,
     path,
     date: p.date,
     title: p.title,
-    content: p.body.trim(),
+    content: p.body,
   }));
 }
 
