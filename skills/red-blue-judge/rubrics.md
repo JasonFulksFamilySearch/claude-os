@@ -36,6 +36,7 @@ them, they do not edit them (a measured agent must not author its own measure).
 - **P3** Each task follows TDD order: failing test → implement → commit.
 - **P4** Task ordering respects dependencies — no task needs the output of a later task.
 - **P5** Each task is small enough to implement and review independently (fits a ~3-hour block).
+- **P6** Every product/stakeholder decision the plan depends on is settled by the approved PRD; any the PRD left open is surfaced as blocking, not resolved by an unconfirmed default the plan adopts on its own. (no silent product default) `[applies-if: the plan makes a product/semantic choice the PRD does not fix]` — a violation is a **product** UNRESOLVED (a human/stakeholder must confirm before implementation), not a technical FAIL.
 
 ---
 

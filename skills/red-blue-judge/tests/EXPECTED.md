@@ -38,3 +38,27 @@ rubric, no grounding mandate, no reward-for-conceding) is expected to converge t
 PASS/approve verdict on fixture-prd-bad.md — or at minimum to miss D-A or D-B and
 rationalize D-C — demonstrating the sycophantic-convergence failure mode the skill exists
 to prevent. Capture the baseline output verbatim in baseline-run.md.
+
+## Plan-mode fixtures (ground truth: fixture-plan-prd.md)
+
+These exercise **P6** (the plan-mode product-decision line). They are the regression guard for the
+gap that, before P6, let a plan adopting an unconfirmed default pass as CLEAN.
+
+### fixture-plan-good.md — expected verdict CLEAN
+
+R1–R3 each map to a TDD task (P1), no work beyond the PRD (P2), test-first order (P3),
+producer-before-consumer ordering (P4), block-sized tasks (P5). The PRD fixes every semantic
+choice and the plan invents none — it explicitly adds no retry/resume re-emission — so **P6's
+`[applies-if]` is false (NA)**. A correct gate returns **CLEAN** (the challenger lands nothing).
+
+### fixture-plan-bad.md — expected verdict ESCALATE (product)
+
+Tasks 1–3 are identical and clean (P1–P5 PASS). Task 4 resolves a question the PRD is **silent**
+on — whether R1's "exactly once per request" re-emits on a retry — by **silently defaulting to
+re-emit** and baking it into code. That is a product/analytics-semantics decision the PRD does not
+fix → **P6 UNRESOLVED (product)** → **ESCALATE (product)**, with an `escalation_ask` to confirm
+retry semantics with the analytics owner.
+
+Regression meaning: a gate **without** P6 returns CLEAN here (the pre-fix bug — the choice has no
+rubric line to land on); a gate **with** P6 escalates. fixture-plan-bad is CLEAN-vs-ESCALATE
+exactly on the presence of P6.
