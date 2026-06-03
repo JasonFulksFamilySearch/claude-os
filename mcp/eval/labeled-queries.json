@@ -1,0 +1,9 @@
+{
+  "_note": "HELD-OUT ground truth for the search re-rank regression gate (recall@k / MRR). NEEDS JASON'S CURATION: the entries below are ILLUSTRATIVE PLACEHOLDERS — replace with ~12-15 representative queries spanning context topics, learnings, and episodes against the real corpus. 'expectedPathContains' lists case-sensitive substrings of source_path that a correct result for that query should surface; the runner resolves them to observation ids via the live corpus. IMPORTANT: the ranking weights in src/search_config.ts are FIXED principled defaults and must NOT be tuned against this set — tuning and scoring on the same queries is train/test leakage and voids the gate. To capture a baseline, run `npm run eval` on `main` (pre-change) and record Mean recall@k + MRR; the gate is new >= baseline on BOTH. Acceptance is manual, not CI.",
+  "k": 5,
+  "queries": [
+    { "query": "jira ticket transitions", "expectedPathContains": ["jira"] },
+    { "query": "github pull request review", "expectedPathContains": ["github"] },
+    { "query": "arc record exchange download", "expectedPathContains": ["arc"] }
+  ]
+}
