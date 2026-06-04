@@ -218,15 +218,24 @@ export async function embedObservation(
   id: number,
   content: string,
 ): Promise<void> {
-  // Skip if already embedded — content hash guard on observations means content hasn't changed.
+  // Callers (fullReindex / the watcher) invoke this ONLY for newly-indexed or content-CHANGED
+  // files (status "indexed") — never for unchanged ones — so always (re)compute the vector and
+  // overwrite any prior row, which refreshes a stale vector when a file's body changed. Do NOT
+  // early-return on an existing row: on a content change the prior (now stale) vec_items row still
+  // exists, and the refresh must overwrite it rather than be skipped.
   // BigInt: sqlite-vec vec0 PKs must bind as INTEGER; better-sqlite3 sends numbers as FLOAT.
-  const existing = db.prepare("SELECT observation_id FROM vec_items WHERE observation_id = ?").get(BigInt(id));
-  if (existing) return;
-
   try {
     const vector = await embedDocument(content);
     const bytes = serializeVector(vector);
-    db.prepare("INSERT OR REPLACE INTO vec_items(observation_id, embedding) VALUES (?, ?)").run(BigInt(id), bytes);
+    // Delete-then-insert in one transaction: the vec0 virtual table does not reliably honor
+    // INSERT OR REPLACE on an existing PK, so a re-embed of changed content must remove the prior
+    // (stale) row first. The transaction keeps the two writes atomic, so a failure between them
+    // cannot orphan the observation's vector (mirrors reembedAll's swap).
+    const swap = db.transaction((b: Buffer) => {
+      db.prepare("DELETE FROM vec_items WHERE observation_id = ?").run(BigInt(id));
+      db.prepare("INSERT INTO vec_items(observation_id, embedding) VALUES (?, ?)").run(BigInt(id), b);
+    });
+    swap(bytes);
   } catch (err) {
     log("error", "embedObservation failed", {
       id,

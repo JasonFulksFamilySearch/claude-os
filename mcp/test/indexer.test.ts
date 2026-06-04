@@ -19,6 +19,7 @@ import {
   fullReindex,
   type IndexerConfig,
 } from "../src/indexer.js";
+import { embedDocument } from "../src/embedder.js";
 
 let workDir: string;
 let dataRoot: string;
@@ -42,6 +43,46 @@ beforeEach(() => {
 afterEach(() => {
   db.close();
   rmSync(workDir, { recursive: true, force: true });
+});
+
+describe("embedObservation freshness on content change", () => {
+  const unit = (i: number): Float32Array => {
+    const v = new Float32Array(768);
+    v[i] = 1;
+    return v;
+  };
+  const readVec = (id: number): Float32Array => {
+    const row = db
+      .prepare("SELECT embedding FROM vec_items WHERE observation_id = ?")
+      .get(BigInt(id)) as { embedding: Buffer };
+    return new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength / 4);
+  };
+
+  it("refreshes the stored vector when an already-indexed file's content changes", async () => {
+    const file = join(dataRoot, "context", "jira.md");
+    writeFileSync(file, "# jira\n\noriginal content about sprints\n", "utf8");
+    vi.mocked(embedDocument).mockResolvedValue(unit(0)); // first embedding e0
+    try {
+      await fullReindex(db, config);
+      const obs = db
+        .prepare("SELECT id FROM observations WHERE source_path = ?")
+        .get(file) as { id: number };
+      expect(readVec(obs.id)[0]).toBe(1); // e0 stored on first index
+
+      // Edit the body (content_hash changes) and re-index with a DIFFERENT embedding.
+      writeFileSync(file, "# jira\n\ncompletely different content about tickets and triage\n", "utf8");
+      vi.mocked(embedDocument).mockResolvedValue(unit(1)); // second embedding e1
+      await fullReindex(db, config);
+
+      // The stored vector must be the FRESH e1 — the bug left the stale e0 in place because
+      // embedObservation early-returned on the existing vec_items row.
+      const after = readVec(obs.id);
+      expect(after[1]).toBe(1);
+      expect(after[0]).toBe(0);
+    } finally {
+      vi.mocked(embedDocument).mockResolvedValue(new Float32Array(768).fill(0));
+    }
+  });
 });
 
 describe("classify", () => {
