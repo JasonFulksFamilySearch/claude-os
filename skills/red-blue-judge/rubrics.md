@@ -83,6 +83,27 @@ profound-sounding lesson from a coincidental cluster; this rubric is what catche
 
 ---
 
+## mode: `defect` — Gate (defect verdict vs. ticket claims + codebase)
+
+**Ground truth:** the ticket (description, comments, acceptance criteria); the codebase; git
+history; Harness flags.
+
+A "this defect is honest / true / current" verdict is only as good as its grounding. These lines
+test that each claim was checked against the code, that the verdict (CONFIRMED-LIVE / STALE /
+SYMPTOM / CANNOT-DETERMINE) is earned, and that cross-repo and flag-state honesty is preserved — the
+anti-"plausible but unverified" bar.
+
+- **V1** Every verifiable claim in the ticket is scored against the code with a cited `file:line` (or a named backend repo/endpoint). (no unverified claim)
+- **V2** The verdict is grounded: a STALE verdict cites the commit/refactor that fixed it (pickaxe/log); a CONFIRMED-LIVE verdict shows the bug path still present at `file:line`. (grounded verdict)
+- **V3** Claims are anchored on stable identifiers (error codes, function names), not the ticket's cited line numbers. (drift-robust)
+- **V4** Any flag the verdict depends on is checked for EXISTENCE in Harness (not just `dev.flags.js`) in the relevant environment; a dev-only flag is treated as off in prod. `[applies-if: the verdict hinges on a feature flag]`
+- **V5** The prescribed fix names a real insertion point (`file:line`) and does not re-implement code already present. `[applies-if: CONFIRMED-LIVE]`
+- **V6** Dedup / relationship claims (duplicate-of, caused-by) are verified against the named tickets/commits, not asserted. `[applies-if: a dedup/causal claim is made]`
+- **V7** If the root cause or fix lives outside this repo (backend / another service), that dependency is UNRESOLVED → ESCALATE, not a confident code verdict. `[applies-if: backend/symptom class]`
+- **V8** For a STALE / already-fixed verdict, a surviving instance of the same bug class *off the verified path* was searched for (sibling call sites, other consumers of the anti-pattern, guard-bypassing paths) and none reaches the failure boundary. `[applies-if: STALE / already-fixed verdict]` (anti-"fixed on the happy path only")
+
+---
+
 ## Adding a rubric (for reuse beyond make-it-so)
 
 red-blue-judge is reusable for any artifact with a checkable source of truth (PR review,
