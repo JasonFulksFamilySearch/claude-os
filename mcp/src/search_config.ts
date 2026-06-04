@@ -49,3 +49,21 @@ export const NOVELTY_CONTRADICTION_COSINE = 0.82;
 
 // Top-k nearest neighbors considered per entry during the review-time scan.
 export const NOVELTY_SCAN_NEIGHBORS = 5;
+
+// --- B1 cross-session experience synthesis (episode clustering) ---
+// Fixed, principled defaults — not fit to any labeled set.
+
+// Thematic relatedness threshold (cosine over unit-normalized embeddings) for grouping episodes
+// into one experience cluster. Deliberately well below NOVELTY_NEAR_DUP_COSINE (0.92): near-dup
+// detection wants "almost the same text"; experience synthesis wants "the same kind of situation
+// recurring across sessions" — a looser thematic bar.
+export const EXPERIENCE_CLUSTER_COSINE = 0.7;
+
+// Minimum episodes in a cluster worth synthesizing. Tied to /grade-proposal's evidence band: its
+// top evidence_strength score requires 3+ distinct sessions, so a cluster of fewer than 3 cannot
+// earn a strong grade and is not surfaced.
+export const EXPERIENCE_MIN_CLUSTER_SIZE = 3;
+
+// Cap on how many of the most-recent unpromoted episodes one synthesis run considers, bounding
+// cost as the episode archive grows.
+export const EXPERIENCE_MAX_EPISODES = 200;

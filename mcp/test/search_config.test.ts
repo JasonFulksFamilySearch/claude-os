@@ -12,6 +12,9 @@ import {
   NOVELTY_NEAR_DUP_COSINE,
   NOVELTY_CONTRADICTION_COSINE,
   NOVELTY_SCAN_NEIGHBORS,
+  EXPERIENCE_CLUSTER_COSINE,
+  EXPERIENCE_MIN_CLUSTER_SIZE,
+  EXPERIENCE_MAX_EPISODES,
 } from "../src/search_config.js";
 
 describe("search_config constants", () => {
@@ -52,5 +55,23 @@ describe("novelty (A2) constants", () => {
     // Pairs at cosine >= NEAR_DUP are duplicate candidates; those in
     // [CONTRADICTION, NEAR_DUP) are possible-contradiction candidates (agent judges polarity).
     expect(NOVELTY_CONTRADICTION_COSINE).toBeLessThan(NOVELTY_NEAR_DUP_COSINE);
+  });
+});
+
+describe("experience synthesis (B1) constants", () => {
+  it("pins the clustering defaults", () => {
+    expect(EXPERIENCE_CLUSTER_COSINE).toBe(0.7);
+    expect(EXPERIENCE_MIN_CLUSTER_SIZE).toBe(3);
+    expect(EXPERIENCE_MAX_EPISODES).toBe(200);
+  });
+
+  it("uses a looser thematic threshold than A2's near-duplicate bar", () => {
+    // Experience clusters group thematically-related sessions, not near-identical text, so the
+    // threshold sits well below NOVELTY_NEAR_DUP_COSINE (0.92).
+    expect(EXPERIENCE_CLUSTER_COSINE).toBeLessThan(NOVELTY_NEAR_DUP_COSINE);
+  });
+
+  it("sets a minimum cluster size that can satisfy /grade-proposal's 3-session evidence band", () => {
+    expect(EXPERIENCE_MIN_CLUSTER_SIZE).toBeGreaterThanOrEqual(3);
   });
 });

@@ -99,7 +99,8 @@ export function lexicalSimilarity(a: string, b: string): number {
 }
 
 // Cosine similarity for the embedder's unit-normalized vectors (reduces to the dot product).
-function cosine(a: Float32Array, b: Float32Array): number {
+// Exported as the single shared cosine helper (experience.ts reuses it for clustering).
+export function cosine(a: Float32Array, b: Float32Array): number {
   let dot = 0;
   const n = Math.min(a.length, b.length);
   for (let i = 0; i < n; i++) dot += a[i] * b[i];

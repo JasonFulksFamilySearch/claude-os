@@ -49,7 +49,8 @@
               "RULE_RELAXATION",
               "STALE_RULE_REVIEW",
               "SKILL_CREATION",
-              "MEMORY_UPDATE"
+              "MEMORY_UPDATE",
+              "EXPERIENCE_LEARNING"
             ]
           },
           "title": {
@@ -73,7 +74,7 @@
               "file": { "type": "string", "description": "Absolute path to target file" },
               "action": {
                 "type": "string",
-                "enum": ["ADD_RULE", "UPDATE_RULE_RATIONALE", "ADD_EXCEPTION", "DELETE_RULE", "CREATE_SKILL", "UPDATE_SECTION", "CREATE_PATH_SCOPED_RULE"]
+                "enum": ["ADD_RULE", "UPDATE_RULE_RATIONALE", "ADD_EXCEPTION", "DELETE_RULE", "CREATE_SKILL", "UPDATE_SECTION", "CREATE_PATH_SCOPED_RULE", "APPEND_LEARNING"]
               },
               "scope": {
                 "type": "string",

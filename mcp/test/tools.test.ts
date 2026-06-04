@@ -23,7 +23,9 @@ import { listEpisodesImpl } from "../src/tools/list_episodes.js";
 import { markEpisodePromotedImpl } from "../src/tools/mark_episode_promoted.js";
 import { scanNovelty } from "../src/tools/scan_novelty.js";
 import { resolveNoveltyFlag } from "../src/tools/resolve_novelty_flag.js";
-import { embedDocument } from "../src/embedder.js";
+import { scanExperience } from "../src/tools/scan_experience.js";
+import { validateExperienceProposal } from "../src/tools/validate_experience_proposal.js";
+import { embedDocument, serializeVector } from "../src/embedder.js";
 
 let workDir: string;
 let dataRoot: string;
@@ -761,5 +763,146 @@ describe("scan_novelty + resolve_novelty_flag (A2)", () => {
     } finally {
       vi.mocked(embedDocument).mockResolvedValue(new Float32Array(768).fill(0));
     }
+  });
+});
+
+describe("scan_experience (B1)", () => {
+  const episodesDir = (): string => join(dataRoot, "episodes");
+  const writeEpisode = (slug: string, promoted: boolean): string => {
+    const dir = episodesDir();
+    mkdirSync(dir, { recursive: true });
+    const p = join(dir, `2026-06-${slug}.md`);
+    writeFileSync(
+      p,
+      `---\ndate: 2026-06-${slug}\nsession_id: sess-${slug}\npromoted: ${promoted}\n---\n\n## Summary\nepisode ${slug}\n`,
+      "utf8",
+    );
+    return p;
+  };
+  // Insert an episode observation row (so scan_experience can resolve its id) and seed its
+  // pre-computed embedding into vec_items — mirrors fullReindex + embedObservation. Seeding raw
+  // serializeVector bytes here is what verifies scan_experience reads vec_items back correctly.
+  const seed = (path: string, vec: Float32Array): void => {
+    const now = Math.floor(Date.now() / 1000);
+    const r = db
+      .prepare(
+        `INSERT INTO observations (source_type, source_path, project, topic, title, content, content_hash, file_mtime, indexed_at, frontmatter)
+         VALUES ('episode', ?, NULL, NULL, 'ep', 'body', ?, ?, ?, NULL)`,
+      )
+      .run(path, path, now, now);
+    db.prepare("INSERT OR REPLACE INTO vec_items(observation_id, embedding) VALUES (?, ?)").run(
+      BigInt(Number(r.lastInsertRowid)),
+      serializeVector(vec),
+    );
+  };
+  const themeA = (): Float32Array => { const v = new Float32Array(768); v[0] = 1; return v; };
+  const distinct = (): Float32Array => { const v = new Float32Array(768); v[1] = 1; return v; };
+
+  it("clusters unpromoted episodes from vectors read back out of vec_items", () => {
+    const a = writeEpisode("01", false);
+    const b = writeEpisode("02", false);
+    const c = writeEpisode("03", false);
+    const d = writeEpisode("04", false);
+    seed(a, themeA());
+    seed(b, themeA());
+    seed(c, themeA()); // 3 share a theme
+    seed(d, distinct()); // 1 orthogonal
+    const { clusters } = scanExperience(db, {}, config);
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0].size).toBe(3);
+    expect(clusters[0].members.map((m) => m.session_id).sort()).toEqual([
+      "sess-01",
+      "sess-02",
+      "sess-03",
+    ]);
+    expect(clusters[0].cohesion).toBeGreaterThan(0.99); // identical vectors → cosine 1
+  });
+
+  it("excludes promoted episodes from the synthesis backlog", () => {
+    seed(writeEpisode("01", false), themeA());
+    seed(writeEpisode("02", false), themeA());
+    seed(writeEpisode("03", true), themeA()); // promoted → not in the backlog → only 2 left < minSize
+    const { clusters } = scanExperience(db, {}, config);
+    expect(clusters).toHaveLength(0);
+  });
+
+  it("skips an unpromoted episode that has no stored embedding (not fatal)", () => {
+    seed(writeEpisode("01", false), themeA());
+    seed(writeEpisode("02", false), themeA());
+    seed(writeEpisode("03", false), themeA());
+    writeEpisode("04", false); // file only — no observation/vec_items row → must be skipped
+    const { clusters } = scanExperience(db, {}, config);
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0].size).toBe(3);
+  });
+});
+
+describe("validate_experience_proposal (B1, gate 1)", () => {
+  const mkEpisode = (slug: string): string => {
+    const dir = join(dataRoot, "episodes");
+    mkdirSync(dir, { recursive: true });
+    const p = join(dir, `2026-06-${slug}.md`);
+    writeFileSync(
+      p,
+      `---\ndate: 2026-06-${slug}\nsession_id: sess-${slug}\npromoted: false\n---\n\n## Summary\nepisode ${slug}\n`,
+      "utf8",
+    );
+    return p;
+  };
+  const baseProposal = () => ({
+    id: "P001",
+    priority: "MEDIUM",
+    category: "EXPERIENCE_LEARNING",
+    title: "A recurring cross-session lesson",
+    description:
+      "A higher-order lesson distilled from three sessions that recurred across the backlog and is worth keeping.",
+    evidence: ["session sess-01: detail", "session sess-02: detail", "session sess-03: detail"],
+    proposed_change: {
+      file: join(dataRoot, "agent", "learnings.md"),
+      action: "APPEND_LEARNING",
+      content: "totally novel zlorptal wibblefnord guidance",
+    },
+    estimated_weekly_savings_minutes: 8,
+  });
+
+  it("passes a well-formed, well-grounded, non-duplicate proposal", () => {
+    mkEpisode("01");
+    mkEpisode("02");
+    mkEpisode("03");
+    const r = validateExperienceProposal({ proposal: baseProposal() }, config);
+    expect(r.valid).toBe(true);
+    expect(r.resolved_citations).toBe(3);
+    expect(r.duplicate_of).toBeNull();
+  });
+
+  it("fails when evidence cites an episode that does not exist (anti-fabrication)", () => {
+    mkEpisode("01");
+    mkEpisode("02"); // sess-03 cited by the proposal is never created
+    const r = validateExperienceProposal({ proposal: baseProposal() }, config);
+    expect(r.valid).toBe(false);
+    expect(r.unresolved_citations.length).toBeGreaterThan(0);
+  });
+
+  it("flags a proposal that duplicates an existing learning", () => {
+    mkEpisode("01");
+    mkEpisode("02");
+    mkEpisode("03");
+    const p = baseProposal();
+    p.proposed_change.content = "body of first lesson"; // matches the agent/learnings.md fixture entry
+    const r = validateExperienceProposal({ proposal: p }, config);
+    expect(r.valid).toBe(false);
+    expect(r.duplicate_of).not.toBeNull();
+  });
+
+  it("rejects a schema-invalid proposal (wrong category)", () => {
+    mkEpisode("01");
+    mkEpisode("02");
+    mkEpisode("03");
+    const r = validateExperienceProposal(
+      { proposal: { ...baseProposal(), category: "CLAUDE_MD_RULE" } },
+      config,
+    );
+    expect(r.valid).toBe(false);
+    expect(r.errors.join(" ")).toMatch(/category/);
   });
 });
