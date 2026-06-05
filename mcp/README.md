@@ -306,7 +306,7 @@ WAL lock. Kill any stray `node …/dist/index.js` processes and restart.
 npm test
 ```
 
-Five suites:
+Ten suites:
 - `db.test.ts` — schema idempotency, FTS5 trigger correctness
 - `embedder.test.ts` — vector serialization + constants (incl. `EMBEDDING_DTYPE`);
   never loads the real model
@@ -316,6 +316,15 @@ Five suites:
   losslessness (observations & FTS untouched), and atomic rollback when an insert
   fails inside the swap transaction
 - `tools.test.ts` — all 11 tool handlers against seeded fixture data
+- `ranking.test.ts` — hybrid rank fusion: `reinforcementBonus`, `exactMatchBonus`,
+  and `rankCandidates` ordering
+- `search_config.test.ts` — pins the tuning constants (RRF, reinforcement
+  decay/saturation, exact-match boost weights, novelty/experience thresholds)
+- `novelty.test.ts` — `parseEntries`, entry identity, `lexicalSimilarity`, and
+  near-duplicate detection
+- `experience.test.ts` — `clusterByEmbedding` (union-find), proposal-shape
+  validation, and citation verification
+- `eval.test.ts` — ranking metrics: `recallAtK`, `reciprocalRank`, `mean`
 
 Tests mock the embedder module (the real model is never loaded) and use a tmpdir
 database + logger, so they never touch `~/.claude-data/`.
