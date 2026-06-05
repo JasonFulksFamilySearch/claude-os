@@ -205,6 +205,8 @@ session lifecycle:
 | `learnings-flush.js` | Stop | Flushes `_tmp_pending_learning.json` entries to the appropriate `learnings.md` |
 | `session-observer.js` | Stop | Spawns the detached `session-observer-worker.js` (Haiku) to summarize the session and write an episode |
 
+> Hooks are wired automatically by `install.sh` (fresh installs) and reconciled by `update.sh` (existing machines) via `hooks/hooks-install.js`. Re-running either is safe — registration is idempotent at the command level.
+
 ## Skills
 
 Skills are invocable via the `Skill` tool. The agent auto-detects which skill applies to a request.
