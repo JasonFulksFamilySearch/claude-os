@@ -21,7 +21,7 @@ own private, persistent memory.
   (personal Mac), each with its own identity, lived experience, and local data store.
 - 🪝 **Self-maintaining** — lifecycle hooks auto-inject relevant context at prompt time, flush
   session learnings to disk, and spawn a background worker to write episodic session summaries.
-- 🧰 **37 skills, 7 subagents, 2 slash commands** — a full development workflow (commit, PR review,
+- 🧰 **40 skills, 7 subagents, 2 slash commands** — a full development workflow (commit, PR review,
   releases, standups, daily planning, design review) invoked by name or auto-detected.
 - 🔁 **Git-synced across machines** — `/transmit-claude-os` ↔ `/assimilate-claude-os` keep both
   machines in lockstep; machine-local memory never leaves the device.
@@ -68,7 +68,7 @@ and rendered into `~/.claude-data/agent/CLAUDE.md` from the template.
 ├── install.sh                     ← first-time setup
 ├── update.sh                      ← pull latest + rebuild MCP if changed
 ├── uninstall.sh                   ← removes symlinks and MCP registration
-├── skills/                        ← global skills (37; see Skills)
+├── skills/                        ← global skills (40; see Skills)
 ├── agents/                        ← specialized subagents (7; see Subagents)
 ├── commands/                      ← global slash commands (2)
 ├── hooks/                         ← Claude Code lifecycle hooks + worker
@@ -239,6 +239,7 @@ Skills are invocable via the `Skill` tool. The agent auto-detects which skill ap
 | `prd-to-jira` | Convert a PRD markdown file into a JIRA issue with sub-tasks |
 | `grill-me` | Relentless interview to reach shared understanding before building |
 | `red-blue-judge` | Evidence-bound gate review (grounded reviewer + adversarial challenger → CLEAN/REVISE/ESCALATE) |
+| `oracle` | Adversarial second-opinion panel on a high-stakes decision before you commit |
 
 ### Daily operations
 | Skill | Purpose |
@@ -247,6 +248,7 @@ Skills are invocable via the `Skill` tool. The agent auto-detects which skill ap
 | `standup-review` | Review standup reports against sprint goals and Scrum best practices |
 | `daily-action` | Prioritized daily action plan from JIRA sprint, PRs, git, and retrospective |
 | `one-on-one` | Structured 1:1 agenda with live JIRA sprint data and action item tracking |
+| `estimate` | Calibrated PERT time estimate for a work item, calibrated to your own logged history |
 
 ### Jira, releases & ARC
 | Skill | Purpose |
@@ -262,6 +264,7 @@ Skills are invocable via the `Skill` tool. The agent auto-detects which skill ap
 | `goal-check` | Commit quality metrics vs. improvement targets (Fix%, rework, reverts) |
 | `review-performance` | Session review — proposes CLAUDE.md and rule updates to reduce friction |
 | `grade-proposal` | Score a single reflection proposal (0–100) before applying it |
+| `experience-synthesis` | Synthesize unpromoted episodes into candidate higher-order learnings via pre-human gates |
 
 ### Claude OS system
 | Skill | Purpose |
