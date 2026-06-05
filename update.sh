@@ -222,44 +222,121 @@ fi
 
 echo ""
 
-# ── Step 8: User-scoped rule templates ────────────────────────────────────────
+# ── Step 8: Identity anchor, persona, symlink heal, rule templates ───────────
 
-echo "--- Step 8: Rule templates ---"
+echo "--- Step 8: Identity + rule templates ---"
 
+CANONICAL_IDENTITY="$HOME/.claude-data/agent/CLAUDE.md"
+LIVE_IDENTITY_LINK="$HOME/.claude/CLAUDE.md"
+IDENTITY_JSON="$HOME/.claude-data/agent/identity.json"
+PERSONALITY_DST="$HOME/.claude-data/agent/personality.md"
+PERSONALITY_SRC="$REPO_DIR/templates/personality.md"
 RULES_TEMPLATES_DIR="$REPO_DIR/templates/rules"
 RULES_DST_DIR="$HOME/.claude/rules"
-IDENTITY_FILE="$HOME/.claude/CLAUDE.md"
 
-if [ ! -d "$RULES_TEMPLATES_DIR" ]; then
-    skip "No templates/rules/ directory — skipping"
-elif [ ! -f "$IDENTITY_FILE" ]; then
-    skip "No identity file at $IDENTITY_FILE — cannot resolve \${AGENT_NAME}/\${USER_NAME}, skipping rule render"
-else
-    # Derive identity from the already-rendered user CLAUDE.md. install.sh prompts
-    # for these and bakes them into the identity file but persists no env file, so
-    # update.sh recovers them here from the canonical anchors:
-    #   line 1:  "# Agent Identity — <AGENT_NAME>"
-    #   line 3:  "You are <USER_NAME>'s agent on the <machine>."
-    AGENT_NAME=$(sed -n 's/^# Agent Identity — \(.*\)$/\1/p' "$IDENTITY_FILE" | head -n1)
-    USER_NAME=$(sed -n "s/^You are \(.*\)'s agent on .*/\1/p" "$IDENTITY_FILE" | head -n1)
-
-    if [ -z "$AGENT_NAME" ] || [ -z "$USER_NAME" ]; then
-        warn "Could not derive AGENT_NAME/USER_NAME from $IDENTITY_FILE — skipping rule render"
-    elif ! command -v envsubst >/dev/null 2>&1; then
-        warn "envsubst not found (install via: brew install gettext) — skipping rule render"
+# (8.1) Heal first: ensure ~/.claude/CLAUDE.md is a symlink to canonical, BEFORE
+# any identity read. If it is a divergent regular file, back it up to a
+# timestamped, heal-specific name that Step 5's cleanup does NOT delete.
+if [ -L "$LIVE_IDENTITY_LINK" ]; then
+    skip "Identity symlink already healthy"
+elif [ -e "$LIVE_IDENTITY_LINK" ] && [ -f "$CANONICAL_IDENTITY" ]; then
+    if diff -q "$LIVE_IDENTITY_LINK" "$CANONICAL_IDENTITY" >/dev/null 2>&1; then
+        rm -f "$LIVE_IDENTITY_LINK"
+        ln -s "$CANONICAL_IDENTITY" "$LIVE_IDENTITY_LINK"
+        ok "Identity link healed (live copy was identical — no backup needed)"
     else
-        export AGENT_NAME USER_NAME
-        mkdir -p "$RULES_DST_DIR"
-        RENDERED=0
-        for template in "$RULES_TEMPLATES_DIR"/*.md; do
-            [ -f "$template" ] || continue
-            target="$RULES_DST_DIR/$(basename "$template")"
-            envsubst '${AGENT_NAME} ${USER_NAME}' < "$template" > "$target"
-            ok "Rendered rule: $(basename "$target") (AGENT_NAME=$AGENT_NAME, USER_NAME=$USER_NAME)"
-            RENDERED=$((RENDERED + 1))
-        done
-        [ "$RENDERED" -eq 0 ] && skip "No *.md templates in templates/rules/"
+        HEAL_BACKUP="${LIVE_IDENTITY_LINK}.pre-symlink-heal-$(date -u +%Y%m%dT%H%M%SZ)"
+        if [ -e "$HEAL_BACKUP" ]; then
+            warn "Heal backup $HEAL_BACKUP already exists — not overwriting; skipping heal this run"
+        else
+            mv "$LIVE_IDENTITY_LINK" "$HEAL_BACKUP"
+            ln -s "$CANONICAL_IDENTITY" "$LIVE_IDENTITY_LINK"
+            ok "Identity link healed; divergent copy preserved at $(basename "$HEAL_BACKUP")"
+        fi
     fi
+elif [ ! -e "$LIVE_IDENTITY_LINK" ] && [ -f "$CANONICAL_IDENTITY" ]; then
+    ln -s "$CANONICAL_IDENTITY" "$LIVE_IDENTITY_LINK"
+    ok "Identity link created → $CANONICAL_IDENTITY"
+fi
+
+# (8.2) Read the name. Prefer identity.json (canonical for machine consumers),
+# read defensively so a malformed file degrades to the prose fallback rather than
+# aborting under `set -euo pipefail`.
+AGENT_NAME=""
+USER_NAME=""
+if [ -f "$IDENTITY_JSON" ] && command -v jq >/dev/null 2>&1; then
+    AGENT_NAME=$(jq -r '.agent_name // empty' "$IDENTITY_JSON" 2>/dev/null || true)
+    USER_NAME=$(jq -r '.user_name // empty' "$IDENTITY_JSON" 2>/dev/null || true)
+    if [ -n "$AGENT_NAME" ]; then
+        ok "Identity read from identity.json (agent_name=$AGENT_NAME)"
+    else
+        warn "identity.json present but unparseable/empty — falling back to prose parse"
+    fi
+fi
+
+# (8.3) Fallback + one-time migration. Parse the CANONICAL file (not the link) so
+# the read is independent of symlink state. If identity.json is absent/empty,
+# derive once and write it via jq --arg — but skip the install-defaults sentinel.
+if [ -z "$AGENT_NAME" ] || [ -z "$USER_NAME" ]; then
+    if [ -f "$CANONICAL_IDENTITY" ]; then
+        AGENT_NAME=$(sed -n 's/^# Agent Identity — \(.*\)$/\1/p' "$CANONICAL_IDENTITY" | head -n1)
+        USER_NAME=$(sed -n "s/^You are \(.*\)'s agent on .*/\1/p" "$CANONICAL_IDENTITY" | head -n1)
+    fi
+    if [ -n "$AGENT_NAME" ] && [ -n "$USER_NAME" ]; then
+        if [ "$AGENT_NAME" = "Claude" ] && [ "$USER_NAME" = "human user" ]; then
+            warn "Identity is install-defaults (Claude/human user) — NOT writing identity.json; re-run install.sh with real values"
+        elif [ ! -f "$IDENTITY_JSON" ] && command -v jq >/dev/null 2>&1; then
+            jq -n \
+                --arg agent_name "$AGENT_NAME" \
+                --arg user_name "$USER_NAME" \
+                --arg machine_desc "$(sed -n 's/^You are .*agent on the \(.*\)\. Your name.*/\1/p' "$CANONICAL_IDENTITY" | head -n1)" \
+                '{agent_name: $agent_name, user_name: $user_name, machine_desc: $machine_desc}' \
+                > "$IDENTITY_JSON"
+            ok "Migrated identity.json from prose (one-time): agent_name=$AGENT_NAME"
+        fi
+    fi
+fi
+
+# (8.4) Provision the persona only-if-absent (preserve hand-tuning), and ensure it
+# exists before anything relies on the body's @-import.
+if [ -f "$PERSONALITY_DST" ] && [ -s "$PERSONALITY_DST" ]; then
+    skip "Persona already present (hand-tuning preserved)"
+elif [ -f "$PERSONALITY_SRC" ] && command -v envsubst >/dev/null 2>&1 && [ -n "$AGENT_NAME" ] && [ -n "$USER_NAME" ]; then
+    AGENT_NAME="$AGENT_NAME" USER_NAME="$USER_NAME" MACHINE_DESC="${MACHINE_DESC:-Mac}" \
+        envsubst '${USER_NAME} ${AGENT_NAME} ${MACHINE_DESC}' < "$PERSONALITY_SRC" > "$PERSONALITY_DST"
+    ok "Provisioned persona skeleton → $PERSONALITY_DST (hand-tune to taste)"
+else
+    warn "Could not provision persona (missing template, envsubst, or identity) — body @-import may dangle"
+fi
+
+# (8.5) Reconcile: identity.json is canonical; warn loudly if the prose mirror drifted.
+if [ -f "$IDENTITY_JSON" ] && command -v jq >/dev/null 2>&1 && [ -f "$CANONICAL_IDENTITY" ]; then
+    JSON_NAME=$(jq -r '.agent_name // empty' "$IDENTITY_JSON" 2>/dev/null || true)
+    PROSE_NAME=$(sed -n 's/^# Agent Identity — \(.*\)$/\1/p' "$CANONICAL_IDENTITY" | head -n1)
+    if [ -n "$JSON_NAME" ] && [ -n "$PROSE_NAME" ] && [ "$JSON_NAME" != "$PROSE_NAME" ]; then
+        warn "ANCHOR DRIFT: identity.json agent_name='$JSON_NAME' but CLAUDE.md line-1='$PROSE_NAME'. identity.json is canonical; fix the prose mirror or re-run install.sh."
+    fi
+fi
+
+# (8.6) Render user-scoped rule templates from the derived name.
+if [ ! -d "$RULES_TEMPLATES_DIR" ]; then
+    skip "No templates/rules/ directory — skipping rule render"
+elif [ -z "$AGENT_NAME" ] || [ -z "$USER_NAME" ]; then
+    warn "No derivable identity — skipping rule render"
+elif ! command -v envsubst >/dev/null 2>&1; then
+    warn "envsubst not found (install via: brew install gettext) — skipping rule render"
+else
+    export AGENT_NAME USER_NAME
+    mkdir -p "$RULES_DST_DIR"
+    RENDERED=0
+    for template in "$RULES_TEMPLATES_DIR"/*.md; do
+        [ -f "$template" ] || continue
+        target="$RULES_DST_DIR/$(basename "$template")"
+        envsubst '${AGENT_NAME} ${USER_NAME}' < "$template" > "$target"
+        ok "Rendered rule: $(basename "$target") (AGENT_NAME=$AGENT_NAME, USER_NAME=$USER_NAME)"
+        RENDERED=$((RENDERED + 1))
+    done
+    [ "$RENDERED" -eq 0 ] && skip "No *.md templates in templates/rules/"
 fi
 
 echo ""
