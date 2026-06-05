@@ -72,5 +72,29 @@ function flush(markerPath = MARKER_PATH) {
 module.exports = { todayLocal, resolveTarget, appendEntry, flush };
 
 if (require.main === module) {
-  flush();
+  // Recursion guard: skip if spawned inside a session-observer worker subprocess.
+  if (process.env.CLAUDE_OS_SKIP_EPISODE === '1') process.exit(0);
+
+  let input = '';
+  process.stdin.setEncoding('utf8');
+
+  // Safety net: flush anyway if stdin never closes (e.g. no hook context piped).
+  const stdinTimer = setTimeout(() => {
+    flush();
+    process.exit(0);
+  }, 5_000);
+
+  process.stdin.on('data', d => { input += d; });
+  process.stdin.on('end', () => {
+    clearTimeout(stdinTimer);
+    try {
+      const ctx = JSON.parse(input);
+      // Another Stop hook already handled this session — skip.
+      if (ctx.stop_hook_active) process.exit(0);
+      // Background tasks are still running; they will flush via their own Stop hooks.
+      const bgTasks = Array.isArray(ctx.background_tasks) ? ctx.background_tasks : [];
+      if (bgTasks.length > 0) process.exit(0);
+    } catch { /* malformed or empty input — proceed with flush */ }
+    flush();
+  });
 }

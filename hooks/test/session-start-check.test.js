@@ -10,6 +10,7 @@ const {
   inferProject,
   getRecentEpisodes,
   buildEpisodeContext,
+  buildDigestContext,
   loadConfig,
   parseStdinInput,
 } = require('../session-start-check.js');
@@ -155,4 +156,71 @@ test('loadConfig reads custom values', () => {
   const config = loadConfig(cfgPath);
   assert.equal(config.sessionStartInjectCount, 5);
   assert.equal(config.stalenessThresholdDays, 60);
+});
+
+// --- buildDigestContext ---
+
+test('buildDigestContext returns null for null input', () => {
+  assert.equal(buildDigestContext(null), null);
+});
+
+test('buildDigestContext returns null for empty array', () => {
+  assert.equal(buildDigestContext([]), null);
+});
+
+test('buildDigestContext formats a pr-surveillance ok entry with items', () => {
+  const entries = [{
+    agent: 'pr-surveillance',
+    status: 'ok',
+    items: [{ type: 'review-requested', pr_number: 123, title: 'Add new feature', repo: 'owner/repo' }],
+    run_at: '2026-06-05T06:00:00.000Z',
+  }];
+  const result = buildDigestContext(entries);
+  assert.ok(result.includes('[Background Digest — 1 run(s) since last session]'));
+  assert.ok(result.includes('PR Surveillance (2026-06-05):'));
+  assert.ok(result.includes('1 flagged'));
+  assert.ok(result.includes('#123'));
+  assert.ok(result.includes('"Add new feature"'));
+  assert.ok(result.includes('review-requested'));
+});
+
+test('buildDigestContext formats a sprint-staleness ok entry with items', () => {
+  const entries = [{
+    agent: 'sprint-staleness',
+    status: 'ok',
+    items: [
+      { key: 'ARC-456', summary: 'Some task', status: 'In Progress', days_stale: 4 },
+      { key: 'ARC-789', summary: 'Other task', status: 'In Test', days_stale: 7 },
+    ],
+    run_at: '2026-06-05T06:30:00.000Z',
+  }];
+  const result = buildDigestContext(entries);
+  assert.ok(result.includes('[Background Digest — 1 run(s) since last session]'));
+  assert.ok(result.includes('Sprint Staleness (2026-06-05):'));
+  assert.ok(result.includes('ARC-456 4d stale (In Progress)'));
+  assert.ok(result.includes('ARC-789 7d stale (In Test)'));
+});
+
+test('buildDigestContext formats an error entry', () => {
+  const entries = [{
+    agent: 'pr-surveillance',
+    status: 'error',
+    items: [],
+    run_at: '2026-06-05T06:00:00.000Z',
+  }];
+  const result = buildDigestContext(entries);
+  assert.ok(result !== null);
+  assert.ok(result.includes('PR Surveillance (2026-06-05): ERROR — skipped run'));
+});
+
+test('buildDigestContext returns non-null with "nothing flagged" when ok entry has no items', () => {
+  const entries = [{
+    agent: 'pr-surveillance',
+    status: 'ok',
+    items: [],
+    run_at: '2026-06-05T06:00:00.000Z',
+  }];
+  const result = buildDigestContext(entries);
+  assert.ok(result !== null);
+  assert.ok(result.includes('PR Surveillance (2026-06-05): nothing flagged'));
 });
