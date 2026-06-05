@@ -66,18 +66,40 @@ const CANONICAL_GUARD_HOOKS = [
 ];
 
 /**
+ * The script-based PreToolUse guard — the multi-rule rule-enforcement.sh (identity
+ * write-guard plus the commit / force-push / rm-rf / .env rules). Unlike the inline
+ * Bash guards above it is a standalone script and matches Edit/Write as well as Bash,
+ * so it lands in its OWN matcher group rather than the shared Bash one. Invoked via
+ * `bash` (not the executable bit) so it works even if +x is lost in transit.
+ */
+const CANONICAL_SCRIPT_GUARD_HOOKS = [
+  {
+    event: 'PreToolUse',
+    matcher: 'Bash|Edit|Write',
+    command: 'bash ~/.claude-os/hooks/rule-enforcement.sh',
+  },
+];
+
+/**
  * True if `command` already appears in any group under settings.hooks[event].
  * The exact-string match is the idempotency key shared by both the lifecycle and
  * guard merges — a hook is "present" iff its command string is byte-identical.
  */
 function commandPresent(settings, event, command) {
   const groups = settings.hooks[event];
+  // Present iff a live entry equals the command OR is a shell-prefixed form of it
+  // (`… && <command>`) — e.g. a node hook wrapped with an nvm-source prefix on
+  // machines where node lives behind nvm. Exact-match alone would miss the wrapped
+  // entry and append a broken duplicate on every update.sh run. The ` && ` boundary
+  // keeps the suffix match from absorbing anything but a shell-prefixed invocation.
+  const present = (live) =>
+    typeof live === 'string' && (live === command || live.endsWith(` && ${command}`));
   return (
     Array.isArray(groups) &&
     groups.some(
       (group) =>
         Array.isArray(group.hooks) &&
-        group.hooks.some((h) => h && h.command === command)
+        group.hooks.some((h) => h && present(h.command))
     )
   );
 }
@@ -115,6 +137,10 @@ function mergeHooks(inputSettings) {
   // the matcher-less push used for lifecycle hooks.
   mergeGuardHooks(settings, added, skipped);
 
+  // Pass 3 — the script-based rule-enforcement guard. Reuses the same matcher-aware
+  // merge; its distinct matcher ('Bash|Edit|Write') means it forms its own group.
+  mergeGuardHooks(settings, added, skipped, CANONICAL_SCRIPT_GUARD_HOOKS);
+
   return { settings, added, skipped };
 }
 
@@ -122,8 +148,8 @@ function mergeHooks(inputSettings) {
  * Append each guard hook into the settings object, matcher-aware. Mutates the
  * passed `settings`/`added`/`skipped` (called by mergeHooks after the lifecycle pass).
  */
-function mergeGuardHooks(settings, added, skipped) {
-  for (const hook of CANONICAL_GUARD_HOOKS) {
+function mergeGuardHooks(settings, added, skipped, guards = CANONICAL_GUARD_HOOKS) {
+  for (const hook of guards) {
     const { event, matcher, command, statusMessage } = hook;
     if (!Array.isArray(settings.hooks[event])) settings.hooks[event] = [];
 
@@ -191,7 +217,7 @@ function applyToSettingsFile(path, timestamp) {
   return { settings, added, skipped };
 }
 
-module.exports = { CANONICAL_HOOKS, CANONICAL_GUARD_HOOKS, mergeHooks, mergeGuardHooks, applyToSettingsFile };
+module.exports = { CANONICAL_HOOKS, CANONICAL_GUARD_HOOKS, CANONICAL_SCRIPT_GUARD_HOOKS, mergeHooks, mergeGuardHooks, applyToSettingsFile };
 
 // ── CLI entrypoint ───────────────────────────────────────────────────────────
 // Run directly: `node hooks-install.js`  → wires hooks into ~/.claude/settings.json
