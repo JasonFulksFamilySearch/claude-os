@@ -165,3 +165,21 @@ test('mergeHooks detects an existing command inside a multi-command group', () =
   assert.ok(skipped.includes('node ~/.claude-os/hooks/session-observer.js'));
   assert.ok(!added.includes('node ~/.claude-os/hooks/session-observer.js'));
 });
+
+test('applyToSettingsFile backs up and rebuilds a malformed settings file', () => {
+  const dir = join(TMP, 'malformed');
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, 'settings.json');
+  writeFileSync(path, '{ not valid json ', 'utf8');
+
+  const res = applyToSettingsFile(path, '2026-06-04T00:00:00.000Z');
+
+  // All four hooks were wired into the rebuilt file...
+  assert.equal(res.added.length, 4);
+  const written = JSON.parse(readFileSync(path, 'utf8'));
+  assert.equal(written.hooks.Stop.length, 2);
+  // ...and the malformed original was preserved as a backup.
+  const backups = readdirSync(dir).filter((f) => f.startsWith('settings.json.bak-'));
+  assert.equal(backups.length, 1);
+  assert.equal(readFileSync(join(dir, backups[0]), 'utf8'), '{ not valid json ');
+});

@@ -88,6 +88,10 @@ function applyToSettingsFile(path, timestamp) {
       const raw = readFileSync(path, 'utf8').trim();
       existing = raw ? JSON.parse(raw) : {};
     } catch {
+      // Malformed JSON (e.g. a hand-edit typo). A backup is taken before the
+      // rewrite below, so nothing is lost — but announce it rather than
+      // silently discarding the user's other keys.
+      console.error(`[!!]   ${path} was unparseable JSON — backing it up and rebuilding hooks.`);
       existing = {};
     }
   }
