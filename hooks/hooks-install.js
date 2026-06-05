@@ -241,7 +241,8 @@ if (require.main === module) {
       console.log(`${YELLOW}[SKIP]${NC} Hook already present: ${name}`);
     }
     if (added.length === 0) {
-      console.log(`${GREEN}[OK]${NC}   All four hooks already wired — nothing to do.`);
+      const total = CANONICAL_HOOKS.length + CANONICAL_GUARD_HOOKS.length + CANONICAL_SCRIPT_GUARD_HOOKS.length;
+      console.log(`${GREEN}[OK]${NC}   All ${total} canonical hooks already wired — nothing to do.`);
     }
     process.exit(0);
   } catch (err) {
