@@ -166,6 +166,11 @@ echo ""
 
 echo "--- Step 5: Symlinks ---"
 
+# On a truly fresh machine ~/.claude may not exist yet (the Claude Code CLI
+# normally creates it on first launch). Ensure it exists before we symlink into
+# it — otherwise `ln -s` dies here and the later hook-registration step never runs.
+mkdir -p "$CLAUDE_DIR"
+
 symlink_path() {
     local target="$1"    # source path inside the repo or data dir
     local link="$2"      # destination path under ~/.claude
