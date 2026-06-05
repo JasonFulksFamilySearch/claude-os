@@ -168,6 +168,16 @@ server process and loads the model lazily).
   `observation_id` mirrors `observations.id`. *Implementation note:* better-sqlite3
   binds JS numbers as `SQLITE_FLOAT`, which the `vec0` integer PK rejects — every
   insert/delete against `vec_items` must bind `BigInt(id)`.
+- **`access_stats`** — per-observation access-reinforcement state, kept in a side
+  table so the access-bump write never fires the `observations` FTS-sync triggers.
+  Columns: `observation_id` (PK, `REFERENCES observations(id) ON DELETE CASCADE`),
+  `last_accessed`, `access_count` (default `0`).
+- **`novelty_flags`** — A2 candidate duplicate/contradiction pairs of dated learning
+  entries awaiting human-gated supersession. Standalone (own PK, no FK to
+  `observations` — it references entries, not rows). Columns: `id`, `source_path`,
+  `entry_date`, `entry_hash`, `match_path`, `match_date`, `match_hash`, `similarity`,
+  `kind`, `detected_by`, `status` (default `'pending'`), `detected_at`;
+  `UNIQUE(source_path, entry_hash, match_path, match_hash)`.
 - **`meta`** — key/value table: `schema_version` (`2`), `phase` (`4`).
 
 Relational columns can grow via `ALTER TABLE` + a `schema_version` bump without a
