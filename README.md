@@ -76,7 +76,6 @@ and rendered into `~/.claude-data/agent/CLAUDE.md` from the template.
 ├── config/                        ← watched-projects.json, episodes config
 ├── templates/                     ← CLAUDE.md template, project template
 ├── docs/                          ← phase docs and reference content
-├── bin/                           ← CLI tooling
 └── reference/                     ← system contracts and reference data
 
 ~/.claude-data/                    ← machine-local data (NEVER in this repo)
