@@ -195,6 +195,33 @@ fi
 
 echo ""
 
+# ── Step 7: Context templates ─────────────────────────────────────────────────
+
+echo "--- Step 7: Context templates ---"
+
+TEMPLATES_DIR="$REPO_DIR/context-templates"
+CONTEXT_DIR="$HOME/.claude-data/context"
+
+if [ ! -d "$TEMPLATES_DIR" ]; then
+    skip "No context-templates/ directory — skipping"
+else
+    mkdir -p "$CONTEXT_DIR"
+    PROVISIONED=0
+    for template in "$TEMPLATES_DIR"/*.md; do
+        [ -f "$template" ] || continue
+        target="$CONTEXT_DIR/$(basename "$template")"
+        if [ ! -f "$target" ]; then
+            cp "$template" "$target"
+            ok "Provisioned context: $(basename "$target")"
+            PROVISIONED=$((PROVISIONED + 1))
+        else
+            skip "Context already exists: $(basename "$target")"
+        fi
+    done
+fi
+
+echo ""
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 echo "================================================"

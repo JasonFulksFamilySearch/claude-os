@@ -11,6 +11,7 @@ const {
   getRecentEpisodes,
   buildEpisodeContext,
   buildDigestContext,
+  buildJobsContext,
   loadConfig,
   parseStdinInput,
 } = require('../session-start-check.js');
@@ -223,4 +224,38 @@ test('buildDigestContext returns non-null with "nothing flagged" when ok entry h
   const result = buildDigestContext(entries);
   assert.ok(result !== null);
   assert.ok(result.includes('PR Surveillance (2026-06-05): nothing flagged'));
+});
+
+// --- buildJobsContext ---
+
+test('buildJobsContext returns null when file does not exist', () => {
+  assert.equal(buildJobsContext(join(TMP, 'nonexistent-jobs.json')), null);
+});
+
+test('buildJobsContext returns null when jobs array is empty', () => {
+  const p = join(TMP, 'jobs-empty.json');
+  writeFileSync(p, JSON.stringify({ version: 1, jobs: [] }), 'utf8');
+  assert.equal(buildJobsContext(p), null);
+});
+
+test('buildJobsContext formats two jobs correctly', () => {
+  const p = join(TMP, 'jobs-two.json');
+  writeFileSync(p, JSON.stringify({
+    version: 1,
+    jobs: [
+      { name: 'PR Surveillance', skill: 'background-pr-digest', cron: '0 6 * * *' },
+      { name: 'Sprint Staleness', skill: 'background-sprint-digest', cron: '30 6 * * *' },
+    ],
+  }), 'utf8');
+  const result = buildJobsContext(p);
+  assert.ok(result !== null);
+  assert.ok(result.includes('[Background jobs — register each session]'));
+  assert.ok(result.includes('/schedule skill=background-pr-digest cron="0 6 * * *" name="PR Surveillance"'));
+  assert.ok(result.includes('/schedule skill=background-sprint-digest cron="30 6 * * *" name="Sprint Staleness"'));
+});
+
+test('buildJobsContext returns null on malformed JSON', () => {
+  const p = join(TMP, 'jobs-malformed.json');
+  writeFileSync(p, '{ not valid json }', 'utf8');
+  assert.equal(buildJobsContext(p), null);
 });

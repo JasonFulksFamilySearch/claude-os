@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "jobs": [
+    {
+      "name": "PR Surveillance",
+      "skill": "background-pr-digest",
+      "cron": "0 6 * * *"
+    },
+    {
+      "name": "Sprint Staleness",
+      "skill": "background-sprint-digest",
+      "cron": "30 6 * * *"
+    }
+  ]
+}

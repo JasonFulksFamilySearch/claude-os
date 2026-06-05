@@ -25,6 +25,7 @@ const MARKER_PATH = join(homedir(), '.claude-data', '_tmp_claude_md_update_neede
 const EPISODES_DIR = join(homedir(), '.claude-data', 'episodes');
 const CONFIG_PATH = join(homedir(), '.claude-os', 'config', 'episodes.json');
 const WATCHED_PROJECTS_PATH = join(homedir(), '.claude-os', 'config', 'watched-projects.json');
+const JOBS_CONFIG_PATH = join(homedir(), '.claude-os', 'config', 'scheduled-jobs.json');
 const MAX_INJECT_CHARS = 1600;
 
 function loadConfig(configPath) {
@@ -176,6 +177,25 @@ function buildDigestContext(entries) {
   return '[Background Digest — ' + runCount + ' run(s) since last session]\n' + lines.join('\n');
 }
 
+function buildJobsContext(jobsPath) {
+  const path = jobsPath || JOBS_CONFIG_PATH;
+  try {
+    const raw = readFileSync(path, 'utf8');
+    const parsed = JSON.parse(raw);
+    const jobs = Array.isArray(parsed.jobs) ? parsed.jobs : [];
+    if (jobs.length === 0) return null;
+    const lines = jobs.map(j =>
+      `/schedule skill=${j.skill} cron="${j.cron}" name="${j.name}"`
+    );
+    return '[Background jobs — register each session]\n' + lines.join('\n');
+  } catch (e) {
+    if (e && e.code !== 'ENOENT') {
+      process.stderr.write('[session-start-check] buildJobsContext: ' + (e.name || 'Error') + '\n');
+    }
+    return null;
+  }
+}
+
 function main() {
   let input = '';
   // isTTY guard: readFileSync(0) blocks if stdin is a TTY (direct invocation, testing).
@@ -185,6 +205,9 @@ function main() {
 
   const { cwd } = parseStdinInput(input);
   const parts = [];
+
+  const jobsContext = buildJobsContext();
+  if (jobsContext) parts.push(jobsContext);
 
   const digestEntries = deliverAndClearQueue();
   const digestContext = digestEntries ? buildDigestContext(digestEntries) : null;
@@ -230,6 +253,7 @@ module.exports = {
   getRecentEpisodes,
   buildEpisodeContext,
   buildDigestContext,
+  buildJobsContext,
   loadConfig,
   parseStdinInput,
 };
