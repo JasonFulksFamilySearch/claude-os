@@ -10,6 +10,7 @@ NC='\033[0m'
 
 ok()   { echo -e "${GREEN}[OK]${NC}   $1"; }
 skip() { echo -e "${YELLOW}[SKIP]${NC} $1"; }
+warn() { echo -e "${YELLOW}[!!]${NC}   $1"; }
 fail() { echo -e "${RED}[FAIL]${NC} $1"; exit 1; }
 
 echo ""
@@ -57,41 +58,10 @@ SETTINGS="$HOME/.claude/settings.json"
 
 if [ ! -f "$SETTINGS" ]; then
     skip "settings.json not found — skipping hook registration"
+elif node "$REPO_DIR/hooks/hooks-install.js"; then
+    ok "Lifecycle hooks reconciled in settings.json"
 else
-    if ! command -v jq &>/dev/null; then
-        skip "jq not installed — skipping hook registration (install jq to automate this)"
-    else
-        TMP_SETTINGS=$(mktemp)
-
-        # UserPromptSubmit hook
-        if jq -e '.hooks | has("UserPromptSubmit")' "$SETTINGS" >/dev/null 2>&1; then
-            skip "UserPromptSubmit hook already registered"
-        else
-            jq '.hooks.UserPromptSubmit = [{"hooks":[{"type":"command","command":"node ~/.claude-os/hooks/topic-preload.js","statusMessage":"Scanning for topic context..."}]}]' \
-                "$SETTINGS" > "$TMP_SETTINGS" && mv "$TMP_SETTINGS" "$SETTINGS"
-            ok "Registered UserPromptSubmit hook (topic-preload)"
-        fi
-
-        # Stop hook
-        if jq -e '.hooks | has("Stop")' "$SETTINGS" >/dev/null 2>&1; then
-            skip "Stop hook already registered"
-        else
-            jq '.hooks.Stop = [{"hooks":[{"type":"command","command":"node ~/.claude-os/hooks/learnings-flush.js","statusMessage":"Flushing pending learnings..."}]}]' \
-                "$SETTINGS" > "$TMP_SETTINGS" && mv "$TMP_SETTINGS" "$SETTINGS"
-            ok "Registered Stop hook (learnings-flush)"
-        fi
-
-        # SessionStart hook
-        if jq -e '.hooks | has("SessionStart")' "$SETTINGS" >/dev/null 2>&1; then
-            skip "SessionStart hook already registered"
-        else
-            jq '.hooks.SessionStart = [{"hooks":[{"type":"command","command":"node ~/.claude-os/hooks/session-start-check.js","statusMessage":"Checking session state..."}]}]' \
-                "$SETTINGS" > "$TMP_SETTINGS" && mv "$TMP_SETTINGS" "$SETTINGS"
-            ok "Registered SessionStart hook (session-start-check)"
-        fi
-
-        rm -f "$TMP_SETTINGS"
-    fi
+    warn "Hook registration failed — run manually: node $REPO_DIR/hooks/hooks-install.js"
 fi
 
 echo ""

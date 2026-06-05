@@ -166,6 +166,11 @@ echo ""
 
 echo "--- Step 5: Symlinks ---"
 
+# On a truly fresh machine ~/.claude may not exist yet (the Claude Code CLI
+# normally creates it on first launch). Ensure it exists before we symlink into
+# it — otherwise `ln -s` dies here and the later hook-registration step never runs.
+mkdir -p "$CLAUDE_DIR"
+
 symlink_path() {
     local target="$1"    # source path inside the repo or data dir
     local link="$2"      # destination path under ~/.claude
@@ -212,6 +217,18 @@ else
         claude mcp add claude-os-mcp -- node "$REPO_DIR/mcp/dist/index.js"
         ok "claude-os-mcp registered"
     fi
+fi
+
+echo ""
+
+# ── Step 7: Register lifecycle hooks ─────────────────────────────────────────
+
+echo "--- Step 7: Lifecycle hooks ---"
+
+if node "$REPO_DIR/hooks/hooks-install.js"; then
+    ok "Lifecycle hooks wired into ~/.claude/settings.json"
+else
+    warn "Hook registration failed — wire manually: node $REPO_DIR/hooks/hooks-install.js"
 fi
 
 echo ""
