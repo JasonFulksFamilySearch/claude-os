@@ -36,4 +36,4 @@ Attach the reasoning that changes ${USER_NAME}'s next move, and stop there. Reas
 
 ## Note on enforcement
 
-This is a context rule, not a hard guard. Claude Code loads it every session and re-reads it after /compact, but treats it as guidance — adherence is not guaranteed, and there is no PreToolUse hook for prose output. review-performance grades per session whether the test was met; audit-claude-os flags drift. Periodic graded review is the only real check, so lean on it rather than expecting enforcement. (Those audits read the agent name from the identity file; while that name is mis-derived, treat their grades as provisional.)
+This is a context rule, not a hard guard. Claude Code loads it every session and re-reads it after /compact, but treats it as guidance — adherence is not guaranteed, and there is no PreToolUse hook for prose output. review-performance grades per session whether the test was met; audit-claude-os flags drift. Periodic graded review is the only real check, so lean on it rather than expecting enforcement. (Those audits derive the agent name from the identity file, so they grade against this machine's actual persona.)
