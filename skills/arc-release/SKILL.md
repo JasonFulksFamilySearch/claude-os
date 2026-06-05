@@ -8,8 +8,7 @@ description: >
   justification, pre-flight checks, Maven release:prepare, GitHub releases, Jira
   fixVersion stamping, CI monitoring, deploy offers, and Slack announcements.
 argument-hint: "[major|minor|patch] [--no-deploy] [--no-slack]"
-allowed-tools: Bash(git:*) Bash(gh release:*) Bash(gh api:*) Bash(gh run list:*) Bash(gh workflow list:*) Bash(gh pr:*) Bash(mvn:*) Bash(npm:*) Bash(ls:*) Bash(echo:*) Read Grep Glob Write mcp__spokenly__ask_user_dictation mcp__slack__channels_list mcp__slack__conversations_add_message
-<!-- permission-required: Bash(gh workflow run:*) is in the global deny list at ~/.claude/settings.json. Phase 2 (ARC release.yml) and Phase 5 (push-button deploys) require this command. Sir must either (a) run these gh workflow run invocations manually in a terminal, or (b) temporarily move Bash(gh workflow run:*) from deny to allow in ~/.claude/settings.json for the duration of the release. -->
+allowed-tools: Bash(git:*) Bash(gh release:*) Bash(gh api:*) Bash(gh run list:*) Bash(gh workflow list:*) Bash(gh pr:*) Bash(mvn:*) Bash(npm:*) Bash(ls:*) Bash(echo:*) Read Grep Glob Write Agent mcp__spokenly__ask_user_dictation mcp__slack__channels_list mcp__slack__conversations_add_message
 ---
 
 <role>
@@ -42,6 +41,11 @@ accurate release notes, and Slack announcements the team can act on.
   a clean state before reporting — partial release state creates ambiguous tags and
   breaks subsequent CI runs on that repo.
 - Run all four Phase 4 `gh run list` calls in a single parallel message, not sequentially.
+- Execute only the steps each phase specifies — do not add extra commits, files, version
+  bumps, or deploys beyond the confirmed plan. Surface anything ambiguous to Sir rather
+  than improvising a workaround.
+- Parallelize Phase 1 tests via per-repo subagents, but never Phase 2 — release-cutting stays
+  sequential so rollback on any `mvn release:prepare` failure remains atomic and observable.
 
 **Reversibility policy:** Git status checks, test runs, and git log reads are read-only
 operations — take these autonomously. Tag creation, GitHub workflow triggers, GitHub
@@ -189,9 +193,8 @@ where `<TAG>` is `v<ARC_VERSION>` (ARC), `arc-reos-root-<REOS_VERSION>` (REOS),
 
 For each repo: verify on `master`, clean working tree, and no existing tag for the target version.
 
-Then run tests — only proceed if all pass:
-- **ARC (React):** `npm run test:ci` then `npm run lint`
-- **REOS / DSS / GSS (Java):** `mvn clean test` then `mvn checkstyle:check`
+Then run tests via one read-only subagent per repo in one parallel message — each reads `references/test-contract.md` + its `references/test-{arc,reos,dss,gss}.md` (don't short-circuit).
+**Gate:** enter Phase 2 only when all four return `PASS`; any `FAIL`/`ERROR` (fail closed) stops the release and is reported to Sir.
 
 ---
 
