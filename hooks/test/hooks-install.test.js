@@ -76,3 +76,92 @@ test('mergeHooks does not mutate its input object', () => {
   mergeHooks(input);
   assert.deepEqual(input, {}, 'input must be cloned, not mutated');
 });
+
+const { before, after } = require('node:test');
+const { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync } = require('node:fs');
+const { join } = require('node:path');
+const { tmpdir } = require('node:os');
+const { applyToSettingsFile } = require('../hooks-install.js');
+
+const TMP = join(tmpdir(), `hooks-install-test-${process.pid}`);
+before(() => mkdirSync(TMP, { recursive: true }));
+after(() => rmSync(TMP, { recursive: true, force: true }));
+
+test('applyToSettingsFile creates settings with all four hooks when file is absent', () => {
+  const path = join(TMP, 'absent', 'settings.json');
+  const res = applyToSettingsFile(path);
+  assert.equal(res.added.length, 4);
+  assert.ok(existsSync(path));
+  const written = JSON.parse(readFileSync(path, 'utf8'));
+  assert.equal(written.hooks.Stop.length, 2);
+});
+
+test('applyToSettingsFile backs up an existing file before writing', () => {
+  const dir = join(TMP, 'backup');
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, 'settings.json');
+  writeFileSync(path, JSON.stringify({ theme: 'dark', hooks: {} }), 'utf8');
+
+  applyToSettingsFile(path, '2026-06-04T00:00:00.000Z');
+
+  const backups = readdirSync(dir).filter((f) => f.startsWith('settings.json.bak-'));
+  assert.equal(backups.length, 1, 'exactly one timestamped backup created');
+  const backup = JSON.parse(readFileSync(join(dir, backups[0]), 'utf8'));
+  assert.equal(backup.theme, 'dark', 'backup holds the pre-write content');
+});
+
+test('applyToSettingsFile is idempotent on a real file', () => {
+  const path = join(TMP, 'idem', 'settings.json');
+  applyToSettingsFile(path);
+  const second = applyToSettingsFile(path);
+  assert.equal(second.added.length, 0);
+  assert.equal(second.skipped.length, 4);
+});
+
+test('applyToSettingsFile preserves unrelated keys on disk', () => {
+  const dir = join(TMP, 'preserve');
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, 'settings.json');
+  writeFileSync(path, JSON.stringify({ permissions: { allow: ['X'] }, theme: 'dark', hooks: {} }), 'utf8');
+  applyToSettingsFile(path, '2026-06-04T00:00:00.000Z');
+  const written = JSON.parse(readFileSync(path, 'utf8'));
+  assert.deepEqual(written.permissions, { allow: ['X'] });
+  assert.equal(written.theme, 'dark');
+});
+
+// --- Hardening tests (requested by code review) ---
+
+test('mergeHooks rebuilds a null event value into a valid array', () => {
+  const { settings } = mergeHooks({ hooks: { Stop: null } });
+  assert.ok(Array.isArray(settings.hooks.Stop));
+  assert.equal(settings.hooks.Stop.length, 2);
+});
+
+test('CANONICAL_HOOKS contains no duplicate (event, command) pairs', () => {
+  const seen = new Set();
+  for (const h of CANONICAL_HOOKS) {
+    const key = `${h.event}::${h.command}`;
+    assert.ok(!seen.has(key), `duplicate canonical hook: ${key}`);
+    seen.add(key);
+  }
+});
+
+test('mergeHooks detects an existing command inside a multi-command group', () => {
+  // A single Stop group bundling two commands — the realistic "messy settings" shape.
+  const existing = {
+    hooks: {
+      Stop: [
+        {
+          hooks: [
+            { type: 'command', command: 'node ~/.claude-os/hooks/learnings-flush.js', statusMessage: 'Flushing pending learnings...' },
+            { type: 'command', command: 'node ~/.claude-os/hooks/session-observer.js', statusMessage: 'Writing session episode...' },
+          ],
+        },
+      ],
+    },
+  };
+  const { added, skipped } = mergeHooks(clone(existing));
+  assert.ok(skipped.includes('node ~/.claude-os/hooks/learnings-flush.js'));
+  assert.ok(skipped.includes('node ~/.claude-os/hooks/session-observer.js'));
+  assert.ok(!added.includes('node ~/.claude-os/hooks/session-observer.js'));
+});

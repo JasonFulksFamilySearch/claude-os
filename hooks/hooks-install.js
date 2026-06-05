@@ -70,4 +70,72 @@ function mergeHooks(inputSettings) {
   return { settings, added, skipped };
 }
 
-module.exports = { CANONICAL_HOOKS, mergeHooks };
+const { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } = require('node:fs');
+const { dirname } = require('node:path');
+
+/**
+ * Apply the canonical hooks to a settings.json file on disk.
+ * - If the file exists, copy it to settings.json.bak-<timestamp> first.
+ * - Reads existing JSON (treats missing/empty/malformed as {}).
+ * - Writes pretty-printed JSON only if something changed.
+ * `timestamp` is injected (callers pass an ISO string) so the function stays
+ * deterministic and testable; the CLI supplies one at invocation time.
+ */
+function applyToSettingsFile(path, timestamp) {
+  let existing = {};
+  if (existsSync(path)) {
+    try {
+      const raw = readFileSync(path, 'utf8').trim();
+      existing = raw ? JSON.parse(raw) : {};
+    } catch {
+      existing = {};
+    }
+  }
+
+  const { settings, added, skipped } = mergeHooks(existing);
+
+  if (added.length > 0) {
+    if (existsSync(path)) {
+      const stamp = (timestamp || new Date().toISOString()).replace(/[:.]/g, '-');
+      copyFileSync(path, `${path}.bak-${stamp}`);
+    } else {
+      mkdirSync(dirname(path), { recursive: true });
+    }
+    writeFileSync(path, JSON.stringify(settings, null, 2) + '\n', 'utf8');
+  }
+
+  return { settings, added, skipped };
+}
+
+module.exports = { CANONICAL_HOOKS, mergeHooks, applyToSettingsFile };
+
+// ── CLI entrypoint ───────────────────────────────────────────────────────────
+// Run directly: `node hooks-install.js`  → wires hooks into ~/.claude/settings.json
+if (require.main === module) {
+  const { homedir } = require('node:os');
+  const { join } = require('node:path');
+  const target = process.env.CLAUDE_OS_SETTINGS_PATH || join(homedir(), '.claude', 'settings.json');
+
+  const GREEN = '\x1b[0;32m';
+  const YELLOW = '\x1b[1;33m';
+  const NC = '\x1b[0m';
+
+  try {
+    const { added, skipped } = applyToSettingsFile(target);
+    for (const cmd of added) {
+      const name = cmd.split('/').pop();
+      console.log(`${GREEN}[OK]${NC}   Registered hook: ${name}`);
+    }
+    for (const cmd of skipped) {
+      const name = cmd.split('/').pop();
+      console.log(`${YELLOW}[SKIP]${NC} Hook already present: ${name}`);
+    }
+    if (added.length === 0) {
+      console.log(`${GREEN}[OK]${NC}   All four hooks already wired — nothing to do.`);
+    }
+    process.exit(0);
+  } catch (err) {
+    console.error(`Failed to wire hooks into ${target}: ${err.message}`);
+    process.exit(1);
+  }
+}
