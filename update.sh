@@ -222,6 +222,48 @@ fi
 
 echo ""
 
+# ── Step 8: User-scoped rule templates ────────────────────────────────────────
+
+echo "--- Step 8: Rule templates ---"
+
+RULES_TEMPLATES_DIR="$REPO_DIR/templates/rules"
+RULES_DST_DIR="$HOME/.claude/rules"
+IDENTITY_FILE="$HOME/.claude/CLAUDE.md"
+
+if [ ! -d "$RULES_TEMPLATES_DIR" ]; then
+    skip "No templates/rules/ directory — skipping"
+elif [ ! -f "$IDENTITY_FILE" ]; then
+    skip "No identity file at $IDENTITY_FILE — cannot resolve \${AGENT_NAME}/\${USER_NAME}, skipping rule render"
+else
+    # Derive identity from the already-rendered user CLAUDE.md. install.sh prompts
+    # for these and bakes them into the identity file but persists no env file, so
+    # update.sh recovers them here from the canonical anchors:
+    #   line 1:  "# Agent Identity — <AGENT_NAME>"
+    #   line 3:  "You are <USER_NAME>'s agent on the <machine>."
+    AGENT_NAME=$(sed -n 's/^# Agent Identity — \(.*\)$/\1/p' "$IDENTITY_FILE" | head -n1)
+    USER_NAME=$(sed -n "s/^You are \(.*\)'s agent on .*/\1/p" "$IDENTITY_FILE" | head -n1)
+
+    if [ -z "$AGENT_NAME" ] || [ -z "$USER_NAME" ]; then
+        warn "Could not derive AGENT_NAME/USER_NAME from $IDENTITY_FILE — skipping rule render"
+    elif ! command -v envsubst >/dev/null 2>&1; then
+        warn "envsubst not found (install via: brew install gettext) — skipping rule render"
+    else
+        export AGENT_NAME USER_NAME
+        mkdir -p "$RULES_DST_DIR"
+        RENDERED=0
+        for template in "$RULES_TEMPLATES_DIR"/*.md; do
+            [ -f "$template" ] || continue
+            target="$RULES_DST_DIR/$(basename "$template")"
+            envsubst '${AGENT_NAME} ${USER_NAME}' < "$template" > "$target"
+            ok "Rendered rule: $(basename "$target") (AGENT_NAME=$AGENT_NAME, USER_NAME=$USER_NAME)"
+            RENDERED=$((RENDERED + 1))
+        done
+        [ "$RENDERED" -eq 0 ] && skip "No *.md templates in templates/rules/"
+    fi
+fi
+
+echo ""
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 echo "================================================"
