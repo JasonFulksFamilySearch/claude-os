@@ -166,20 +166,38 @@ test('mergeHooks detects an existing command inside a multi-command group', () =
   assert.ok(!added.includes('node ~/.claude-os/hooks/session-observer.js'));
 });
 
-test('applyToSettingsFile backs up and rebuilds a malformed settings file', () => {
-  const dir = join(TMP, 'malformed');
+test('applyToSettingsFile aborts without writing when an existing file is unparseable', () => {
+  const dir = join(TMP, 'unparseable');
   mkdirSync(dir, { recursive: true });
   const path = join(dir, 'settings.json');
-  writeFileSync(path, '{ not valid json ', 'utf8');
+  const original = '{ "theme": "dark", // a comment\n  "permissions": { "allow": ["X"] }, }';
+  writeFileSync(path, original, 'utf8');
+
+  // It must throw rather than silently rebuilding from {} and stripping keys.
+  assert.throws(() => applyToSettingsFile(path, '2026-06-04T00:00:00.000Z'), /unparseable|parse/i);
+
+  // The live file is byte-for-byte untouched...
+  assert.equal(readFileSync(path, 'utf8'), original);
+  // ...and NO backup was written (we refuse to touch a file we can't understand).
+  const backups = readdirSync(dir).filter((f) => f.startsWith('settings.json.bak-'));
+  assert.equal(backups.length, 0);
+});
+
+test('applyToSettingsFile treats an empty file as fresh (not an error)', () => {
+  const dir = join(TMP, 'empty-file');
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, 'settings.json');
+  writeFileSync(path, '   \n  ', 'utf8'); // whitespace only
 
   const res = applyToSettingsFile(path, '2026-06-04T00:00:00.000Z');
-
-  // All four hooks were wired into the rebuilt file...
   assert.equal(res.added.length, 4);
   const written = JSON.parse(readFileSync(path, 'utf8'));
   assert.equal(written.hooks.Stop.length, 2);
-  // ...and the malformed original was preserved as a backup.
-  const backups = readdirSync(dir).filter((f) => f.startsWith('settings.json.bak-'));
-  assert.equal(backups.length, 1);
-  assert.equal(readFileSync(join(dir, backups[0]), 'utf8'), '{ not valid json ');
+});
+
+test('applyToSettingsFile treats an absent file as fresh (not an error)', () => {
+  const path = join(TMP, 'still-absent', 'settings.json');
+  const res = applyToSettingsFile(path);
+  assert.equal(res.added.length, 4);
+  assert.ok(existsSync(path));
 });

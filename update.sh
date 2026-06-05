@@ -10,6 +10,7 @@ NC='\033[0m'
 
 ok()   { echo -e "${GREEN}[OK]${NC}   $1"; }
 skip() { echo -e "${YELLOW}[SKIP]${NC} $1"; }
+warn() { echo -e "${YELLOW}[!!]${NC}   $1"; }
 fail() { echo -e "${RED}[FAIL]${NC} $1"; exit 1; }
 
 echo ""
@@ -60,7 +61,7 @@ if [ ! -f "$SETTINGS" ]; then
 elif node "$REPO_DIR/hooks/hooks-install.js"; then
     ok "Lifecycle hooks reconciled in settings.json"
 else
-    fail "Hook registration failed — run manually: node $REPO_DIR/hooks/hooks-install.js"
+    warn "Hook registration failed — run manually: node $REPO_DIR/hooks/hooks-install.js"
 fi
 
 echo ""

@@ -76,7 +76,7 @@ const { dirname } = require('node:path');
 /**
  * Apply the canonical hooks to a settings.json file on disk.
  * - If the file exists, copy it to settings.json.bak-<timestamp> first.
- * - Reads existing JSON (treats missing/empty/malformed as {}).
+ * - Reads existing JSON (missing/empty → fresh {}; an unparseable existing file throws rather than clobbering).
  * - Writes pretty-printed JSON only if something changed.
  * `timestamp` is injected (callers pass an ISO string) so the function stays
  * deterministic and testable; the CLI supplies one at invocation time.
@@ -84,16 +84,21 @@ const { dirname } = require('node:path');
 function applyToSettingsFile(path, timestamp) {
   let existing = {};
   if (existsSync(path)) {
-    try {
-      const raw = readFileSync(path, 'utf8').trim();
-      existing = raw ? JSON.parse(raw) : {};
-    } catch {
-      // Malformed JSON (e.g. a hand-edit typo). A backup is taken before the
-      // rewrite below, so nothing is lost — but announce it rather than
-      // silently discarding the user's other keys.
-      console.error(`[!!]   ${path} was unparseable JSON — backing it up and rebuilding hooks.`);
-      existing = {};
+    const raw = readFileSync(path, 'utf8').trim();
+    if (raw) {
+      try {
+        existing = JSON.parse(raw);
+      } catch {
+        // The file exists and has content we cannot parse (e.g. comments or a
+        // trailing comma). Rebuilding from {} would strip the user's real keys,
+        // so refuse to write at all and surface an actionable error instead.
+        throw new Error(
+          `${path} exists but is not valid JSON — refusing to modify it. ` +
+          `Fix the JSON by hand, then re-run.`
+        );
+      }
     }
+    // raw === '' (empty / whitespace-only) falls through as a fresh {} — not an error.
   }
 
   const { settings, added, skipped } = mergeHooks(existing);
