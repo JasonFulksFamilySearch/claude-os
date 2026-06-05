@@ -84,6 +84,7 @@ if (require.main === module) {
     process.exit(0);
   }, 5_000);
 
+  process.stdin.on('error', () => { clearTimeout(stdinTimer); flush(); process.exit(0); });
   process.stdin.on('data', d => { input += d; });
   process.stdin.on('end', () => {
     clearTimeout(stdinTimer);
