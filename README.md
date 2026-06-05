@@ -15,13 +15,13 @@ own private, persistent memory.
 
 ## Highlights
 
-- 🧠 **Hybrid-search persistent memory** — a 7-tool MCP server over SQLite (FTS5 keyword **+**
+- 🧠 **Hybrid-search persistent memory** — an 11-tool MCP server over SQLite (FTS5 keyword **+**
   sqlite-vec semantic search) indexing learnings, context topics, and episodic session digests.
 - 👥 **One codebase, two agents** — the same system runs as **Willis** (work Mac) and **Walter**
   (personal Mac), each with its own identity, lived experience, and local data store.
 - 🪝 **Self-maintaining** — lifecycle hooks auto-inject relevant context at prompt time, flush
   session learnings to disk, and spawn a background worker to write episodic session summaries.
-- 🧰 **37 skills, 7 subagents, 2 slash commands** — a full development workflow (commit, PR review,
+- 🧰 **40 skills, 7 subagents, 2 slash commands** — a full development workflow (commit, PR review,
   releases, standups, daily planning, design review) invoked by name or auto-detected.
 - 🔁 **Git-synced across machines** — `/transmit-claude-os` ↔ `/assimilate-claude-os` keep both
   machines in lockstep; machine-local memory never leaves the device.
@@ -68,7 +68,7 @@ and rendered into `~/.claude-data/agent/CLAUDE.md` from the template.
 ├── install.sh                     ← first-time setup
 ├── update.sh                      ← pull latest + rebuild MCP if changed
 ├── uninstall.sh                   ← removes symlinks and MCP registration
-├── skills/                        ← global skills (37; see Skills)
+├── skills/                        ← global skills (40; see Skills)
 ├── agents/                        ← specialized subagents (7; see Subagents)
 ├── commands/                      ← global slash commands (2)
 ├── hooks/                         ← Claude Code lifecycle hooks + worker
@@ -76,7 +76,6 @@ and rendered into `~/.claude-data/agent/CLAUDE.md` from the template.
 ├── config/                        ← watched-projects.json, episodes config
 ├── templates/                     ← CLAUDE.md template, project template
 ├── docs/                          ← phase docs and reference content
-├── bin/                           ← CLI tooling
 └── reference/                     ← system contracts and reference data
 
 ~/.claude-data/                    ← machine-local data (NEVER in this repo)
@@ -177,7 +176,7 @@ Layer 3 — Episodes           ~/.claude-data/episodes/
 ```
 
 The MCP server (`claude-os-mcp`) indexes all three layers into `~/.claude-data/memory.db`
-(SQLite + FTS5 + sqlite-vec) and exposes seven tools:
+(SQLite + FTS5 + sqlite-vec) and exposes eleven tools:
 
 | Tool | Purpose |
 |---|---|
@@ -188,6 +187,10 @@ The MCP server (`claude-os-mcp`) indexes all three layers into `~/.claude-data/m
 | `get_recent_learnings` | Return N newest learning entries across agent, project, or all scopes |
 | `list_episodes` | Browse recent session episodes by project |
 | `mark_episode_promoted` | Mark an episode as promoted after its content reaches learnings |
+| `scan_novelty` | A2: scan dated learning entries for near-duplicate/contradiction pairs; write pending novelty flags for human-gated review |
+| `resolve_novelty_flag` | A2: resolve a pending novelty flag (supersede or dismiss) after a human decision |
+| `scan_experience` | B1: cluster the unpromoted episode backlog into candidate higher-order learnings |
+| `validate_experience_proposal` | B1: deterministically ground-check a synthesized experience proposal before human promotion |
 
 Semantic search uses a locally-run **nomic-embed-text-v1.5** model loaded at int8 (`q8`)
 quantization. See [`mcp/README.md`](mcp/README.md) for schema details, the embedding/RAM profile,
@@ -204,6 +207,10 @@ session lifecycle:
 | `topic-preload.js` | UserPromptSubmit | Keyword-matches the prompt against `_index.md`; auto-injects matching topic files |
 | `learnings-flush.js` | Stop | Flushes `_tmp_pending_learning.json` entries to the appropriate `learnings.md` |
 | `session-observer.js` | Stop | Spawns the detached `session-observer-worker.js` (Haiku) to summarize the session and write an episode |
+
+> Hooks are wired automatically by `install.sh` (fresh installs) and reconciled by `update.sh` (existing machines) via `hooks/hooks-install.js`. Re-running either is safe — registration is idempotent at the command level.
+
+> This table covers the lifecycle (memory) hooks claude-os installs via `hooks/hooks-install.js`. A machine's own `~/.claude/settings.json` may carry additional user-defined hooks — for example, the `CLAUDE.md` "Rule 11" `PreToolUse` guard that blocks `cd … && git` — which claude-os does not install and which are out of scope for this table.
 
 ## Skills
 
@@ -236,6 +243,7 @@ Skills are invocable via the `Skill` tool. The agent auto-detects which skill ap
 | `prd-to-jira` | Convert a PRD markdown file into a JIRA issue with sub-tasks |
 | `grill-me` | Relentless interview to reach shared understanding before building |
 | `red-blue-judge` | Evidence-bound gate review (grounded reviewer + adversarial challenger → CLEAN/REVISE/ESCALATE) |
+| `oracle` | Adversarial second-opinion panel on a high-stakes decision before you commit |
 
 ### Daily operations
 | Skill | Purpose |
@@ -244,6 +252,7 @@ Skills are invocable via the `Skill` tool. The agent auto-detects which skill ap
 | `standup-review` | Review standup reports against sprint goals and Scrum best practices |
 | `daily-action` | Prioritized daily action plan from JIRA sprint, PRs, git, and retrospective |
 | `one-on-one` | Structured 1:1 agenda with live JIRA sprint data and action item tracking |
+| `estimate` | Calibrated PERT time estimate for a work item, calibrated to your own logged history |
 
 ### Jira, releases & ARC
 | Skill | Purpose |
@@ -259,6 +268,7 @@ Skills are invocable via the `Skill` tool. The agent auto-detects which skill ap
 | `goal-check` | Commit quality metrics vs. improvement targets (Fix%, rework, reverts) |
 | `review-performance` | Session review — proposes CLAUDE.md and rule updates to reduce friction |
 | `grade-proposal` | Score a single reflection proposal (0–100) before applying it |
+| `experience-synthesis` | Synthesize unpromoted episodes into candidate higher-order learnings via pre-human gates |
 
 ### Claude OS system
 | Skill | Purpose |

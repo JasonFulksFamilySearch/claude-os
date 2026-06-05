@@ -2,7 +2,7 @@
 
 Local MCP server backing Jason's `claude-os` memory system. Indexes curated
 markdown under `~/.claude-data/` plus `CLAUDE.md` / `README.md` from a
-configurable list of project repos, and exposes **seven** tools to Claude Code
+configurable list of project repos, and exposes **eleven** tools to Claude Code
 over the stdio transport.
 
 Search is **hybrid**: BM25 full-text (FTS5) fused with semantic vector search
@@ -21,8 +21,10 @@ both live; the claude.ai bridge (Phase 5) is the remaining future phase.
 - Stores a searchable mirror in `~/.claude-data/memory.db` (SQLite + FTS5 + sqlite-vec).
 - Embeds each observation with **nomic-embed-text-v1.5** (loaded at int8 / `q8`
   quantization) into a 768-dim vector, so recall works by meaning as well as keyword.
-- Exposes seven MCP tools: `search_memory`, `get_topic`, `append_learning`,
-  `list_topics`, `get_recent_learnings`, `list_episodes`, `mark_episode_promoted`.
+- Exposes eleven MCP tools: `search_memory`, `get_topic`, `append_learning`,
+  `list_topics`, `get_recent_learnings`, `list_episodes`, `mark_episode_promoted`,
+  `scan_novelty`, `resolve_novelty_flag`, `scan_experience`,
+  `validate_experience_proposal`.
 - Stays current via a chokidar file watcher (instant on file change) and a
   15-minute in-process backstop reindex.
 - Skips `~/.claude-data/archive/`, `_legacy*` files, `_index.md`,
@@ -84,6 +86,35 @@ Sets `promoted: true` in an episode file's frontmatter (atomic write via
 temp-file + rename) after its content has been graduated into `learnings.md` or
 a context topic. Takes the `path` returned by `list_episodes`, enforces episode-
 directory containment, and re-indexes the file immediately.
+
+### `scan_novelty`
+Review-time scan for near-duplicate learning entries (A2). Parses all learning
+entries (optionally one `project` plus agent), embeds each, clusters
+near-duplicates, persists them as pending `novelty_flags`, and returns every
+pending candidate. Stale flags (entry since edited/removed) are dropped. Never
+mutates learnings — the agent labels and proposes supersessions in
+`/memory-merger`.
+
+### `resolve_novelty_flag`
+Records a human-gated resolution of a novelty flag (A2): `dismissed` (false
+positive) or `superseded` (older entry retired). Called only after Jason approves
+in `/memory-merger`; the markdown edit is done separately by the skill.
+Idempotent — returns `updated: false` for an unknown `id`.
+
+### `scan_experience`
+Mechanical step of cross-session experience synthesis (B1). Clusters the
+**unpromoted** episode backlog by thematic similarity, reusing each episode's
+pre-computed embedding (no re-embedding), and returns the clusters with their
+member episodes. Performs no LLM synthesis and persists nothing; clusters below
+the configured minimum size are dropped.
+
+### `validate_experience_proposal`
+Gate 1 of experience synthesis (B1, deterministic grounding). Validates a
+candidate experience-learning proposal on three counts: schema conformance,
+citation grounding (every cited episode resolves to a real one, and at least the
+minimum distinct episodes are cited), and that it is not a lexical near-duplicate
+of an existing learning. Returns `{ valid, errors, resolved_citations,
+unresolved_citations, duplicate_of }`.
 
 ---
 
@@ -168,6 +199,16 @@ server process and loads the model lazily).
   `observation_id` mirrors `observations.id`. *Implementation note:* better-sqlite3
   binds JS numbers as `SQLITE_FLOAT`, which the `vec0` integer PK rejects — every
   insert/delete against `vec_items` must bind `BigInt(id)`.
+- **`access_stats`** — per-observation access-reinforcement state, kept in a side
+  table so the access-bump write never fires the `observations` FTS-sync triggers.
+  Columns: `observation_id` (PK, `REFERENCES observations(id) ON DELETE CASCADE`),
+  `last_accessed`, `access_count` (default `0`).
+- **`novelty_flags`** — A2 candidate duplicate/contradiction pairs of dated learning
+  entries awaiting human-gated supersession. Standalone (own PK, no FK to
+  `observations` — it references entries, not rows). Columns: `id`, `source_path`,
+  `entry_date`, `entry_hash`, `match_path`, `match_date`, `match_hash`, `similarity`,
+  `kind`, `detected_by`, `status` (default `'pending'`), `detected_at`;
+  `UNIQUE(source_path, entry_hash, match_path, match_hash)`.
 - **`meta`** — key/value table: `schema_version` (`2`), `phase` (`4`).
 
 Relational columns can grow via `ALTER TABLE` + a `schema_version` bump without a
@@ -265,7 +306,7 @@ WAL lock. Kill any stray `node …/dist/index.js` processes and restart.
 npm test
 ```
 
-Five suites:
+Ten suites:
 - `db.test.ts` — schema idempotency, FTS5 trigger correctness
 - `embedder.test.ts` — vector serialization + constants (incl. `EMBEDDING_DTYPE`);
   never loads the real model
@@ -274,7 +315,16 @@ Five suites:
 - `reembed.test.ts` — `reembedAll`: full re-embed + count reporting, idempotency,
   losslessness (observations & FTS untouched), and atomic rollback when an insert
   fails inside the swap transaction
-- `tools.test.ts` — all seven tool handlers against seeded fixture data
+- `tools.test.ts` — all 11 tool handlers against seeded fixture data
+- `ranking.test.ts` — hybrid rank fusion: `reinforcementBonus`, `exactMatchBonus`,
+  and `rankCandidates` ordering
+- `search_config.test.ts` — pins the tuning constants (RRF, reinforcement
+  decay/saturation, exact-match boost weights, novelty/experience thresholds)
+- `novelty.test.ts` — `parseEntries`, entry identity, `lexicalSimilarity`, and
+  near-duplicate detection
+- `experience.test.ts` — `clusterByEmbedding` (union-find), proposal-shape
+  validation, and citation verification
+- `eval.test.ts` — ranking metrics: `recallAtK`, `reciprocalRank`, `mean`
 
 Tests mock the embedder module (the real model is never loaded) and use a tmpdir
 database + logger, so they never touch `~/.claude-data/`.
