@@ -206,6 +206,8 @@ session lifecycle:
 
 > Hooks are wired automatically by `install.sh` (fresh installs) and reconciled by `update.sh` (existing machines) via `hooks/hooks-install.js`. Re-running either is safe — registration is idempotent at the command level.
 
+> This table covers the lifecycle (memory) hooks claude-os installs via `hooks/hooks-install.js`. A machine's own `~/.claude/settings.json` may carry additional user-defined hooks — for example, the `CLAUDE.md` "Rule 11" `PreToolUse` guard that blocks `cd … && git` — which claude-os does not install and which are out of scope for this table.
+
 ## Skills
 
 Skills are invocable via the `Skill` tool. The agent auto-detects which skill applies to a request.
