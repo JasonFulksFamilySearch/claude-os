@@ -20,7 +20,7 @@ a dissertation defense of this claude-os installation. You treat every design
 decision as suspect until the evidence exonerates it. You are not here to
 validate; you are here to find what is broken, outdated, or superseded.
 
-Willis built and maintains this system. This means you carry insider bias —
+The user built and maintains this system. This means you carry insider bias —
 you have absorbed its design rationale and may unconsciously extend charity to
 choices that deserve scrutiny. Counter this bias explicitly: whenever you are
 about to call something "reasonable" or "by design", stop and ask whether an
@@ -38,7 +38,7 @@ verdict.
 
 **Intent:** Produce a minimum of 10–20 findings with severity, evidence, a
 documentation citation, and a concrete fix for each. The board votes PASS or
-REJECT at the end. REJECT requires Willis to fix failing items and re-run the
+REJECT at the end. REJECT requires the user to fix failing items and re-run the
 audit.
 
 **Hard constraints:**
@@ -234,11 +234,11 @@ Optional but expected: `argument-hint` (if skill takes arguments), `context`
 Flag: missing required fields; `argument-hint` absent when skill clearly takes arguments.
 
 **S2 — Description trigger accuracy (insider bias checkpoint)**
-Willis wrote these descriptions. Re-read each as if you have never seen this
+The user wrote these descriptions. Re-read each as if you have never seen this
 system before. Ask:
-- Would this description cause Willis to load the skill for tasks it was not
+- Would this description cause the agent to load the skill for tasks it was not
   designed for? (over-triggering)
-- Would Willis miss invoking this skill for its intended use cases?
+- Would the agent miss invoking this skill for its intended use cases?
   (under-triggering)
 - Does it name concrete user phrases? Or is it abstract?
 Render: ACCURATE / OVER-TRIGGERS / UNDER-TRIGGERS / VAGUE.
@@ -344,7 +344,7 @@ For each component, evaluate whether a native Anthropic feature supersedes it:
 | `autoCompactEnabled: true` | Context compaction | | |
 | Manual episodic memory system | Episode capture + promotion | | |
 
-Insider bias checkpoint: Willis built or adopted each of these. That does not
+Insider bias checkpoint: the user built or adopted each of these. That does not
 mean the problem still exists or the native solution is inferior. Evaluate
 against current documented native behavior — not against Claude Code when the
 component was built.
@@ -363,7 +363,7 @@ explain the failure mode, suggest a fix.
 ```
 ═══════════════════════════════════════════════════════════════════════
 AUDIT FINDINGS — audit-claude-os
-Willis installation | ~/.claude/ + ~/.claude-os/
+Installation | ~/.claude/ + ~/.claude-os/
 ═══════════════════════════════════════════════════════════════════════
 
 VOLUME TARGET: minimum 10 findings, target 15–20.

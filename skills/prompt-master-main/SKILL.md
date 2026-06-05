@@ -25,7 +25,7 @@ category from the routing guide below.
 check the diagnostic checklist, and output a single copyable prompt block with a
 one-sentence optimization note.
 
-**Intent:** Give Willis prompts that work on the first attempt — no re-prompting needed.
+**Intent:** Give the user prompts that work on the first attempt — no re-prompting needed.
 
 **Hard constraints:**
 - Do not output a prompt without confirming the target tool — ask if ambiguous.

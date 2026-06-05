@@ -211,7 +211,7 @@ After generating `<proposal_report>`:
 5. **Wait for explicit user approval** before applying any change. Use `~/.claude/bin/apply-proposal.sh <ID>` to apply.
 
 <!-- permission-required: Bash(~/.claude/bin/apply-proposal.sh:*) → ~/.claude/settings.json permissions.allow.
-     The apply step is invoked by the user (or by Willis with user approval) after this skill exits.
+     The apply step is invoked by the user (or by the agent with user approval) after this skill exits.
      This skill itself never runs apply-proposal.sh — it only writes the report. If the apply path
      is to be automated in the future, add the entry above to permissions.allow. -->
 </after_completion>

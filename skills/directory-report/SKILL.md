@@ -24,7 +24,7 @@ report comes from a tool call result in this session.
 **Task:** Gather directory stats using Glob and targeted Bash commands, then write
 a formatted report file inside the target directory.
 
-**Intent:** Give Willis a snapshot of a directory's contents — structure, size,
+**Intent:** Give the user a snapshot of a directory's contents — structure, size,
 file types, and timeline — in a consistent format that can be archived and compared.
 The fixed template matters because reports are archived and diffed across time;
 format drift breaks downstream comparisons.

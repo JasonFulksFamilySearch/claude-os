@@ -22,7 +22,7 @@ the collection name before writing any files.
 source (swagger or Java), inventory existing .bru files, compute the diff, and apply
 CREATE/UPDATE/DELETE changes to bring the collection in sync.
 
-**Intent:** Give Willis accurate Bruno request files after any backend change without
+**Intent:** Give the user accurate Bruno request files after any backend change without
 manual endpoint hunting — one command, full sync.
 
 **Hard constraints:**

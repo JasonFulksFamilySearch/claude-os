@@ -189,25 +189,25 @@ A successful run produces:
 
 <examples>
 <example label="happy-path">
-User invokes /playwright-qa-channel. Willis prompts for ticket — user says 4591.
-Willis copies template to channel-ARC-4591.md, writes MSG-001, outputs the path.
+User invokes /playwright-qa-channel. Dev prompts for ticket — user says 4591.
+Dev copies template to channel-ARC-4591.md, writes MSG-001, outputs the path.
 Playwright reports 2 failures in MSG-002 (Status: pending, To: Dev).
-Willis claims MSG-002, reads both failing files in parallel, lists fixes, applies them, runs npm run test:ci → passes.
-Willis fills MSG-002 Response, appends MSG-003 ("Fixes applied. Please re-test.").
+Dev claims MSG-002, reads both failing files in parallel, lists fixes, applies them, runs npm run test:ci → passes.
+Dev fills MSG-002 Response, appends MSG-003 ("Fixes applied. Please re-test.").
 Playwright tests again, sends MSG-004 ("All tests pass").
-Willis sets Channel Status: CLOSED, tells user the good news, and schedules the next wakeup. Loop keeps running.
+Dev sets Channel Status: CLOSED, tells user the good news, and schedules the next wakeup. Loop keeps running.
 </example>
 
 <example label="multi-iteration">
-Playwright reports 3 failures in MSG-002. Willis fixes 2 but npm run test:ci reveals a pre-existing CI failure unrelated to the reported issues. Willis investigates and fixes the CI failure too, re-runs tests — passes. Writes back with all changes in the summary. Does not write back until every test passes.
+Playwright reports 3 failures in MSG-002. Dev fixes 2 but npm run test:ci reveals a pre-existing CI failure unrelated to the reported issues. Dev investigates and fixes the CI failure too, re-runs tests — passes. Writes back with all changes in the summary. Does not write back until every test passes.
 </example>
 
 <example label="stale-poll">
-Poll fires. Willis reads channel-ARC-4591.md. All messages are Status: done, or none are addressed to Dev. QUIET_POLLS incremented (e.g., 2 → 3). ScheduleWakeup(delaySeconds: 60) called with QUIET_POLLS: 3. Loop continues waiting.
+Poll fires. Dev reads channel-ARC-4591.md. All messages are Status: done, or none are addressed to Dev. QUIET_POLLS incremented (e.g., 2 → 3). ScheduleWakeup(delaySeconds: 60) called with QUIET_POLLS: 3. Loop continues waiting.
 </example>
 
 <example label="quiet-challenge">
-Five consecutive polls with no Playwright activity. On the fifth: Willis appends MSG-005 (Type: question, To: Playwright) asking for a status update; tells the user "Sir — Playwright has been silent for 5+ polls (~5 minutes). Status-check MSG-005 written to the channel. Still polling."; reschedules with QUIET_POLLS: 0. If Playwright remains silent, the cycle repeats every 5 more polls.
+Five consecutive polls with no Playwright activity. On the fifth: Dev appends MSG-005 (Type: question, To: Playwright) asking for a status update; tells the user "Sir — Playwright has been silent for 5+ polls (~5 minutes). Status-check MSG-005 written to the channel. Still polling."; reschedules with QUIET_POLLS: 0. If Playwright remains silent, the cycle repeats every 5 more polls.
 </example>
 </examples>
 

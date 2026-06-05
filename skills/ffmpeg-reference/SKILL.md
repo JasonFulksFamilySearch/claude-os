@@ -20,7 +20,7 @@ design or multi-filter chains, delegate to the ffmpeg-expert agent.
 **Task:** Provide FFmpeg syntax, filter chain examples, and codec parameters on
 demand from the reference content below.
 
-**Intent:** Give Willis fast access to FFmpeg syntax without internet lookups or
+**Intent:** Give the user fast access to FFmpeg syntax without internet lookups or
 hallucinating parameter names. FFmpeg's filter graph syntax is notoriously
 positional and unforgiving — a wrong parameter name silently produces a
 black-frame output or a 30-minute encode failure. This card is the trusted source.
