@@ -19,6 +19,7 @@ const { readFileSync, existsSync, readdirSync } = require('node:fs');
 const { join, basename, sep } = require('node:path');
 const { homedir } = require('node:os');
 const { parseFrontmatter, extractSummary } = require('./lib/episode-utils.js');
+const { deliverAndClearQueue } = require('./digest-queue-deliver.js');
 
 const MARKER_PATH = join(homedir(), '.claude-data', '_tmp_claude_md_update_needed.txt');
 const EPISODES_DIR = join(homedir(), '.claude-data', 'episodes');
@@ -132,6 +133,49 @@ function buildEpisodeContext(episodes) {
   }).join('\n\n');
 }
 
+const AGENT_LABELS = {
+  'pr-surveillance': 'PR Surveillance',
+  'sprint-staleness': 'Sprint Staleness',
+};
+
+function buildDigestContext(entries) {
+  if (!entries || entries.length === 0) return null;
+
+  const lines = entries.map(entry => {
+    const label = AGENT_LABELS[entry.agent] || entry.agent;
+    const date = typeof entry.run_at === 'string' ? entry.run_at.slice(0, 10) : 'unknown';
+    const prefix = label + ' (' + date + '): ';
+
+    if (entry.status === 'error') {
+      return prefix + 'ERROR — skipped run';
+    }
+
+    const items = Array.isArray(entry.items) ? entry.items : [];
+    if (items.length === 0) {
+      return prefix + 'nothing flagged';
+    }
+
+    if (entry.agent === 'pr-surveillance') {
+      const formatted = items.map(item =>
+        '#' + item.pr_number + ' "' + item.title + '" (' + item.type + ')'
+      ).join(', ');
+      return prefix + items.length + ' flagged — ' + formatted;
+    }
+
+    if (entry.agent === 'sprint-staleness') {
+      const formatted = items.map(item =>
+        item.key + ' ' + item.days_stale + 'd stale (' + item.status + ')'
+      ).join(', ');
+      return prefix + formatted;
+    }
+
+    return prefix + items.length + ' item(s)';
+  });
+
+  const runCount = entries.length;
+  return '[Background Digest — ' + runCount + ' run(s) since last session]\n' + lines.join('\n');
+}
+
 function main() {
   let input = '';
   // isTTY guard: readFileSync(0) blocks if stdin is a TTY (direct invocation, testing).
@@ -141,6 +185,10 @@ function main() {
 
   const { cwd } = parseStdinInput(input);
   const parts = [];
+
+  const digestEntries = deliverAndClearQueue();
+  const digestContext = digestEntries ? buildDigestContext(digestEntries) : null;
+  if (digestContext) parts.push(digestContext);
 
   // Behavior note: the original 22-line session-start-check.js wrote a
   // header-only JSON envelope when the marker file existed but was empty.
@@ -181,6 +229,7 @@ module.exports = {
   inferProject,
   getRecentEpisodes,
   buildEpisodeContext,
+  buildDigestContext,
   loadConfig,
   parseStdinInput,
 };
