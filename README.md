@@ -210,7 +210,14 @@ session lifecycle:
 
 > Hooks are wired automatically by `install.sh` (fresh installs) and reconciled by `update.sh` (existing machines) via `hooks/hooks-install.js`. Re-running either is safe — registration is idempotent at the command level.
 
-> This table covers the lifecycle (memory) hooks claude-os installs via `hooks/hooks-install.js`. A machine's own `~/.claude/settings.json` may carry additional user-defined hooks — for example, the `CLAUDE.md` "Rule 11" `PreToolUse` guard that blocks `cd … && git` — which claude-os does not install and which are out of scope for this table.
+claude-os also installs two `PreToolUse` Bash guard hooks (an additional category, not memory hooks):
+
+| Hook | Trigger | Purpose |
+|---|---|---|
+| Rule 11 guard | PreToolUse / Bash | Denies `cd … && git` — forces `cd` and `git` onto separate commands |
+| merge-verify reminder | PreToolUse / Bash | Injects a reminder on `gh pr merge` to confirm the merge actually landed (`gh pr view` + `git fetch`) before reporting it merged |
+
+> The two tables above cover everything `hooks/hooks-install.js` installs — the four lifecycle (memory) hooks and the two `PreToolUse` Bash guards. A machine's own `~/.claude/settings.json` may still carry additional user-defined hooks beyond these.
 
 ## Skills
 
