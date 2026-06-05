@@ -15,7 +15,7 @@ own private, persistent memory.
 
 ## Highlights
 
-- 🧠 **Hybrid-search persistent memory** — a 7-tool MCP server over SQLite (FTS5 keyword **+**
+- 🧠 **Hybrid-search persistent memory** — an 11-tool MCP server over SQLite (FTS5 keyword **+**
   sqlite-vec semantic search) indexing learnings, context topics, and episodic session digests.
 - 👥 **One codebase, two agents** — the same system runs as **Willis** (work Mac) and **Walter**
   (personal Mac), each with its own identity, lived experience, and local data store.
@@ -176,7 +176,7 @@ Layer 3 — Episodes           ~/.claude-data/episodes/
 ```
 
 The MCP server (`claude-os-mcp`) indexes all three layers into `~/.claude-data/memory.db`
-(SQLite + FTS5 + sqlite-vec) and exposes seven tools:
+(SQLite + FTS5 + sqlite-vec) and exposes eleven tools:
 
 | Tool | Purpose |
 |---|---|
@@ -187,6 +187,10 @@ The MCP server (`claude-os-mcp`) indexes all three layers into `~/.claude-data/m
 | `get_recent_learnings` | Return N newest learning entries across agent, project, or all scopes |
 | `list_episodes` | Browse recent session episodes by project |
 | `mark_episode_promoted` | Mark an episode as promoted after its content reaches learnings |
+| `scan_novelty` | A2: scan dated learning entries for near-duplicate/contradiction pairs; write pending novelty flags for human-gated review |
+| `resolve_novelty_flag` | A2: resolve a pending novelty flag (supersede or dismiss) after a human decision |
+| `scan_experience` | B1: cluster the unpromoted episode backlog into candidate higher-order learnings |
+| `validate_experience_proposal` | B1: deterministically ground-check a synthesized experience proposal before human promotion |
 
 Semantic search uses a locally-run **nomic-embed-text-v1.5** model loaded at int8 (`q8`)
 quantization. See [`mcp/README.md`](mcp/README.md) for schema details, the embedding/RAM profile,
