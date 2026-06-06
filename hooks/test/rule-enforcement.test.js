@@ -4,7 +4,7 @@
 // These spawn the actual bash hook with crafted PreToolUse JSON and assert its
 // exit code (0 = allow, 2 = block). They are hermetic: a throwaway $HOME is used
 // so the suite neither depends on nor pollutes the real install, and runs the
-// same on any machine (CI, Walter, a fresh checkout).
+// same on any machine (CI, a developer's machine, a fresh checkout).
 
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
