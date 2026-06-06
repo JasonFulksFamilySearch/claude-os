@@ -188,7 +188,7 @@ Use `mcp__spokenly__ask_user_dictation` for this confirmation prompt.
 zero dead prefix occurrences remain. Report result.
 
 **If declined:** Note the skipped files in the final summary as
-"Pending — Walter sync required."
+"Pending — sync to the other machine required."
 
 ---
 

@@ -160,6 +160,39 @@ else
     warn "envsubst not found — copied template literally; replace \${USER_NAME}=$USER_NAME, \${AGENT_NAME}=$AGENT_NAME, and \${MACHINE_DESC}=$MACHINE_DESC manually in $claude_md_dst"
 fi
 
+# Render the per-machine persona skeleton (only if absent — preserve hand-tuning)
+personality_dst="$DATA_DIR/agent/personality.md"
+personality_src="$REPO_DIR/templates/personality.md"
+if [ -f "$personality_dst" ] && [ -s "$personality_dst" ]; then
+    skip "$personality_dst already exists"
+elif [ ! -f "$personality_src" ]; then
+    warn "No persona template at $personality_src — skipping (body @-import will dangle until provided)"
+elif command -v envsubst >/dev/null 2>&1; then
+    envsubst '${USER_NAME} ${AGENT_NAME} ${MACHINE_DESC}' < "$personality_src" > "$personality_dst"
+    ok "Rendered persona skeleton → $personality_dst (hand-tune to give this twin its soul)"
+else
+    cp "$personality_src" "$personality_dst"
+    warn "envsubst not found — copied persona literally; replace placeholders in $personality_dst"
+fi
+
+# Author the canonical machine-readable identity anchor. Use jq --arg so a name
+# containing a quote or backslash is correctly JSON-escaped (an envsubst/printf
+# template would emit malformed JSON). identity.json is canonical for machine
+# consumers; the prose line-1 anchor is a human-readable mirror written from the
+# same vars above.
+identity_json="$DATA_DIR/agent/identity.json"
+if command -v jq >/dev/null 2>&1; then
+    jq -n \
+        --arg agent_name "$AGENT_NAME" \
+        --arg user_name "$USER_NAME" \
+        --arg machine_desc "$MACHINE_DESC" \
+        '{agent_name: $agent_name, user_name: $user_name, machine_desc: $machine_desc}' \
+        > "$identity_json"
+    ok "Wrote identity anchor → $identity_json (agent_name=$AGENT_NAME)"
+else
+    warn "jq not found — skipping identity.json (update.sh will derive it once from prose)"
+fi
+
 echo ""
 
 # ── Step 5: Symlinks ──────────────────────────────────────────────────────────

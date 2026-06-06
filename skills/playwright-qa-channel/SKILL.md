@@ -223,7 +223,7 @@ Five consecutive polls with no Playwright activity. On the fifth: Dev appends MS
 | Test command  | `npm run test:ci`                                                                |
 | Tools used    | `AskUserQuestion`, `Read`, `Edit`, `Bash`, `ScheduleWakeup`, `loop` skill       |
 
-## Extending to Other Projects (Walter / non-ARC)
+## Extending to Other Projects (non-ARC)
 
 This skill is ARC-specific. To adapt for another project, update:
 1. Template and channel directory path

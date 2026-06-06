@@ -31,9 +31,11 @@ undetectable today — claude-os cannot tell whether the agent still matches its
 sessions. This makes it measurable, turning a vague worry into a tracked metric.
 
 **Hard constraints:**
-- **Read the identity + the rubric first.** Load `~/.claude/CLAUDE.md` (the identity spec — this is
-  the symlink to `~/.claude-data/agent/CLAUDE.md`) and `references/identity-rubric.yaml` before
-  scoring. The YAML is the source of truth for axes, weights, and bands.
+- **Read the identity + the rubric first.** Load `~/.claude-data/agent/personality.md` (the persona —
+  Disposition/Pushback/Style/Address/Appreciation, where the scored axes live), `~/.claude/CLAUDE.md`
+  (the body + name anchor), and `references/identity-rubric.yaml` before scoring. The `Read` tool does
+  not resolve the body's `@`-import, so the persona must be read directly. The YAML is the source of
+  truth for axes, weights, and bands.
 - **Score from RAW transcripts, not episodes.** Episodes are Haiku digests that strip tone, "Sir",
   pushback phrasing, and recommendation framing by design — the persona axes are invisible in them.
   The verbatim signal lives in `~/.claude/projects/*/*.jsonl`. Read those.
@@ -53,10 +55,12 @@ sessions. This makes it measurable, turning a vague worry into a tracked metric.
 
 ## Step 1 — Load the ground truth
 
-Read `~/.claude/CLAUDE.md` (the identity spec) and `references/identity-rubric.yaml` (the axes,
-weights, bands, and each axis's `grounds_in` CLAUDE.md section) **in parallel**. Also read
-`~/.claude/rules/*.md` only if an axis's grounding text was extracted there — but identity lives in
-CLAUDE.md.
+Read `~/.claude-data/agent/personality.md` (the persona — where every axis's `grounds_in` now
+resolves), `~/.claude/CLAUDE.md` (the body + name anchor), and `references/identity-rubric.yaml`
+(the axes, weights, bands, and each axis's `grounds_in` section) **in parallel**. The persona axes
+ground in `personality.md`; the situated_memory axis grounds in the body's Operating rules
+(`~/.claude/CLAUDE.md`). Derive the agent's name from `~/.claude-data/agent/identity.json` when you
+need it, not from prose.
 
 ## Step 2 — Gather the evidence window
 
