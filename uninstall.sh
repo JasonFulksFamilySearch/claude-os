@@ -34,9 +34,10 @@ Removes what install.sh added to the system:
   - Generated config/watched-projects.json
   - Built mcp/dist and mcp/node_modules
 
-By default, ~/.claude-data/ (agent identity, learnings, project notes,
-context files) is preserved. Pass --purge-data to also delete it; that
-path requires a typed-word confirmation regardless.
+By default, ~/.claude-data/ (agent identity + persona, learnings, project
+notes, context files) is preserved — this includes agent/identity.json and
+agent/personality.md (the hand-tuned per-machine soul). Pass --purge-data to
+also delete it; that path requires a typed-word confirmation regardless.
 
 The repo at $REPO_DIR is left in place. Delete it manually if desired.
 
@@ -155,8 +156,9 @@ elif [ ! -d "$DATA_DIR" ]; then
     skip "$DATA_DIR does not exist"
 else
     echo ""
-    warn "About to delete $DATA_DIR — this contains agent identity,"
-    warn "learnings.md, project notes, and context files. This is irreversible."
+    warn "About to delete $DATA_DIR — this contains agent identity"
+    warn "(identity.json + the hand-tuned personality.md), learnings.md,"
+    warn "project notes, and context files. This is irreversible."
     echo ""
     read -rp "Type the literal word 'purge' to confirm: " confirm
     if [ "$confirm" = "purge" ]; then
