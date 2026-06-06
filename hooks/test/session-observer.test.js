@@ -29,7 +29,7 @@ test('parseTurns returns empty array for missing file', () => {
 test('parseTurns extracts user and assistant turns (type: user — real Claude Code format)', () => {
   const path = join(TMP, 'transcript-real-format.jsonl');
   writeFileSync(path, [
-    JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'Hello Willis' }] } }),
+    JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'Hello there' }] } }),
     JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Hello Sir' }] } }),
     JSON.stringify({ type: 'tool_use', id: 'tool1', name: 'Read' }),
   ].join('\n'), 'utf8');
@@ -37,7 +37,7 @@ test('parseTurns extracts user and assistant turns (type: user — real Claude C
   const turns = parseTurns(path);
   assert.equal(turns.length, 2);
   assert.equal(turns[0].role, 'user');
-  assert.equal(turns[0].text, 'Hello Willis');
+  assert.equal(turns[0].text, 'Hello there');
   assert.equal(turns[1].role, 'assistant');
   assert.equal(turns[1].text, 'Hello Sir');
 });
