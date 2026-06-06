@@ -297,6 +297,25 @@ if [ -z "$AGENT_NAME" ] || [ -z "$USER_NAME" ]; then
     fi
 fi
 
+# (8.3a) One-time carve migration for ALREADY-INSTALLED machines. A machine
+# installed before the persona split has its real, hand-tuned persona INLINE in
+# CLAUDE.md with no @-import — and the only-if-absent provisioning below would
+# wrongly write a generic SKELETON over it. carve-identity.js extracts the real
+# inline persona into personality.md (preserving it verbatim) and rewrites the
+# body to anchor + @-import + neutral rules. It is idempotent (no-op once the
+# body has the @-import) and runs as authorized machine-setup, so the Rule 10
+# identity write-guard (which only intercepts the agent's Edit/Write tools) does
+# not apply. Proven to reproduce the hand-migration byte-for-byte. Must run
+# BEFORE 8.4 so the real persona is in place and 8.4 skips the skeleton.
+CARVE_SCRIPT="$REPO_DIR/scripts/carve-identity.js"
+if [ -f "$CARVE_SCRIPT" ] && [ -f "$CANONICAL_IDENTITY" ] && command -v node >/dev/null 2>&1; then
+    if node "$CARVE_SCRIPT" "$CANONICAL_IDENTITY" "$PERSONALITY_DST" 2>&1; then
+        :  # carve prints its own status (carved / already-carved / no-op)
+    else
+        warn "Identity carve migration failed — body left as-is; persona may need manual carve"
+    fi
+fi
+
 # (8.4) Provision the persona only-if-absent (preserve hand-tuning), and ensure it
 # exists before anything relies on the body's @-import.
 if [ -f "$PERSONALITY_DST" ] && [ -s "$PERSONALITY_DST" ]; then
