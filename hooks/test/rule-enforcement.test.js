@@ -35,7 +35,7 @@ function runHook(payload, extraEnv = {}) {
   const res = spawnSync('bash', [HOOK], {
     input: JSON.stringify(payload),
     encoding: 'utf8',
-    env: { ...process.env, HOME, WILLIS_HOOK_DEPTH: '0', ...extraEnv },
+    env: { ...process.env, HOME, CLAUDE_OS_HOOK_DEPTH: '0', ...extraEnv },
   });
   return { status: res.status, stderr: res.stderr || '' };
 }
@@ -95,7 +95,7 @@ test('fails CLOSED on the identity invariant when jq is unavailable', (t) => {
       spawnSync(join(bindir, 'bash'), [HOOK], {
         input: JSON.stringify(payload),
         encoding: 'utf8',
-        env: { PATH: bindir, HOME, WILLIS_HOOK_DEPTH: '0' },
+        env: { PATH: bindir, HOME, CLAUDE_OS_HOOK_DEPTH: '0' },
       });
 
     // Test sanity: jq must truly be unreachable, or this proves nothing.

@@ -9,7 +9,7 @@
 #
 # Safety:
 #   - 200ms timeout (fail open)
-#   - Loop guard via WILLIS_HOOK_DEPTH
+#   - Loop guard via CLAUDE_OS_HOOK_DEPTH
 #   - Logs both allows AND blocks (so /review-performance can see allowed-but-noisy patterns)
 #
 # Adding a new rule: see the RULES section below.
@@ -26,11 +26,11 @@ HOOK_TIMEOUT_SEC=0.2
 # ─────────────────────────────────────────────────────────────────────
 # Safety: loop guard
 # ─────────────────────────────────────────────────────────────────────
-if [ "${WILLIS_HOOK_DEPTH:-0}" -gt 1 ]; then
+if [ "${CLAUDE_OS_HOOK_DEPTH:-0}" -gt 1 ]; then
   # Re-entrant call — exit immediately to prevent infinite loops
   exit 0
 fi
-export WILLIS_HOOK_DEPTH=$((${WILLIS_HOOK_DEPTH:-0} + 1))
+export CLAUDE_OS_HOOK_DEPTH=$((${CLAUDE_OS_HOOK_DEPTH:-0} + 1))
 
 # ─────────────────────────────────────────────────────────────────────
 # Read input (with timeout)
@@ -211,7 +211,7 @@ fi
 
 if [ "$TOOL_NAME" = "Edit" ] || [ "$TOOL_NAME" = "Write" ]; then
 
-  # Rule 10 (B3 identity write-guard): the Willis identity file is FROZEN to Claude's Edit/Write
+  # Rule 10 (B3 identity write-guard): the agent identity file is FROZEN to Claude's Edit/Write
   # tools — identity/capability separation ("freeze identity, evolve capability"). ~/.claude/CLAUDE.md
   # is a symlink to ~/.claude-data/agent/CLAUDE.md; block edits that reach EITHER path-form.
   # Canonicalize to the real path so a relative / symlinked / non-literal path cannot evade the guard.
