@@ -932,6 +932,26 @@ describe("scan_experience (B1)", () => {
     const { clusters } = scanExperience(db, {}, live);
     expect(clusters).toHaveLength(1);
   });
+
+  it("appends one shadow-log line per run with a bucketed histogram", () => {
+    const dir = episodesDir(); mkdirSync(dir, { recursive: true });
+    const shadowPath = join(workDir, "experience-shadow.jsonl");
+    const mk = (slug: string, v?: number, date = `2026-06-${slug}`) => {
+      const p = join(dir, `${date}.md`);
+      const vs = v === undefined ? "" : `value_score: ${v}\n`;
+      writeFileSync(p, `---\ndate: ${date}\nsession_id: sess-${slug}\npromoted: false\n${vs}---\n\n## Summary\ns\n`, "utf8");
+      return p;
+    };
+    seed(mk("01", 3), themeA()); seed(mk("02", 3), themeA()); seed(mk("03", undefined, "2026-06-09"), themeA()); // one keyless, post-feature date
+    scanExperience(db, {}, { ...config, shadowLogPath: shadowPath } as never);
+    const lines = readFileSync(shadowPath, "utf8").trim().split("\n");
+    expect(lines).toHaveLength(1);
+    const rec = JSON.parse(lines[0]);
+    expect(rec.gate_mode).toBe("shadow");
+    expect(rec.value_histogram["3"]).toBe(2);
+    expect(rec.value_histogram.unknown_declined).toBe(1); // keyless + date ≥ 2026-06-08
+    expect(Array.isArray(rec.would_exclude_clusters)).toBe(true);
+  });
 });
 
 describe("validate_experience_proposal (B1, gate 1)", () => {

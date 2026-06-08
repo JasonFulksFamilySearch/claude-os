@@ -10,6 +10,7 @@ import {
   EXPERIENCE_MIN_CLUSTER_VALUE,
   EXPERIENCE_VALUE_GATE_MODE,
 } from "../search_config.js";
+import { buildHistogram, writeShadowRecord, DEFAULT_SHADOW_LOG, type ShadowMember } from "../experience-shadow.js";
 
 export const scanExperienceInput = z.object({
   project: z.string().optional(),
@@ -149,5 +150,28 @@ export function scanExperience(
     gate.mode === "live"
       ? shaped.filter((c) => !clusterBelowFloor(c.members.map((m) => m.value_score), gate.minCluster))
       : shaped;
+
+  const cfg = config as IndexerConfig & { shadowLogPath?: string; runTs?: string };
+  const allMembers: ShadowMember[] = episodes.map((ep) => ({ date: ep.date, value_score: ep.value_score }));
+  writeShadowRecord(
+    {
+      run_ts: cfg.runTs ?? new Date().toISOString(),
+      gate_mode: gate.mode,
+      rubric_version: "v1",
+      episodes_considered: episodes.length,
+      value_histogram: buildHistogram(allMembers),
+      would_exclude_episodes: episodes
+        .filter((ep) => episodeBelowFloor(ep.value_score, gate.minEpisode))
+        .map((ep) => ep.path),
+      would_exclude_clusters: shaped
+        .filter((c) => clusterBelowFloor(c.members.map((m) => m.value_score), gate.minCluster))
+        .map((c) => {
+          const scored = c.members.map((m) => m.value_score).filter((v): v is number => typeof v === "number");
+          return { size: c.size, max_member_value: scored.length ? Math.max(...scored) : null };
+        }),
+    },
+    cfg.shadowLogPath ?? DEFAULT_SHADOW_LOG,
+  );
+
   return { clusters };
 }
