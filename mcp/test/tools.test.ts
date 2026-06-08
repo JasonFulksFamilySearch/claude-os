@@ -836,6 +836,29 @@ describe("scan_experience (B1)", () => {
     expect(clusters[0].size).toBe(3);
   });
 
+  it("emits value_score on each returned ClusterMember (present and absent)", () => {
+    const dir = episodesDir();
+    mkdirSync(dir, { recursive: true });
+    const scored = (slug: string, v: number): string => {
+      const p = join(dir, `2026-06-${slug}.md`);
+      writeFileSync(
+        p,
+        `---\ndate: 2026-06-${slug}\nsession_id: sess-${slug}\npromoted: false\nvalue_score: ${v}\n---\n\n## Summary\ns\n`,
+        "utf8",
+      );
+      return p;
+    };
+    seed(scored("01", 4), themeA());
+    seed(scored("02", 2), themeA());
+    seed(writeEpisode("03", false), themeA()); // unscored → undefined
+    const { clusters } = scanExperience(db, {}, config);
+    expect(clusters).toHaveLength(1);
+    const byId = Object.fromEntries(clusters[0].members.map((m) => [m.session_id, m.value_score]));
+    expect(byId["sess-01"]).toBe(4);
+    expect(byId["sess-02"]).toBe(2);
+    expect(byId["sess-03"]).toBeUndefined();
+  });
+
   it("surfaces value_score on EpisodeRecord when present, undefined when absent", () => {
     const dir = episodesDir();
     mkdirSync(dir, { recursive: true });

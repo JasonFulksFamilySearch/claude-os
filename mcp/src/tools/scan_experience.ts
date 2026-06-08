@@ -18,6 +18,7 @@ interface ClusterMember {
   session_id: string | null;
   date: string;
   summary: string | null;
+  value_score: number | undefined;
 }
 
 export interface ExperienceCluster {
@@ -97,6 +98,7 @@ export function scanExperience(
         session_id: ep.session_id,
         date: ep.date,
         summary: ep.summary,
+        value_score: ep.value_score,
       })),
     })),
   };
