@@ -326,8 +326,11 @@ gate."` Emphatically not a CLEAN, and not a REVISE (nothing was validly scored).
 ## Common mistakes
 
 - Scoring from the artifact's own claims instead of reading the ground truth.
-- Letting the challenger see the reviewer's reasoning (it just agrees — anchoring).
-- Marking an ambiguous line PASS to reach CLEAN.
+- Letting the challenger see the reviewer's reasoning — give it only the artifact,
+  ground truth, and rubric so it reasons independently; seeing the reasoning just
+  anchors it into agreement.
+- Marking an ambiguous line PASS to reach CLEAN — score genuine ambiguity UNRESOLVED
+  and let it escalate; ambiguity never defaults to PASS.
 - Running the red challenge on a REVISE/ESCALATE verdict (only CLEAN needs challenging).
 - Conflating an *evidence* UNRESOLVED (caller supplies the missing ground truth) with a
   *product* UNRESOLVED (a human rules) — they escalate with different asks.
@@ -341,7 +344,8 @@ gate."` Emphatically not a CLEAN, and not a REVISE (nothing was validly scored).
   in `scores`, `NA` included; completeness is the skill's core value.
 - Emitting a prose verdict instead of the `v1.0` block — it breaks every caller that parses the
   contract.
-- Not passing or not incrementing `cycle` — the cap can't fire and REVISE loops forever.
+- Not passing or not incrementing `cycle` — pass `cycle` on every call and increment
+  it on each REVISE, so the cap can fire instead of looping forever.
 - Dispatching the reviewer/challenger with `Write` or `Agent` — they must be read-only so they
   cannot edit `rubrics.md` or the audit record.
 
