@@ -798,6 +798,13 @@ describe("scan_experience (B1)", () => {
   const themeA = (): Float32Array => { const v = new Float32Array(768); v[0] = 1; return v; };
   const distinct = (): Float32Array => { const v = new Float32Array(768); v[1] = 1; return v; };
 
+  // Route every scan_experience shadow-log write in this suite into the per-test temp dir, so the
+  // tests never append to the real ~/.claude-data/experience-shadow.jsonl. Runs after the top-level
+  // beforeEach that (re)assigns `config`, so this mutation lands on the current test's config.
+  beforeEach(() => {
+    (config as IndexerConfig & { shadowLogPath?: string }).shadowLogPath = join(workDir, "experience-shadow.jsonl");
+  });
+
   it("clusters unpromoted episodes from vectors read back out of vec_items", () => {
     const a = writeEpisode("01", false);
     const b = writeEpisode("02", false);
@@ -834,6 +841,207 @@ describe("scan_experience (B1)", () => {
     const { clusters } = scanExperience(db, {}, config);
     expect(clusters).toHaveLength(1);
     expect(clusters[0].size).toBe(3);
+  });
+
+  it("emits value_score on each returned ClusterMember (present and absent)", () => {
+    const dir = episodesDir();
+    mkdirSync(dir, { recursive: true });
+    const scored = (slug: string, v: number): string => {
+      const p = join(dir, `2026-06-${slug}.md`);
+      writeFileSync(
+        p,
+        `---\ndate: 2026-06-${slug}\nsession_id: sess-${slug}\npromoted: false\nvalue_score: ${v}\n---\n\n## Summary\ns\n`,
+        "utf8",
+      );
+      return p;
+    };
+    seed(scored("01", 4), themeA());
+    seed(scored("02", 2), themeA());
+    seed(writeEpisode("03", false), themeA()); // unscored → undefined
+    const { clusters } = scanExperience(db, {}, config);
+    expect(clusters).toHaveLength(1);
+    const byId = Object.fromEntries(clusters[0].members.map((m) => [m.session_id, m.value_score]));
+    expect(byId["sess-01"]).toBe(4);
+    expect(byId["sess-02"]).toBe(2);
+    expect(byId["sess-03"]).toBeUndefined();
+  });
+
+  it("surfaces value_score on EpisodeRecord when present, undefined when absent", () => {
+    const dir = episodesDir();
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "2026-06-10.md"),
+      `---\ndate: 2026-06-10\nsession_id: sess-10\npromoted: false\nvalue_score: 3\n---\n\n## Summary\nscored\n`,
+      "utf8",
+    );
+    writeFileSync(
+      join(dir, "2026-06-11.md"),
+      `---\ndate: 2026-06-11\nsession_id: sess-11\npromoted: false\n---\n\n## Summary\nunscored\n`,
+      "utf8",
+    );
+    const entries = listEpisodesImpl({}, episodesDir());
+    const scored = entries.find((e) => e.session_id === "sess-10")!;
+    const unscored = entries.find((e) => e.session_id === "sess-11")!;
+    expect(scored.value_score).toBe(3);
+    expect(unscored.value_score).toBeUndefined();
+  });
+
+  it("shadow mode never excludes, even below a live threshold", () => {
+    const dir = episodesDir(); mkdirSync(dir, { recursive: true });
+    const mk = (slug: string, v?: number) => {
+      const p = join(dir, `2026-06-${slug}.md`);
+      const vs = v === undefined ? "" : `value_score: ${v}\n`;
+      writeFileSync(p, `---\ndate: 2026-06-${slug}\nsession_id: sess-${slug}\npromoted: false\n${vs}---\n\n## Summary\ns\n`, "utf8");
+      return p;
+    };
+    seed(mk("01", 0), themeA()); seed(mk("02", 0), themeA()); seed(mk("03", 0), themeA());
+    const { clusters } = scanExperience(db, {}, config); // config default = shadow
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0].size).toBe(3);
+  });
+
+  it("a keyless episode is never excluded even in live mode", () => {
+    const dir = episodesDir(); mkdirSync(dir, { recursive: true });
+    const mk = (slug: string, v?: number) => {
+      const p = join(dir, `2026-06-${slug}.md`);
+      const vs = v === undefined ? "" : `value_score: ${v}\n`;
+      writeFileSync(p, `---\ndate: 2026-06-${slug}\nsession_id: sess-${slug}\npromoted: false\n${vs}---\n\n## Summary\ns\n`, "utf8");
+      return p;
+    };
+    seed(mk("01", 4), themeA()); seed(mk("02", 4), themeA()); seed(mk("03"), themeA()); // 03 keyless
+    const live = { ...config, valueGate: { mode: "live" as const, minEpisode: 2, minCluster: 2 } };
+    const { clusters } = scanExperience(db, {}, live);
+    expect(clusters[0].members.map((m) => m.session_id)).toContain("sess-03");
+  });
+
+  it("live mode drops a cluster whose every scored member is below the floor", () => {
+    const dir = episodesDir(); mkdirSync(dir, { recursive: true });
+    const mk = (slug: string, v: number) => {
+      const p = join(dir, `2026-06-${slug}.md`);
+      writeFileSync(p, `---\ndate: 2026-06-${slug}\nsession_id: sess-${slug}\npromoted: false\nvalue_score: ${v}\n---\n\n## Summary\ns\n`, "utf8");
+      return p;
+    };
+    seed(mk("01", 1), themeA()); seed(mk("02", 1), themeA()); seed(mk("03", 1), themeA());
+    const live = { ...config, valueGate: { mode: "live" as const, minEpisode: null, minCluster: 3 } };
+    const { clusters } = scanExperience(db, {}, live);
+    expect(clusters).toHaveLength(0);
+  });
+
+  it("max-aggregation: one high-value member rescues its cluster in live mode", () => {
+    const dir = episodesDir(); mkdirSync(dir, { recursive: true });
+    const mk = (slug: string, v: number) => {
+      const p = join(dir, `2026-06-${slug}.md`);
+      writeFileSync(p, `---\ndate: 2026-06-${slug}\nsession_id: sess-${slug}\npromoted: false\nvalue_score: ${v}\n---\n\n## Summary\ns\n`, "utf8");
+      return p;
+    };
+    seed(mk("01", 4), themeA()); seed(mk("02", 1), themeA()); seed(mk("03", 1), themeA());
+    const live = { ...config, valueGate: { mode: "live" as const, minEpisode: null, minCluster: 3 } };
+    const { clusters } = scanExperience(db, {}, live);
+    expect(clusters).toHaveLength(1);
+  });
+
+  it("ACCEPTANCE: shadow≡no-gate+logs, live changes membership, unknown never excluded", () => {
+    const dir = episodesDir(); mkdirSync(dir, { recursive: true });
+    const mk = (slug: string, v?: number) => {
+      const p = join(dir, `2026-06-${slug}.md`);
+      const vs = v === undefined ? "" : `value_score: ${v}\n`;
+      writeFileSync(p, `---\ndate: 2026-06-${slug}\nsession_id: sess-${slug}\npromoted: false\n${vs}---\n\n## Summary\ns\n`, "utf8");
+      return p;
+    };
+    // 5 episodes: two value-0, one keyless, two high-value — all themeA
+    seed(mk("01", 0), themeA()); seed(mk("02", 0), themeA()); seed(mk("03"), themeA());
+    seed(mk("04", 4), themeA()); seed(mk("05", 4), themeA());
+
+    // (1) shadow ≡ no-gate: all 5 returned, and a shadow-log line is written (suite beforeEach set the path)
+    const shadow = scanExperience(db, {}, config);
+    expect(shadow.clusters[0].size).toBe(5);
+    const shadowPath = join(workDir, "experience-shadow.jsonl");
+    expect(readFileSync(shadowPath, "utf8").trim().split("\n").length).toBeGreaterThanOrEqual(1);
+
+    // (2) live changes membership: episode floor 2 drops value-0 members, leaving {03 keyless, 04, 05} = 3
+    const live = scanExperience(db, {}, { ...config, valueGate: { mode: "live", minEpisode: 2, minCluster: null } } as never);
+    const liveSize = live.clusters[0]?.size ?? 0;
+    expect(liveSize).toBeLessThan(5);
+    expect(liveSize).toBe(3);
+
+    // (3) unknown never excluded: the keyless sess-03 survives live filtering
+    expect(live.clusters[0]?.members.map((m) => m.session_id)).toContain("sess-03");
+  });
+
+  it("shadow mode preserves recency order over the cap (inert); live mode value-prioritizes", () => {
+    // 5 themeA episodes, dates 01..05. Values deliberately make recency and value DISAGREE:
+    //   01=4 (oldest, highest), 02=4, 03=0, 04=0, 05=undefined (newest, keyless).
+    // With max_episodes=3:
+    //   SHADOW: strict recency → keeps the 3 most recent: 05, 04, 03.
+    //   LIVE:   value-sort with absent=VALUE_MAX(4) → ranking is 05(4), 02(4), 01(4), 03(0), 04(0);
+    //           recency tiebreak within same score: top 3 = 05, 02, 01.
+    // Both considered sets have 3 identical-theme episodes → EXPERIENCE_MIN_CLUSTER_SIZE=3 → cluster forms.
+    const dir = episodesDir(); mkdirSync(dir, { recursive: true });
+    const mk = (slug: string, v?: number) => {
+      const p = join(dir, `2026-06-${slug}.md`);
+      const vs = v === undefined ? "" : `value_score: ${v}\n`;
+      writeFileSync(p, `---\ndate: 2026-06-${slug}\nsession_id: sess-${slug}\npromoted: false\n${vs}---\n\n## Summary\ns\n`, "utf8");
+      return p;
+    };
+    seed(mk("01", 4), themeA()); // oldest, value=4
+    seed(mk("02", 4), themeA()); // value=4
+    seed(mk("03", 0), themeA()); // value=0
+    seed(mk("04", 0), themeA()); // value=0
+    seed(mk("05"),    themeA()); // newest, keyless (no value_score)
+
+    const shadow = scanExperience(db, { max_episodes: 3 }, config); // shadow (default mode)
+    const liveCfg = { ...config, valueGate: { mode: "live" as const, minEpisode: null, minCluster: null } };
+    const live = scanExperience(db, { max_episodes: 3 }, liveCfg);
+
+    const memberIds = (r: { clusters: { members: { session_id: string | null }[] }[] }) =>
+      (r.clusters[0]?.members ?? []).map((m) => m.session_id).sort();
+
+    // Shadow: recency-only cap → {03, 04, 05} kept; {01, 02} evicted.
+    const shadowIds = memberIds(shadow);
+    expect(shadowIds).toEqual(["sess-03", "sess-04", "sess-05"]);
+
+    // Live: value-aware cap with absent=top-band → {01(=4), 02(=4), 05(absent→4)} kept; {03(=0), 04(=0)} evicted.
+    const liveIds = memberIds(live);
+    expect(liveIds).toEqual(["sess-01", "sess-02", "sess-05"]);
+
+    // Absence ≠ low: keyless sess-05 survives the live cap while value-0 sess-03/sess-04 are evicted.
+    expect(liveIds).toContain("sess-05");
+    expect(liveIds).not.toContain("sess-03");
+    expect(liveIds).not.toContain("sess-04");
+
+    // Shadow and live considered sets must differ (the gate is active over the cap).
+    expect(shadowIds).not.toEqual(liveIds);
+  });
+
+  it("treats an out-of-range value_score as unknown (not a literal 99)", () => {
+    const dir = episodesDir(); mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "2026-06-20.md"),
+      `---\ndate: 2026-06-20\nsession_id: sess-20\npromoted: false\nvalue_score: 99\n---\n\n## Summary\ns\n`,
+      "utf8",
+    );
+    const entries = listEpisodesImpl({}, episodesDir());
+    expect(entries.find((e) => e.session_id === "sess-20")!.value_score).toBeUndefined();
+  });
+
+  it("appends one shadow-log line per run with a bucketed histogram", () => {
+    const dir = episodesDir(); mkdirSync(dir, { recursive: true });
+    const shadowPath = join(workDir, "experience-shadow.jsonl");
+    const mk = (slug: string, v?: number, date = `2026-06-${slug}`) => {
+      const p = join(dir, `${date}.md`);
+      const vs = v === undefined ? "" : `value_score: ${v}\n`;
+      writeFileSync(p, `---\ndate: ${date}\nsession_id: sess-${slug}\npromoted: false\n${vs}---\n\n## Summary\ns\n`, "utf8");
+      return p;
+    };
+    seed(mk("01", 3), themeA()); seed(mk("02", 3), themeA()); seed(mk("03", undefined, "2026-06-09"), themeA()); // one keyless, post-feature date
+    scanExperience(db, {}, { ...config, shadowLogPath: shadowPath } as never);
+    const lines = readFileSync(shadowPath, "utf8").trim().split("\n");
+    expect(lines).toHaveLength(1);
+    const rec = JSON.parse(lines[0]);
+    expect(rec.gate_mode).toBe("shadow");
+    expect(rec.value_histogram["3"]).toBe(2);
+    expect(rec.value_histogram.unknown_declined).toBe(1); // keyless + date ≥ 2026-06-08
+    expect(Array.isArray(rec.would_exclude_clusters)).toBe(true);
   });
 });
 

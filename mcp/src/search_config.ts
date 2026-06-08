@@ -67,3 +67,22 @@ export const EXPERIENCE_MIN_CLUSTER_SIZE = 3;
 // Cap on how many of the most-recent unpromoted episodes one synthesis run considers, bounding
 // cost as the episode archive grows.
 export const EXPERIENCE_MAX_EPISODES = 200;
+
+// --- Experience value-gated selection (ships INERT; flipped live only on shadow-log evidence) ---
+// FIXED, principled defaults — not fit to any labeled set.
+
+// Episode value floor. A present value_score strictly below this is excluded BEFORE clustering.
+// null ⇒ no episode excluded (shadow only). An ABSENT score is never excluded regardless.
+export const EXPERIENCE_MIN_EPISODE_VALUE: number | null = null;
+
+// Cluster value floor. A cluster's value = max(scored members); a cluster is dropped only if
+// every scored member is below this. null ⇒ no cluster excluded (shadow only). All-keyless ⇒ kept.
+export const EXPERIENCE_MIN_CLUSTER_VALUE: number | null = null;
+
+// "shadow" computes the would-drop set but returns the full set (behaviour identical to pre-gate);
+// "live" actually filters. Flip to "live" only when the shadow log shows a defensible distribution.
+export const EXPERIENCE_VALUE_GATE_MODE: "shadow" | "live" = "shadow";
+
+// ISO date the value writer shipped. Episodes dated before it are expected keyless ("pre-feature")
+// and must not be counted as judge declines in the shadow-log calibration null-rate.
+export const EXPERIENCE_VALUE_FEATURE_DATE = "2026-06-08";

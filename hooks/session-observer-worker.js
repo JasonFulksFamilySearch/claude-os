@@ -15,6 +15,12 @@ const LOG_PATH = join(homedir(), '.claude-data', 'logs', 'session-observer.log')
 const MAX_CHARS = 30_000;
 const MIN_TURNS = 3;
 
+// Value-scoring provenance constants.
+// VALUE_MODEL is passed as --model to the callClaude() spawnSync call so that
+// the recorded value_model provenance key is enforced, not a CLI-default guess.
+const VALUE_RUBRIC_VERSION = 'v1';
+const VALUE_MODEL = 'claude-haiku-4-5';
+
 // Append a timestamped line to the worker log. Wrapped in try/catch so a
 // logging failure (disk full, perms) can never crash the worker. The launcher
 // detaches stdio so process.stderr.write goes to /dev/null; this log file is
@@ -46,8 +52,15 @@ Return JSON only — no markdown wrapper:
   "decisions": ["..."],
   "corrections": ["..."],
   "discoveries": ["..."],
-  "files_of_note": [{"path": "...", "reason": "..."}]
+  "files_of_note": [{"path": "...", "reason": "..."}],
+  "value_score": <OPTIONAL integer 0–4>
 }
+
+- value_score (OPTIONAL integer 0–4): the durable leverage of this session —
+  0 = no durable value / thrash or reverted; 1 = minor; 2 = a useful local fix;
+  3 = a reusable lesson; 4 = a lesson that changes how future sessions are run.
+  OMIT this field entirely if the transcript gives insufficient signal to judge
+  confidently — never guess a 0.
 
 Empty arrays are correct when nothing noteworthy occurred. Quality over quantity.`;
 
@@ -151,6 +164,10 @@ function coerceObservation(raw) {
           .map(f => ({ path: safeString(f.path, 500), reason: safeString(f.reason, 500) }))
           .slice(0, 20)
       : [],
+    value_score:
+      Number.isInteger(raw.value_score) && raw.value_score >= 0 && raw.value_score <= 4
+        ? raw.value_score
+        : undefined,
   };
 }
 
@@ -187,7 +204,8 @@ function callClaude(transcriptText) {
   // transcriptPath guard (no transcript_path in payload). Belt-and-suspenders
   // alongside the CLAUDE_OS_SKIP_EPISODE env var, which causes the launcher
   // to exit at line 1 before any stdin is read.
-  const result = spawnSync('claude', ['-p', '--no-session-persistence', fullPrompt], {
+  // pin the judge model so value_model provenance is enforced, not a CLI-default guess
+  const result = spawnSync('claude', ['-p', '--model', VALUE_MODEL, '--no-session-persistence', fullPrompt], {
     env: { ...process.env, CLAUDE_OS_SKIP_EPISODE: '1' },
     encoding: 'utf8',
     timeout: 30_000,
@@ -213,6 +231,12 @@ function buildEpisodeContent(obs, sessionId, turnCount) {
     'session_id: ' + safeSessionId,
   ];
   if (obs.project) fmLines.push('project: ' + obs.project);
+  if (Number.isInteger(obs.value_score) && obs.value_score >= 0 && obs.value_score <= 4) {
+    fmLines.push('value_score: ' + obs.value_score);
+    fmLines.push('value_source: llm-judge');
+    fmLines.push('value_rubric_version: ' + VALUE_RUBRIC_VERSION);
+    fmLines.push('value_model: ' + VALUE_MODEL);
+  }
   fmLines.push('turns: ' + turnCount, 'promoted: false', '---', '');
 
   const sections = ['## Summary\n' + (obs.summary || 'No summary generated.').trim()];

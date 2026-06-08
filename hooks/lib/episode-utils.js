@@ -19,7 +19,10 @@ function todayLocal() {
 // Only accepts the known episode schema keys; silently drops all others.
 // This prevents prototype-pollution and injection of unexpected keys from
 // episode files into the session-start-check filter logic.
-const ALLOWED_FM_KEYS = new Set(['date', 'session_id', 'project', 'turns', 'promoted']);
+const ALLOWED_FM_KEYS = new Set([
+  'date', 'session_id', 'project', 'turns', 'promoted',
+  'value_score', 'value_source', 'value_rubric_version', 'value_model',
+]);
 
 function parseFrontmatter(content) {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
@@ -36,6 +39,11 @@ function parseFrontmatter(content) {
     else if (lower === 'false') data[key] = false;
     else if (/^\d+$/.test(val)) data[key] = parseInt(val, 10);
     else if (val.length > 0) data[key] = val;
+  }
+  // Clamp value_score to the 0–4 rubric range; out-of-range values are treated
+  // as unknown (absence), consistent with "absence ≠ low" — never a bogus value.
+  if ('value_score' in data && !(Number.isInteger(data.value_score) && data.value_score >= 0 && data.value_score <= 4)) {
+    delete data.value_score; // out-of-range or non-int → unknown (absence), never a bogus value
   }
   return data;
 }
