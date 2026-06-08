@@ -336,19 +336,24 @@ limit), so read the reviewer back and warn if absent. Never fail the ship; never
 on the 200 alone.
 
 ```bash
-# $PR_NUM: from the existing-PR branch use that PR's number; from the create branch derive it.
-if [ -z "$PR_NUM" ] && [ -n "$PR_URL" ]; then
-  PR_NUM=$(gh pr view "$PR_URL" --json number --jq .number 2>/dev/null)
-fi
+# Resolve PR_NUM SELF-SUFFICIENTLY from the current branch — do NOT depend on PR_URL/PR_NUM
+# being set upstream (the "PR already exists" branch records them only in prose, so deriving
+# from PR_URL would make this a no-op there). `gh pr view` with no positional arg resolves the
+# current branch's PR in both cases.
+PR_NUM=$(gh pr view --json number --jq .number 2>/dev/null)
 REPO_SLUG=$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)
 if [ -n "$PR_NUM" ] && [ -n "$REPO_SLUG" ]; then
   # Request: the reviewers[] arg needs the [bot]-suffixed login form.
   gh api "repos/$REPO_SLUG/pulls/$PR_NUM/requested_reviewers" \
     -X POST -f "reviewers[]=copilot-pull-request-reviewer[bot]" >/dev/null 2>&1 || true
-  # Verify: in reviewRequests/reviews the bot surfaces under the DISPLAY login "Copilot"
-  # (not the [bot] form). A completed Copilot review counts as satisfied too.
+  # Verify. Two repo conventions matter here:
+  #   • reviewer identity comes from .author.login (NOT .user.login) — matches helpers.md:70.
+  #   • Copilot surfaces under MORE THAN ONE login depending on the API: "Copilot" (display),
+  #     "copilot-pull-request-reviewer" (review author, see post.sh:159). Match ANY of them, or
+  #     a satisfied review false-negatives.
   COPILOT_ON=$(gh pr view "$PR_NUM" --json reviewRequests,reviews \
-    --jq '([.reviewRequests[].login] + [.reviews[].user.login]) | any(. == "Copilot")' 2>/dev/null)
+    --jq '([.reviewRequests[].login] + [.reviews[].author.login])
+          | any(. == "Copilot" or . == "copilot-pull-request-reviewer" or . == "copilot-pull-request-reviewer[bot]")' 2>/dev/null)
   if [ "$COPILOT_ON" = "true" ]; then
     echo "Phase 3.5b: ✅ Copilot requested + verified on PR #$PR_NUM"
   else

@@ -26,12 +26,16 @@ know the design invariants — so it never replaces the project's own verificati
 (`/review-pr`, QA, red-blue-judge), but it must always be on the PR.
 
 Copilot is the GitHub Copilot code-review app, not a normal collaborator, so it is requested
-via the API rather than `--reviewer`. **Its identity surfaces in two forms — use the right one
-for each call:**
+via the API rather than `--reviewer`. **Its identity surfaces under several logins depending on
+the API — handle all of them:**
 - **Requesting** (the `requested_reviewers` POST `reviewers[]` arg): the `[bot]`-suffixed login
   `copilot-pull-request-reviewer[bot]`.
-- **Verifying** (reading `reviewRequests[].login` / `reviews[].user.login` back): the display
-  login `Copilot` (no `[bot]` suffix).
+- **Verifying:** read reviewer identity from **`.author.login`**, not `.user.login` — that is the
+  repo's established `gh pr view --json reviews` convention (`skills/ship/helpers.md:70`). And the
+  login itself varies by surface: the display name `Copilot` (in `reviewRequests`), and
+  `copilot-pull-request-reviewer` as a review author (`agents/pr-to-slack/post.sh:159`). Match
+  **any** of `Copilot` / `copilot-pull-request-reviewer` / `copilot-pull-request-reviewer[bot]`,
+  or a satisfied Copilot review will false-negative.
 
 Request it immediately after opening any PR:
 

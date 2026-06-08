@@ -78,12 +78,16 @@ optional arg parsing, and script invocation contract.
      if [ -n "$REPO_SLUG" ] && [ -n "$PR_NUM" ]; then
        gh api "repos/$REPO_SLUG/pulls/$PR_NUM/requested_reviewers" \
          -X POST -f "reviewers[]=copilot-pull-request-reviewer[bot]" >/dev/null 2>&1 || true
+       # Reviewer identity comes from .author.login (NOT .user.login — repo convention,
+       # helpers.md:70). Copilot surfaces under multiple logins depending on the API surface —
+       # match any of them or a satisfied review false-negatives.
        COPILOT_ON=$(gh pr view "$PR_NUM" --json reviewRequests,reviews \
-         --jq '([.reviewRequests[].login] + [.reviews[].user.login]) | any(. == "Copilot")' 2>/dev/null)
+         --jq '([.reviewRequests[].login] + [.reviews[].author.login])
+               | any(. == "Copilot" or . == "copilot-pull-request-reviewer" or . == "copilot-pull-request-reviewer[bot]")' 2>/dev/null)
        [ "$COPILOT_ON" = "true" ] || echo "⚠ Copilot not on PR #$PR_NUM — GitHub declined the request; add it from the PR web UI (CLAUDE.md rule)."
      fi
      ```
-     (The verify checks both `reviewRequests` AND `reviews` — once Copilot reviews, it leaves
+     (Verify checks both `reviewRequests` AND `reviews` — once Copilot reviews, it leaves
      `reviewRequests` and appears under `reviews`, so a completed review still counts as satisfied.)
 2. If the diff output is large (>100 lines), place it above the summary composition
    step so the model has the full change context before drafting the summary.
