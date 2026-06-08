@@ -25,8 +25,15 @@ Copilot is a complementary lens — it reviews the diff surface; it does not run
 know the design invariants — so it never replaces the project's own verification
 (`/review-pr`, QA, red-blue-judge), but it must always be on the PR.
 
-Copilot is the `copilot-pull-request-reviewer[bot]` app, not a normal collaborator, so it
-is requested via the API rather than `--reviewer`. Immediately after opening any PR:
+Copilot is the GitHub Copilot code-review app, not a normal collaborator, so it is requested
+via the API rather than `--reviewer`. **Its identity surfaces in two forms — use the right one
+for each call:**
+- **Requesting** (the `requested_reviewers` POST `reviewers[]` arg): the `[bot]`-suffixed login
+  `copilot-pull-request-reviewer[bot]`.
+- **Verifying** (reading `reviewRequests[].login` / `reviews[].user.login` back): the display
+  login `Copilot` (no `[bot]` suffix).
+
+Request it immediately after opening any PR:
 
 ```
 gh api repos/{owner}/{repo}/pulls/{number}/requested_reviewers \
