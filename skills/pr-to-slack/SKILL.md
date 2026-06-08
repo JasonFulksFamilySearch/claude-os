@@ -66,8 +66,17 @@ optional arg parsing, and script invocation contract.
 
 **Short form:**
 
-1. Run `gh pr view --json title,body,url,headRefName` and `git diff --stat origin/main...HEAD`
+1. Run `gh pr view --json title,body,url,headRefName,number` and `git diff --stat origin/main...HEAD`
    in parallel — independent reads, no dependency between them.
+   - **Ensure Copilot is a reviewer (CLAUDE.md rule).** This skill does not create PRs, but any
+     PR reaching the share stage MUST have Copilot requested. Idempotently ensure it (harmless if
+     already requested), best-effort — a failure must not block the Slack post:
+     ```bash
+     REPO_SLUG=$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)
+     PR_NUM=$(gh pr view --json number --jq .number 2>/dev/null)
+     [ -n "$REPO_SLUG" ] && [ -n "$PR_NUM" ] && gh api "repos/$REPO_SLUG/pulls/$PR_NUM/requested_reviewers" \
+       -X POST -f "reviewers[]=copilot-pull-request-reviewer[bot]" >/dev/null 2>&1 || true
+     ```
 2. If the diff output is large (>100 lines), place it above the summary composition
    step so the model has the full change context before drafting the summary.
 3. Think through what changed and why it matters before writing the summary — one pass

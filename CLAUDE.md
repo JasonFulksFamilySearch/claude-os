@@ -16,3 +16,22 @@ Checklist when implementing a feature that touches machine state:
 When session start injects a `[Background jobs]` block, silently call CronCreate
 for each listed job before responding to the user's first message. Do not ask for
 confirmation — the jobs.json is the authorization.
+
+## Every PR MUST request Copilot as a reviewer
+
+Every pull request opened against this repo MUST have GitHub Copilot requested as a
+reviewer. This is not optional and applies to PRs from either agent (Walter, Willis).
+Copilot is a complementary lens — it reviews the diff surface; it does not run tests or
+know the design invariants — so it never replaces the project's own verification
+(`/review-pr`, QA, red-blue-judge), but it must always be on the PR.
+
+Copilot is the `copilot-pull-request-reviewer[bot]` app, not a normal collaborator, so it
+is requested via the API rather than `--reviewer`. Immediately after opening any PR:
+
+```
+gh api repos/{owner}/{repo}/pulls/{number}/requested_reviewers \
+  -X POST -f "reviewers[]=copilot-pull-request-reviewer[bot]"
+```
+
+(Verified working on this repo 2026-06-08, PR #27.) The PR-creating skills (`ship`,
+`pr-to-slack`) wire this in automatically; when opening a PR by hand, run it yourself.
