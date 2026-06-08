@@ -56,7 +56,7 @@ there is nothing to synthesize.
 
 ## Step 2 — Distill one candidate per cluster
 
-For each cluster (process the highest-cohesion clusters first; a single run need not exhaust them):
+For each cluster (process clusters in the order returned by `scan_experience`; a single run need not exhaust them — discard any cluster whose members do not share a genuine recurring situation):
 
 1. **Read the member episodes in full** (Read each `path`) — not just the summaries. You are looking
    for a *recurring situation* the episodes share and the *lesson* that situation teaches.
