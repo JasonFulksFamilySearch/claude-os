@@ -33,5 +33,15 @@ gh api repos/{owner}/{repo}/pulls/{number}/requested_reviewers \
   -X POST -f "reviewers[]=copilot-pull-request-reviewer[bot]"
 ```
 
-(Verified working on this repo 2026-06-08, PR #27.) The PR-creating skills (`ship`,
-`pr-to-slack`) wire this in automatically; when opening a PR by hand, run it yourself.
+**Request, then VERIFY — do not assume success.** The API can return HTTP 200 while
+silently NOT attaching Copilot (observed 2026-06-08: the call succeeded on PR #27 but
+no-opped on PR #28, leaving `requested_reviewers` empty). This is a GitHub-side
+constraint — likely a per-account Copilot-review concurrency/rate limit (only so many
+Copilot reviews in flight at once). So the obligation is: **always request, then read back
+`reviewRequests`/`reviews` and WARN loudly if Copilot is absent** — never report success
+on the 200 alone. If it doesn't attach, request it from the PR web UI (which sometimes
+succeeds when the API no-ops) or retry once the prior Copilot review completes (a finished
+review frees the slot). The rule is "Copilot MUST be requested and its attachment
+verified"; attachment is GitHub's to grant, and a verified-absent state must be surfaced,
+not swallowed. The PR-creating skills (`ship`, `pr-to-slack`) wire in the request +
+verify-and-warn; when opening a PR by hand, do both yourself.

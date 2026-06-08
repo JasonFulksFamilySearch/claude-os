@@ -320,25 +320,35 @@ reviewer comments live on the PR, and `/pr-to-slack` needs a PR URL). Phase 3.5 
 
   PR_URL=$(gh pr create "${BASE_FLAG[@]}" "${DRAFT_FLAG[@]}" --fill)
   PR_EXIT=$?
-  # Project rule (CLAUDE.md): every PR MUST request Copilot as a reviewer. Copilot is the
-  # copilot-pull-request-reviewer[bot] app, requested via the API (not --reviewer). Best-effort:
-  # a reviewer-request failure warns but must NOT fail the ship pipeline.
+  # Project rule (CLAUDE.md): every PR MUST request Copilot as a reviewer, and the request
+  # must be VERIFIED — the API can return 200 while silently NOT attaching Copilot (observed:
+  # worked on PR #27, no-opped on PR #28, likely a Copilot-review concurrency limit). So request,
+  # then read back the reviewer and WARN if absent. Never fail the ship on this; never claim
+  # success on the 200 alone.
   if [ "$PR_EXIT" -eq 0 ]; then
     PR_NUM=$(gh pr view "$PR_URL" --json number --jq .number 2>/dev/null)
     REPO_SLUG=$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)
     if [ -n "$PR_NUM" ] && [ -n "$REPO_SLUG" ]; then
       gh api "repos/$REPO_SLUG/pulls/$PR_NUM/requested_reviewers" \
-        -X POST -f "reviewers[]=copilot-pull-request-reviewer[bot]" >/dev/null 2>&1 \
-        && echo "Phase 3.5: ✅ Requested Copilot review on PR #$PR_NUM" \
-        || echo "Phase 3.5: ⚠ Could not request Copilot reviewer — request it manually"
+        -X POST -f "reviewers[]=copilot-pull-request-reviewer[bot]" >/dev/null 2>&1 || true
+      # Verify it actually attached (Copilot shows as a requested reviewer named "Copilot").
+      COPILOT_ON=$(gh pr view "$PR_NUM" --json reviewRequests \
+        --jq '[.reviewRequests[].login] | any(. == "Copilot")' 2>/dev/null)
+      if [ "$COPILOT_ON" = "true" ]; then
+        echo "Phase 3.5: ✅ Copilot requested + verified on PR #$PR_NUM"
+      else
+        echo "Phase 3.5: ⚠ Copilot NOT attached to PR #$PR_NUM (GitHub declined the request — likely a Copilot-review concurrency limit). Add it from the PR web UI, or retry once a prior Copilot review completes. CLAUDE.md rule unmet until attached."
+      fi
     fi
   fi
   ```
 
   - `--fill` reuses the commit title and body that `/commit` already wrote in Phase 2, so
     the PR description matches the commit — no second-guessing the message.
-  - **Copilot reviewer is mandatory** (CLAUDE.md rule): the API call above requests it on
-    every freshly-opened PR, best-effort (a failure warns, never fails the ship).
+  - **Copilot reviewer is mandatory** (CLAUDE.md rule): the block above requests it on every
+    freshly-opened PR AND verifies it attached (the API can 200 without attaching). It never
+    fails the ship, but it warns loudly when Copilot did not attach — the rule is unmet until it
+    does, so the warning is a real action item, not noise.
   - **Exit 0** → emit `Phase 3.5: ✅ Opened PR <PR_URL>` (append `(draft)` when `--draft`
     was passed). Proceed to Phase 4.
   - **Non-zero** → write `Phase 3.5 PR Create: ❌ <error>` to the Final Report and **stop**.
