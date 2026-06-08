@@ -134,7 +134,10 @@ no-op with full observability, and is flipped to live only on evidence (§6).
   **and** extend the record-populate in `listEpisodeFiles` (lines 72-84, which currently cherry-picks
   `date/session_id/project/turns/promoted/summary` from `parsed.data`) to read `value_score` from frontmatter.
   The interface field is inert unless the populate actually sets it — both are required.
-- `mcp/src/tools/list_episodes.ts` (kept in lockstep with the above per its own comment).
+- `mcp/src/tools/list_episodes.ts` — **NO edit needed.** It is a pure type alias
+  (`export type EpisodeEntry = EpisodeRecord`, line 15) and delegates to `listEpisodeFiles`, so it inherits
+  `value_score` for free once `EpisodeRecord` + `listEpisodeFiles` (above) carry it. Listed here only to record
+  that it was checked and is a *beneficiary*, not an edit site — do not hunt for a change here.
 - `mcp/src/tools/scan_experience.ts` — **two edits, both required:** (i) the `ClusterMember` interface
   (lines 16-21) gains the field; (ii) the output **mapping operation** at lines ~95-100 (the inner
   `members.map((ep) => ({ path, session_id, date, summary }))` inside the `clusters.map` at lines 92-101) must
@@ -144,10 +147,12 @@ no-op with full observability, and is flipped to live only on evidence (§6).
   `value_score` from the `scan_experience` response even with (i) present — the exact "never silent data loss"
   failure this constraint exists to prevent.
 
-This is a **both-or-neither** edit across **five** sites — `ALLOWED_FM_KEYS` (`episode-utils.js:22`),
-`EpisodeRecord` (`episodes.ts`), `list_episodes.ts`, the `ClusterMember` interface, **and** the
-`ClusterMember` output mapping (`scan_experience.ts` ~95-100) — per the existing lockstep comments in
-`episode-utils.js:43` and `episodes.ts:25`. Miss any one and the field is dropped on that path.
+This is a **both-or-neither** edit across **five code sites** — (1) `ALLOWED_FM_KEYS` (`episode-utils.js:22`),
+(2) the `EpisodeRecord` interface (`episodes.ts`), (3) the `listEpisodeFiles` populate (`episodes.ts:72-84`),
+(4) the `ClusterMember` interface (`scan_experience.ts:16-21`), **and** (5) the `ClusterMember` output mapping
+(`scan_experience.ts` ~95-100) — per the existing lockstep comments in `episode-utils.js:43` and
+`episodes.ts:25`. Miss any one and the field is dropped on that path. (`list_episodes.ts` is **not** a sixth
+site — it is a pure alias that inherits the field via site 2/3; see above.)
 
 ### 5.2 The gate — built, inert by default
 
@@ -242,12 +247,14 @@ to live only when the distribution is sane and the would-drop set is defensible.
 
 ## 7. Spec corrections to the leverage briefing  *(grilled — record integrity)*
 
-> **Prerequisite, not a promise (sequencing is intentional).** These corrections are deliberately *deferred*
-> until after this design doc is committed, so the A2 supersession note can point at a real, committed path
-> (a dangling pointer was the rejected alternative — grilled decision, §8). Therefore, at the moment this
-> design is reviewed, the briefing is **expected** to be unedited. **Applying §7 to the briefing is a hard
-> prerequisite to implementation start** (§8 step 4) — implementation MUST NOT begin until GT-7/Gap 4 are
-> corrected and A2 carries its supersession note. This is the recorded plan of record, not an open question.
+> **Documentation-consistency follow-up (sequencing is intentional).** These corrections are deliberately
+> *deferred* until after this design doc is committed, so the A2 supersession note can point at a real,
+> committed path (a dangling pointer was the rejected alternative — grilled decision, §8). Therefore, at the
+> moment this design is reviewed, the briefing is **expected** to be unedited. §7 is a **record-integrity
+> follow-up to land before merge; it edits the briefing only and blocks no implementation task** — the sole
+> hard prerequisite to writing code is this design doc, which is committed. (An earlier draft framed §7 as a
+> "hard prerequisite to implementation start"; that overstated it — §7 unblocks no code, it keeps the briefing
+> self-consistent. Corrected after a grilling of the plan.)
 
 Applied to `2026-06-08-leverage-briefing-spec.md` **after** this design doc is committed (so the A2 pointer
 resolves). Two kinds of change, handled differently:
@@ -283,7 +290,8 @@ cross-bet dependency. Build order:
 1. **Writer** (§4): rubric + frontmatter keys + lockstep parser edits.
 2. **Reader + shadow log** (§5, §6): carry-through, gate (inert), shadow log, value-aware cap, SKILL.md:59 edit.
 3. **Unit test** (§9): the CI regression gate.
-4. **Design doc committed**, then **spec corrections** (§7).
+4. **Design doc committed**, then **spec corrections** (§7) — a documentation-consistency follow-up that lands
+   before merge and blocks no implementation task (it edits the briefing only).
 5. **(Later, data-driven, not in this unit):** read the shadow log; if calibration holds, set non-null
    thresholds and flip `EXPERIENCE_VALUE_GATE_MODE = "live"`.
 
