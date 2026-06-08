@@ -798,6 +798,13 @@ describe("scan_experience (B1)", () => {
   const themeA = (): Float32Array => { const v = new Float32Array(768); v[0] = 1; return v; };
   const distinct = (): Float32Array => { const v = new Float32Array(768); v[1] = 1; return v; };
 
+  // Route every scan_experience shadow-log write in this suite into the per-test temp dir, so the
+  // tests never append to the real ~/.claude-data/experience-shadow.jsonl. Runs after the top-level
+  // beforeEach that (re)assigns `config`, so this mutation lands on the current test's config.
+  beforeEach(() => {
+    (config as IndexerConfig & { shadowLogPath?: string }).shadowLogPath = join(workDir, "experience-shadow.jsonl");
+  });
+
   it("clusters unpromoted episodes from vectors read back out of vec_items", () => {
     const a = writeEpisode("01", false);
     const b = writeEpisode("02", false);
