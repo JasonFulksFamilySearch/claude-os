@@ -835,6 +835,26 @@ describe("scan_experience (B1)", () => {
     expect(clusters).toHaveLength(1);
     expect(clusters[0].size).toBe(3);
   });
+
+  it("surfaces value_score on EpisodeRecord when present, undefined when absent", () => {
+    const dir = episodesDir();
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "2026-06-10.md"),
+      `---\ndate: 2026-06-10\nsession_id: sess-10\npromoted: false\nvalue_score: 3\n---\n\n## Summary\nscored\n`,
+      "utf8",
+    );
+    writeFileSync(
+      join(dir, "2026-06-11.md"),
+      `---\ndate: 2026-06-11\nsession_id: sess-11\npromoted: false\n---\n\n## Summary\nunscored\n`,
+      "utf8",
+    );
+    const entries = listEpisodesImpl({}, episodesDir());
+    const scored = entries.find((e) => e.session_id === "sess-10")!;
+    const unscored = entries.find((e) => e.session_id === "sess-11")!;
+    expect(scored.value_score).toBe(3);
+    expect(unscored.value_score).toBeUndefined();
+  });
 });
 
 describe("validate_experience_proposal (B1, gate 1)", () => {
