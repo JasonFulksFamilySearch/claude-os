@@ -15,6 +15,10 @@ import {
   EXPERIENCE_CLUSTER_COSINE,
   EXPERIENCE_MIN_CLUSTER_SIZE,
   EXPERIENCE_MAX_EPISODES,
+  EXPERIENCE_MIN_EPISODE_VALUE,
+  EXPERIENCE_MIN_CLUSTER_VALUE,
+  EXPERIENCE_VALUE_GATE_MODE,
+  EXPERIENCE_VALUE_FEATURE_DATE,
 } from "../src/search_config.js";
 
 describe("search_config constants", () => {
@@ -73,5 +77,17 @@ describe("experience synthesis (B1) constants", () => {
 
   it("sets a minimum cluster size that can satisfy /grade-proposal's 3-session evidence band", () => {
     expect(EXPERIENCE_MIN_CLUSTER_SIZE).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("experience value-gate config", () => {
+  it("ships inert: both thresholds null and mode shadow", () => {
+    expect(EXPERIENCE_MIN_EPISODE_VALUE).toBeNull();
+    expect(EXPERIENCE_MIN_CLUSTER_VALUE).toBeNull();
+    expect(EXPERIENCE_VALUE_GATE_MODE).toBe("shadow");
+  });
+
+  it("carries an ISO feature-ship date for shadow bucketing", () => {
+    expect(EXPERIENCE_VALUE_FEATURE_DATE).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });
