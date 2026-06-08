@@ -878,6 +878,60 @@ describe("scan_experience (B1)", () => {
     expect(scored.value_score).toBe(3);
     expect(unscored.value_score).toBeUndefined();
   });
+
+  it("shadow mode never excludes, even below a live threshold", () => {
+    const dir = episodesDir(); mkdirSync(dir, { recursive: true });
+    const mk = (slug: string, v?: number) => {
+      const p = join(dir, `2026-06-${slug}.md`);
+      const vs = v === undefined ? "" : `value_score: ${v}\n`;
+      writeFileSync(p, `---\ndate: 2026-06-${slug}\nsession_id: sess-${slug}\npromoted: false\n${vs}---\n\n## Summary\ns\n`, "utf8");
+      return p;
+    };
+    seed(mk("01", 0), themeA()); seed(mk("02", 0), themeA()); seed(mk("03", 0), themeA());
+    const { clusters } = scanExperience(db, {}, config); // config default = shadow
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0].size).toBe(3);
+  });
+
+  it("a keyless episode is never excluded even in live mode", () => {
+    const dir = episodesDir(); mkdirSync(dir, { recursive: true });
+    const mk = (slug: string, v?: number) => {
+      const p = join(dir, `2026-06-${slug}.md`);
+      const vs = v === undefined ? "" : `value_score: ${v}\n`;
+      writeFileSync(p, `---\ndate: 2026-06-${slug}\nsession_id: sess-${slug}\npromoted: false\n${vs}---\n\n## Summary\ns\n`, "utf8");
+      return p;
+    };
+    seed(mk("01", 4), themeA()); seed(mk("02", 4), themeA()); seed(mk("03"), themeA()); // 03 keyless
+    const live = { ...config, valueGate: { mode: "live" as const, minEpisode: 2, minCluster: 2 } };
+    const { clusters } = scanExperience(db, {}, live);
+    expect(clusters[0].members.map((m) => m.session_id)).toContain("sess-03");
+  });
+
+  it("live mode drops a cluster whose every scored member is below the floor", () => {
+    const dir = episodesDir(); mkdirSync(dir, { recursive: true });
+    const mk = (slug: string, v: number) => {
+      const p = join(dir, `2026-06-${slug}.md`);
+      writeFileSync(p, `---\ndate: 2026-06-${slug}\nsession_id: sess-${slug}\npromoted: false\nvalue_score: ${v}\n---\n\n## Summary\ns\n`, "utf8");
+      return p;
+    };
+    seed(mk("01", 1), themeA()); seed(mk("02", 1), themeA()); seed(mk("03", 1), themeA());
+    const live = { ...config, valueGate: { mode: "live" as const, minEpisode: null, minCluster: 3 } };
+    const { clusters } = scanExperience(db, {}, live);
+    expect(clusters).toHaveLength(0);
+  });
+
+  it("max-aggregation: one high-value member rescues its cluster in live mode", () => {
+    const dir = episodesDir(); mkdirSync(dir, { recursive: true });
+    const mk = (slug: string, v: number) => {
+      const p = join(dir, `2026-06-${slug}.md`);
+      writeFileSync(p, `---\ndate: 2026-06-${slug}\nsession_id: sess-${slug}\npromoted: false\nvalue_score: ${v}\n---\n\n## Summary\ns\n`, "utf8");
+      return p;
+    };
+    seed(mk("01", 4), themeA()); seed(mk("02", 1), themeA()); seed(mk("03", 1), themeA());
+    const live = { ...config, valueGate: { mode: "live" as const, minEpisode: null, minCluster: 3 } };
+    const { clusters } = scanExperience(db, {}, live);
+    expect(clusters).toHaveLength(1);
+  });
 });
 
 describe("validate_experience_proposal (B1, gate 1)", () => {

@@ -4,7 +4,12 @@ import { z } from "zod";
 import { defaultConfig, type IndexerConfig } from "../indexer.js";
 import { listEpisodeFiles } from "../episodes.js";
 import { clusterByEmbedding } from "../experience.js";
-import { EXPERIENCE_MAX_EPISODES } from "../search_config.js";
+import {
+  EXPERIENCE_MAX_EPISODES,
+  EXPERIENCE_MIN_EPISODE_VALUE,
+  EXPERIENCE_MIN_CLUSTER_VALUE,
+  EXPERIENCE_VALUE_GATE_MODE,
+} from "../search_config.js";
 
 export const scanExperienceInput = z.object({
   project: z.string().optional(),
@@ -51,6 +56,35 @@ export const scanExperienceDefinition = {
   },
 };
 
+export interface ValueGateOptions {
+  mode: "shadow" | "live";
+  minEpisode: number | null;
+  minCluster: number | null;
+}
+
+function resolveValueGate(config: IndexerConfig & { valueGate?: ValueGateOptions }): ValueGateOptions {
+  return (
+    config.valueGate ?? {
+      mode: EXPERIENCE_VALUE_GATE_MODE,
+      minEpisode: EXPERIENCE_MIN_EPISODE_VALUE,
+      minCluster: EXPERIENCE_MIN_CLUSTER_VALUE,
+    }
+  );
+}
+
+// Excluded only if it HAS a score strictly below the floor. Absent score => kept.
+function episodeBelowFloor(v: number | undefined, floor: number | null): boolean {
+  return floor !== null && typeof v === "number" && v < floor;
+}
+
+// Cluster value = max over scored members; no scored members => "unknown" => kept.
+function clusterBelowFloor(memberValues: (number | undefined)[], floor: number | null): boolean {
+  if (floor === null) return false;
+  const scored = memberValues.filter((v): v is number => typeof v === "number");
+  if (scored.length === 0) return false;
+  return Math.max(...scored) < floor;
+}
+
 // sqlite-vec vec0 stores the embedding as raw little-endian float32 bytes (what serializeVector
 // wrote). Read them back into a Float32Array, honoring the Buffer's offset into its backing store.
 function deserializeVector(blob: Buffer): Float32Array {
@@ -66,10 +100,21 @@ export function scanExperience(
   const episodesDir = join(config.dataRoot, "episodes");
 
   // 1. The backlog = unpromoted episodes (most-recent first), capped for cost.
+  const gate = resolveValueGate(config as IndexerConfig & { valueGate?: ValueGateOptions });
   const backlog = listEpisodeFiles(episodesDir, { promoted: false, project: args.project });
   backlog.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
   const cap = args.max_episodes ?? EXPERIENCE_MAX_EPISODES;
-  const episodes = backlog.slice(0, cap);
+  const ordered =
+    backlog.length > cap
+      ? backlog
+          .slice()
+          .sort(
+            (a, b) =>
+              (b.value_score ?? -1) - (a.value_score ?? -1) ||
+              (a.date < b.date ? 1 : a.date > b.date ? -1 : 0),
+          )
+      : backlog;
+  const episodes = ordered.slice(0, cap);
 
   // 2. Resolve each episode's pre-computed embedding from vec_items (no re-embedding). Episodes
   //    not yet indexed/embedded are skipped — a missing vector is never fatal.
@@ -83,23 +128,26 @@ export function scanExperience(
     // BigInt: sqlite-vec vec0 PKs must bind as INTEGER; better-sqlite3 sends numbers as FLOAT.
     const row = vecStmt.get(BigInt(obs.id)) as { embedding: Buffer } | undefined;
     if (!row || !row.embedding) continue;
+    if (gate.mode === "live" && episodeBelowFloor(ep.value_score, gate.minEpisode)) continue;
     members.push(ep);
     vectors.push(deserializeVector(row.embedding as Buffer));
   }
 
   // 3. Cluster by theme and shape the output. Singletons / sub-minimum clusters are dropped.
-  const clusters = clusterByEmbedding(members, vectors);
-  return {
-    clusters: clusters.map((c) => ({
-      size: c.members.length,
-      cohesion: c.cohesion,
-      members: c.members.map((ep) => ({
-        path: ep.path,
-        session_id: ep.session_id,
-        date: ep.date,
-        summary: ep.summary,
-        value_score: ep.value_score,
-      })),
+  const shaped = clusterByEmbedding(members, vectors).map((c) => ({
+    size: c.members.length,
+    cohesion: c.cohesion,
+    members: c.members.map((ep) => ({
+      path: ep.path,
+      session_id: ep.session_id,
+      date: ep.date,
+      summary: ep.summary,
+      value_score: ep.value_score,
     })),
-  };
+  }));
+  const clusters =
+    gate.mode === "live"
+      ? shaped.filter((c) => !clusterBelowFloor(c.members.map((m) => m.value_score), gate.minCluster))
+      : shaped;
+  return { clusters };
 }
