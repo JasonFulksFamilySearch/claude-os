@@ -18,3 +18,8 @@ test('parseFrontmatter still drops unknown keys', () => {
   const fm = parseFrontmatter('---\ndate: 2026-06-08\nbogus: x\n---\nbody\n');
   assert.strictEqual(fm.bogus, undefined);
 });
+
+test('parseFrontmatter drops an out-of-range value_score (treated as unknown)', () => {
+  const fm = parseFrontmatter('---\ndate: 2026-06-08\nvalue_score: 99\n---\nbody\n');
+  assert.strictEqual(fm.value_score, undefined);
+});

@@ -36,7 +36,7 @@ export interface ExperienceCluster {
 export const scanExperienceDefinition = {
   name: "scan_experience",
   description:
-    "Cross-session experience synthesis (mechanical step). Clusters the UNPROMOTED episode backlog by thematic similarity, reusing each episode's pre-computed whole-body embedding from the vector index (no re-embedding), and returns the clusters with their member episodes (path, session_id, date, summary). It performs NO LLM synthesis and persists nothing — /experience-synthesis distills each returned cluster into a candidate learning, runs it through the grounding/grade/adversarial gates, and only then proposes it for human-gated promotion. Clusters smaller than the configured minimum are dropped.",
+    "Cross-session experience synthesis (mechanical step). Clusters the UNPROMOTED episode backlog by thematic similarity, reusing each episode's pre-computed whole-body embedding from the vector index (no re-embedding), and returns the clusters with their member episodes (path, session_id, date, summary). It performs NO LLM synthesis and persists no memory, but best-effort-appends one telemetry line per run to a shadow log (~/.claude-data/experience-shadow.jsonl) recording what the value gate would drop — /experience-synthesis distills each returned cluster into a candidate learning, runs it through the grounding/grade/adversarial gates, and only then proposes it for human-gated promotion. Clusters smaller than the configured minimum are dropped.",
   inputSchema: {
     type: "object" as const,
     properties: {

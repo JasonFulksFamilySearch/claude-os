@@ -82,7 +82,10 @@ export function listEpisodeFiles(
         turns: typeof d.turns === "number" ? d.turns : null,
         promoted,
         value_score:
-          typeof d.value_score === "number" && Number.isInteger(d.value_score) ? d.value_score : undefined,
+          typeof d.value_score === "number" && Number.isInteger(d.value_score) &&
+          d.value_score >= 0 && d.value_score <= 4
+            ? d.value_score
+            : undefined,
         summary: extractSummary(parsed.content),
         path,
       });

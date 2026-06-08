@@ -40,6 +40,11 @@ function parseFrontmatter(content) {
     else if (/^\d+$/.test(val)) data[key] = parseInt(val, 10);
     else if (val.length > 0) data[key] = val;
   }
+  // Clamp value_score to the 0–4 rubric range; out-of-range values are treated
+  // as unknown (absence), consistent with "absence ≠ low" — never a bogus value.
+  if ('value_score' in data && !(Number.isInteger(data.value_score) && data.value_score >= 0 && data.value_score <= 4)) {
+    delete data.value_score; // out-of-range or non-int → unknown (absence), never a bogus value
+  }
   return data;
 }
 

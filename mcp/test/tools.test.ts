@@ -1013,6 +1013,17 @@ describe("scan_experience (B1)", () => {
     expect(shadowIds).not.toEqual(liveIds);
   });
 
+  it("treats an out-of-range value_score as unknown (not a literal 99)", () => {
+    const dir = episodesDir(); mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "2026-06-20.md"),
+      `---\ndate: 2026-06-20\nsession_id: sess-20\npromoted: false\nvalue_score: 99\n---\n\n## Summary\ns\n`,
+      "utf8",
+    );
+    const entries = listEpisodesImpl({}, episodesDir());
+    expect(entries.find((e) => e.session_id === "sess-20")!.value_score).toBeUndefined();
+  });
+
   it("appends one shadow-log line per run with a bucketed histogram", () => {
     const dir = episodesDir(); mkdirSync(dir, { recursive: true });
     const shadowPath = join(workDir, "experience-shadow.jsonl");
