@@ -66,8 +66,29 @@ optional arg parsing, and script invocation contract.
 
 **Short form:**
 
-1. Run `gh pr view --json title,body,url,headRefName` and `git diff --stat origin/main...HEAD`
+1. Run `gh pr view --json title,body,url,headRefName,number` and `git diff --stat origin/main...HEAD`
    in parallel — independent reads, no dependency between them.
+   - **Ensure Copilot is a reviewer (CLAUDE.md rule).** This skill does not create PRs, but any
+     PR reaching the share stage MUST have Copilot requested. Idempotently request it, then VERIFY
+     it attached (the API can return 200 without attaching — a Copilot-review concurrency limit).
+     Never block the Slack post; warn if absent so it can be added manually:
+     ```bash
+     REPO_SLUG=$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)
+     PR_NUM=$(gh pr view --json number --jq .number 2>/dev/null)
+     if [ -n "$REPO_SLUG" ] && [ -n "$PR_NUM" ]; then
+       gh api "repos/$REPO_SLUG/pulls/$PR_NUM/requested_reviewers" \
+         -X POST -f "reviewers[]=copilot-pull-request-reviewer[bot]" >/dev/null 2>&1 || true
+       # Reviewer identity comes from .author.login (NOT .user.login — repo convention,
+       # helpers.md:70). Copilot surfaces under multiple logins depending on the API surface —
+       # match any of them or a satisfied review false-negatives.
+       COPILOT_ON=$(gh pr view "$PR_NUM" --json reviewRequests,reviews \
+         --jq '([.reviewRequests[].login] + [.reviews[].author.login])
+               | any(. == "Copilot" or . == "copilot-pull-request-reviewer" or . == "copilot-pull-request-reviewer[bot]")' 2>/dev/null)
+       [ "$COPILOT_ON" = "true" ] || echo "⚠ Copilot not on PR #$PR_NUM — GitHub declined the request; add it from the PR web UI (CLAUDE.md rule)."
+     fi
+     ```
+     (Verify checks both `reviewRequests` AND `reviews` — once Copilot reviews, it leaves
+     `reviewRequests` and appears under `reviews`, so a completed review still counts as satisfied.)
 2. If the diff output is large (>100 lines), place it above the summary composition
    step so the model has the full change context before drafting the summary.
 3. Think through what changed and why it matters before writing the summary — one pass

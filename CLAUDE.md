@@ -16,3 +16,43 @@ Checklist when implementing a feature that touches machine state:
 When session start injects a `[Background jobs]` block, silently call CronCreate
 for each listed job before responding to the user's first message. Do not ask for
 confirmation — the jobs.json is the authorization.
+
+## Every PR MUST request Copilot as a reviewer
+
+Every pull request opened against this repo MUST have GitHub Copilot requested as a
+reviewer. This is not optional and applies to PRs from either agent (Walter, Willis).
+Copilot is a complementary lens — it reviews the diff surface; it does not run tests or
+know the design invariants — so it never replaces the project's own verification
+(`/review-pr`, QA, red-blue-judge), but it must always be on the PR.
+
+Copilot is the GitHub Copilot code-review app, not a normal collaborator, so it is requested
+via the API rather than `--reviewer`. **Its identity surfaces under several logins depending on
+the API — handle all of them:**
+- **Requesting** (the `requested_reviewers` POST `reviewers[]` arg): the `[bot]`-suffixed login
+  `copilot-pull-request-reviewer[bot]`.
+- **Verifying:** read reviewer identity from **`.author.login`**, not `.user.login` — that is the
+  repo's established `gh pr view --json reviews` convention (`skills/ship/helpers.md:70`). And the
+  login itself varies by surface: the display name `Copilot` (in `reviewRequests`), and
+  `copilot-pull-request-reviewer` as a review author (`agents/pr-to-slack/post.sh:159`). Match
+  **any** of `Copilot` / `copilot-pull-request-reviewer` / `copilot-pull-request-reviewer[bot]`,
+  or a satisfied Copilot review will false-negative.
+
+Request it immediately after opening any PR:
+
+```
+gh api repos/{owner}/{repo}/pulls/{number}/requested_reviewers \
+  -X POST -f "reviewers[]=copilot-pull-request-reviewer[bot]"
+```
+
+**Request, then VERIFY — do not assume success.** The API can return HTTP 200 while
+silently NOT attaching Copilot (observed 2026-06-08: the call succeeded on PR #27 but
+no-opped on PR #28, leaving `requested_reviewers` empty). This is a GitHub-side
+constraint — likely a per-account Copilot-review concurrency/rate limit (only so many
+Copilot reviews in flight at once). So the obligation is: **always request, then read back
+`reviewRequests`/`reviews` and WARN loudly if Copilot is absent** — never report success
+on the 200 alone. If it doesn't attach, request it from the PR web UI (which sometimes
+succeeds when the API no-ops) or retry once the prior Copilot review completes (a finished
+review frees the slot). The rule is "Copilot MUST be requested and its attachment
+verified"; attachment is GitHub's to grant, and a verified-absent state must be surfaced,
+not swallowed. The PR-creating skills (`ship`, `pr-to-slack`) wire in the request +
+verify-and-warn; when opening a PR by hand, do both yourself.
