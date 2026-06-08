@@ -19,7 +19,10 @@ function todayLocal() {
 // Only accepts the known episode schema keys; silently drops all others.
 // This prevents prototype-pollution and injection of unexpected keys from
 // episode files into the session-start-check filter logic.
-const ALLOWED_FM_KEYS = new Set(['date', 'session_id', 'project', 'turns', 'promoted']);
+const ALLOWED_FM_KEYS = new Set([
+  'date', 'session_id', 'project', 'turns', 'promoted',
+  'value_score', 'value_source', 'value_rubric_version', 'value_model',
+]);
 
 function parseFrontmatter(content) {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
