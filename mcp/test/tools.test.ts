@@ -968,6 +968,51 @@ describe("scan_experience (B1)", () => {
     expect(live.clusters[0]?.members.map((m) => m.session_id)).toContain("sess-03");
   });
 
+  it("shadow mode preserves recency order over the cap (inert); live mode value-prioritizes", () => {
+    // 5 themeA episodes, dates 01..05. Values deliberately make recency and value DISAGREE:
+    //   01=4 (oldest, highest), 02=4, 03=0, 04=0, 05=undefined (newest, keyless).
+    // With max_episodes=3:
+    //   SHADOW: strict recency → keeps the 3 most recent: 05, 04, 03.
+    //   LIVE:   value-sort with absent=VALUE_MAX(4) → ranking is 05(4), 02(4), 01(4), 03(0), 04(0);
+    //           recency tiebreak within same score: top 3 = 05, 02, 01.
+    // Both considered sets have 3 identical-theme episodes → EXPERIENCE_MIN_CLUSTER_SIZE=3 → cluster forms.
+    const dir = episodesDir(); mkdirSync(dir, { recursive: true });
+    const mk = (slug: string, v?: number) => {
+      const p = join(dir, `2026-06-${slug}.md`);
+      const vs = v === undefined ? "" : `value_score: ${v}\n`;
+      writeFileSync(p, `---\ndate: 2026-06-${slug}\nsession_id: sess-${slug}\npromoted: false\n${vs}---\n\n## Summary\ns\n`, "utf8");
+      return p;
+    };
+    seed(mk("01", 4), themeA()); // oldest, value=4
+    seed(mk("02", 4), themeA()); // value=4
+    seed(mk("03", 0), themeA()); // value=0
+    seed(mk("04", 0), themeA()); // value=0
+    seed(mk("05"),    themeA()); // newest, keyless (no value_score)
+
+    const shadow = scanExperience(db, { max_episodes: 3 }, config); // shadow (default mode)
+    const liveCfg = { ...config, valueGate: { mode: "live" as const, minEpisode: null, minCluster: null } };
+    const live = scanExperience(db, { max_episodes: 3 }, liveCfg);
+
+    const memberIds = (r: { clusters: { members: { session_id: string | null }[] }[] }) =>
+      (r.clusters[0]?.members ?? []).map((m) => m.session_id).sort();
+
+    // Shadow: recency-only cap → {03, 04, 05} kept; {01, 02} evicted.
+    const shadowIds = memberIds(shadow);
+    expect(shadowIds).toEqual(["sess-03", "sess-04", "sess-05"]);
+
+    // Live: value-aware cap with absent=top-band → {01(=4), 02(=4), 05(absent→4)} kept; {03(=0), 04(=0)} evicted.
+    const liveIds = memberIds(live);
+    expect(liveIds).toEqual(["sess-01", "sess-02", "sess-05"]);
+
+    // Absence ≠ low: keyless sess-05 survives the live cap while value-0 sess-03/sess-04 are evicted.
+    expect(liveIds).toContain("sess-05");
+    expect(liveIds).not.toContain("sess-03");
+    expect(liveIds).not.toContain("sess-04");
+
+    // Shadow and live considered sets must differ (the gate is active over the cap).
+    expect(shadowIds).not.toEqual(liveIds);
+  });
+
   it("appends one shadow-log line per run with a bucketed histogram", () => {
     const dir = episodesDir(); mkdirSync(dir, { recursive: true });
     const shadowPath = join(workDir, "experience-shadow.jsonl");

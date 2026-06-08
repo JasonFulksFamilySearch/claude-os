@@ -105,15 +105,18 @@ export function scanExperience(
   const backlog = listEpisodeFiles(episodesDir, { promoted: false, project: args.project });
   backlog.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
   const cap = args.max_episodes ?? EXPERIENCE_MAX_EPISODES;
+  // Cap selection. SHADOW mode is byte-identical to pre-feature (strict recency). LIVE mode, when
+  // over capacity, prioritizes by value — but an ABSENT score is "unknown, not low": it ranks with
+  // the top band (treated as max) so a keyless episode is never evicted in favour of a scored-low
+  // one (absence ≠ low). Below the cap, both modes return the recency-ordered backlog unchanged.
+  const VALUE_MAX = 4;
   const ordered =
-    backlog.length > cap
-      ? backlog
-          .slice()
-          .sort(
-            (a, b) =>
-              (b.value_score ?? -1) - (a.value_score ?? -1) ||
-              (a.date < b.date ? 1 : a.date > b.date ? -1 : 0),
-          )
+    gate.mode === "live" && backlog.length > cap
+      ? backlog.slice().sort(
+          (a, b) =>
+            (b.value_score ?? VALUE_MAX) - (a.value_score ?? VALUE_MAX) ||
+            (a.date < b.date ? 1 : a.date > b.date ? -1 : 0),
+        )
       : backlog;
   const episodes = ordered.slice(0, cap);
 
@@ -152,26 +155,34 @@ export function scanExperience(
       : shaped;
 
   const cfg = config as IndexerConfig & { shadowLogPath?: string; runTs?: string };
-  const allMembers: ShadowMember[] = episodes.map((ep) => ({ date: ep.date, value_score: ep.value_score }));
-  writeShadowRecord(
-    {
-      run_ts: cfg.runTs ?? new Date().toISOString(),
-      gate_mode: gate.mode,
-      rubric_version: "v1",
-      episodes_considered: episodes.length,
-      value_histogram: buildHistogram(allMembers),
-      would_exclude_episodes: episodes
-        .filter((ep) => episodeBelowFloor(ep.value_score, gate.minEpisode))
-        .map((ep) => ep.path),
-      would_exclude_clusters: shaped
-        .filter((c) => clusterBelowFloor(c.members.map((m) => m.value_score), gate.minCluster))
-        .map((c) => {
-          const scored = c.members.map((m) => m.value_score).filter((v): v is number => typeof v === "number");
-          return { size: c.size, max_member_value: scored.length ? Math.max(...scored) : null };
-        }),
-    },
-    cfg.shadowLogPath ?? DEFAULT_SHADOW_LOG,
-  );
+  try {
+    const allMembers: ShadowMember[] = episodes.map((ep) => ({ date: ep.date, value_score: ep.value_score }));
+    // Note: in shadow mode `shaped` is clustered from the FULL member set (the episode floor only
+    // skips in live mode), so `would_exclude_clusters` projects the cluster-floor effect but NOT the
+    // combined effect of also applying the episode floor pre-clustering. This is a known fidelity
+    // caveat for the eventual floor-tuning phase — shadow clusters are a superset of live clusters.
+    writeShadowRecord(
+      {
+        run_ts: cfg.runTs ?? new Date().toISOString(),
+        gate_mode: gate.mode,
+        rubric_version: "v1",
+        episodes_considered: episodes.length,
+        value_histogram: buildHistogram(allMembers),
+        would_exclude_episodes: episodes
+          .filter((ep) => episodeBelowFloor(ep.value_score, gate.minEpisode))
+          .map((ep) => ep.path),
+        would_exclude_clusters: shaped
+          .filter((c) => clusterBelowFloor(c.members.map((m) => m.value_score), gate.minCluster))
+          .map((c) => {
+            const scored = c.members.map((m) => m.value_score).filter((v): v is number => typeof v === "number");
+            return { size: c.size, max_member_value: scored.length ? Math.max(...scored) : null };
+          }),
+      },
+      cfg.shadowLogPath ?? DEFAULT_SHADOW_LOG,
+    );
+  } catch {
+    // shadow logging is diagnostic; never let it break synthesis
+  }
 
   return { clusters };
 }
