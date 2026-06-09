@@ -41,11 +41,11 @@ orchestration overhead. The settling watch exists specifically to close the
 "you gave up too soon" gap where bots and reviewers comment after CI goes green.
 
 **Hard constraints:**
-- Stop and write the Final Report at the first failure in any phase. No silent skipping.
-- Never push without a successful commit. Never commit without passing pre-flight.
-- Never use `--no-verify` or bypass hooks unless the user explicitly passes the flag.
-- Sub-agents (Phase 4c) must only edit files referenced in the new comments. No drive-by fixes.
-- All phases use authenticated `gh` and `git` — no raw GitHub API tokens in output.
+- Stop and write the Final Report at the first failure in any phase, because silent skipping hides which gate actually broke.
+- Never push without a successful commit, and never commit without passing pre-flight, so that broken code can never reach the remote.
+- Never use `--no-verify` or bypass hooks unless the user explicitly passes the flag, to avoid shipping code the hooks never validated.
+- Sub-agents (Phase 4c) must only edit files referenced in the new comments, to avoid drive-by changes outside the reviewed scope.
+- All phases use authenticated `gh` and `git` so that no raw GitHub API tokens ever appear in output.
 - Reversible actions (the local-only sync merge, pre-flight checks, staging) run autonomously. The irreversible/outward actions — `git push`, `gh pr create`, and the Slack post — also run autonomously **by design** (this is a fire-and-forget pipeline), gated behind quality checks rather than confirmation prompts. `--no-slack`, `--no-watch`, and `--draft` are the user's control surface over those actions.
 
 Think step by step through Phase 0 (orient + sync) before proceeding to pre-flight.
@@ -56,7 +56,6 @@ Verify the branch name, ticket, and base ref are resolved before starting Phase 
 Run quality pre-flight checks, commit, push, wait for CI, then enter a post-CI **settling watch** that polls for late Copilot / SonarQube / reviewer comments before posting to Slack.
 You are orchestrating a multi-step pipeline. **Stop and report clearly at the first failure.**
 Do not proceed to the next phase if the current phase fails.
-</instructions>
 
 > **Note:** Slack post fires after the settling watch completes — typically 20–30 minutes after CI green on a quiet PR, longer if reviewer feedback triggers an addressing cycle. Use `--no-watch` to fall back to the legacy "Slack on CI green" behavior.
 
@@ -65,8 +64,8 @@ Do not proceed to the next phase if the current phase fails.
 `$ARGUMENTS`
 
 Supported flags (any order, all optional):
-- `--no-slack` — push and wait for CI but skip the Slack post even on success
-- `--no-watch` — skip the post-CI settling watch (Phase 4b/4c). On CI green, jump straight to Phase 5 like the legacy behavior. Useful for hotfixes or low-stakes PRs.
+- `--no-slack` — push and wait for CI but skip the Slack post even on success, so a quiet ship does not ping the team.
+- `--no-watch` — skip the post-CI settling watch (Phase 4b/4c) so that, on CI green, ship jumps straight to Phase 5 like the legacy behavior — useful for hotfixes or low-stakes PRs.
 - `--draft` — when ship creates the PR (Phase 3.5), open it as a **draft** instead of ready-for-review. No effect if a PR already exists. Note that a draft PR suppresses Copilot review and reviewer auto-assignment, so the Phase 4b settling watch will have little to do.
 - `--skip-sync` — skip the Phase 0.5 base-branch sync. Use only if you know the branch is already current with base or you have a reason to ship without merging in base changes.
 - `--skip-lint` — skip linting phase
@@ -559,6 +558,8 @@ Skip this phase if `--no-slack` was passed.
 Invoke the `/pr-to-slack` skill to post the PR to #arc-team-devs.
 
 ---
+
+</instructions>
 
 <examples>
 <example label="happy-path">
