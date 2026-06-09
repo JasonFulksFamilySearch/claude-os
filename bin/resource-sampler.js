@@ -54,8 +54,9 @@ function isSelf(cmd) { return /resource-sampler\.js/.test(cmd); }
 // otherwise it's an incidental child (caffeinate, Claude's internal node helpers, shells).
 function isMcpServer(cmd) {
   for (const k of KNOWN_MCP) if (cmd.includes(k.match)) return true;
-  if (/mcp/i.test(cmd)) return true;                         // mcp-sonarqube, slack-mcp-server, .../mcp/dist/...
-  if (/\b(?:npm exec|npx)\s+\S*mcp/i.test(cmd)) return true; // npx of an mcp package
+  if (/mcp/i.test(cmd)) return true;                              // mcp-sonarqube, slack-mcp-server, .../mcp/dist/...
+  if (/@modelcontextprotocol\//.test(cmd)) return true;           // official MCP servers (no literal "mcp" in the name)
+  if (/\b(?:npm exec|npx|uvx)\s+\S*mcp/i.test(cmd)) return true;  // npx/uvx of an mcp package
   return false;
 }
 
@@ -69,8 +70,12 @@ function normalizeServerName(n) {
 
 function mcpName(cmd) {
   for (const k of KNOWN_MCP) if (cmd.includes(k.match)) return k.name;
-  let m = cmd.match(/(?:npm exec|npx)\s+(@?[\w./-]+)/);
-  if (m) return normalizeServerName(m[1]);
+  // launched via npm exec / npx / uvx: take the first NON-flag token (the package, not a `-y` flag).
+  let m = cmd.match(/(?:npm exec|npx|uvx)\s+(.+)/);
+  if (m) {
+    const pkg = m[1].split(/\s+/).find((t) => t && !t.startsWith('-'));
+    if (pkg) return normalizeServerName(pkg);
+  }
   m = cmd.match(/\/([^/\s]+)\/dist\/index\.[mc]?[jt]s\b/)          // <dir>/dist/index.{js,ts,mjs,cjs}
     || cmd.match(/\/([^/\s]+)\/index\.[mc]?[jt]s\b/);              // <dir>/index.{js,ts,…} e.g. harness-fme-mcp/index.js
   if (m) return normalizeServerName(m[1]);
@@ -210,11 +215,12 @@ function collectAndAppend() {
   try {
     if (fs.existsSync(file) && fs.statSync(file).size > RUNAWAY_BYTES) return; // wait for rotation
     const row = buildSample({
-      psText: sh('ps', ['-axo', 'pid,ppid,rss,pcpu,etime,command']),
-      vmStatText: sh('vm_stat', []),
-      swapText: sh('sysctl', ['vm.swapusage']),
-      loadText: sh('sysctl', ['-n', 'vm.loadavg']),
-      memsizeText: sh('sysctl', ['-n', 'hw.memsize']),
+      // Absolute paths: launchd runs with a minimal PATH that omits /usr/sbin (where sysctl lives).
+      psText: sh('/bin/ps', ['-axo', 'pid,ppid,rss,pcpu,etime,command']),
+      vmStatText: sh('/usr/bin/vm_stat', []),
+      swapText: sh('/usr/sbin/sysctl', ['vm.swapusage']),
+      loadText: sh('/usr/sbin/sysctl', ['-n', 'vm.loadavg']),
+      memsizeText: sh('/usr/sbin/sysctl', ['-n', 'hw.memsize']),
       host: os.hostname().split('.')[0],
       now: new Date(),
     });

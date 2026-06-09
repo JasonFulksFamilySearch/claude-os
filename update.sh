@@ -360,6 +360,72 @@ fi
 
 echo ""
 
+# ── Step 9: Resource-metrics sampler (launchd) ───────────────────────────────
+
+echo "--- Step 9: Resource-metrics sampler ---"
+
+SAMPLER_TEMPLATE="$REPO_DIR/config/launchd/com.claude-os.resource-metrics.plist.template"
+SAMPLER_PLIST="$HOME/Library/LaunchAgents/com.claude-os.resource-metrics.plist"
+SAMPLER_LABEL="com.claude-os.resource-metrics"
+SAMPLER_DOMAIN="gui/$(id -u)"
+# `node` is an nvm lazy-load shell function on this setup, so `command -v node` is unreliable —
+# ask node itself for its absolute path (process.execPath is always absolute).
+SAMPLER_NODE="$(node -e 'process.stdout.write(process.execPath)' 2>/dev/null || true)"
+
+if [ ! -f "$SAMPLER_TEMPLATE" ]; then
+    skip "No launchd template — skipping sampler install"
+elif [ -z "$SAMPLER_NODE" ] || [ ! -x "$SAMPLER_NODE" ]; then
+    warn "Could not resolve an absolute node path — skipping sampler install"
+elif ! command -v envsubst >/dev/null 2>&1; then
+    warn "envsubst not found (install via: brew install gettext) — skipping sampler install"
+else
+    mkdir -p "$HOME/Library/LaunchAgents" "$HOME/.claude-data/.logs"
+    SAMPLER_RENDERED="$(HOME="$HOME" NODE_BIN="$SAMPLER_NODE" LABEL="$SAMPLER_LABEL" \
+        envsubst '${HOME} ${NODE_BIN} ${LABEL}' < "$SAMPLER_TEMPLATE")"
+    if [ -f "$SAMPLER_PLIST" ] && [ "$SAMPLER_RENDERED" = "$(cat "$SAMPLER_PLIST")" ]; then
+        # plist unchanged — ensure it is actually loaded, else load it (no churn, no duplicate)
+        if launchctl print "$SAMPLER_DOMAIN/$SAMPLER_LABEL" >/dev/null 2>&1; then
+            skip "Sampler plist current and loaded"
+        elif launchctl bootstrap "$SAMPLER_DOMAIN" "$SAMPLER_PLIST" >/dev/null 2>&1; then
+            ok "Sampler loaded (plist was current)"
+        else
+            warn "Sampler plist current but launchctl bootstrap failed — load manually"
+        fi
+    else
+        # new or changed (e.g. node path drifted after an nvm upgrade) — rewrite and reload once
+        printf '%s' "$SAMPLER_RENDERED" > "$SAMPLER_PLIST"
+        launchctl bootout "$SAMPLER_DOMAIN/$SAMPLER_LABEL" >/dev/null 2>&1 || true
+        if launchctl bootstrap "$SAMPLER_DOMAIN" "$SAMPLER_PLIST" >/dev/null 2>&1; then
+            ok "Sampler plist written and (re)loaded → $SAMPLER_LABEL"
+        else
+            warn "Sampler plist written but launchctl bootstrap failed — load manually"
+        fi
+    fi
+fi
+
+echo ""
+
+# ── Step 10: Resource-sample rotation ────────────────────────────────────────
+
+echo "--- Step 10: Resource-sample rotation ---"
+
+METRICS_FILE="$HOME/.claude-data/metrics/resource-samples.jsonl"
+METRICS_MAX_BYTES=$((50 * 1024 * 1024))
+
+if [ ! -f "$METRICS_FILE" ]; then
+    skip "No resource-samples.jsonl yet"
+else
+    METRICS_SZ=$(stat -f%z "$METRICS_FILE" 2>/dev/null || echo 0)
+    if [ "$METRICS_SZ" -gt "$METRICS_MAX_BYTES" ]; then
+        mv -f "$METRICS_FILE" "${METRICS_FILE}.1"
+        ok "Rotated resource-samples.jsonl ($METRICS_SZ bytes > cap)"
+    else
+        skip "resource-samples.jsonl within size cap"
+    fi
+fi
+
+echo ""
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 echo "================================================"

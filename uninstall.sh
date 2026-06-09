@@ -146,9 +146,25 @@ remove_if_exists "$REPO_DIR/mcp/package-lock.json"
 
 echo ""
 
-# ── Step 4: Purge ~/.claude-data (opt-in) ─────────────────────────────────────
+# ── Step 4: Resource-metrics sampler (launchd) ────────────────────────────────
 
-echo "--- Step 4: User data ---"
+echo "--- Step 4: Resource-metrics sampler ---"
+
+SAMPLER_LABEL="com.claude-os.resource-metrics"
+SAMPLER_PLIST="$HOME/Library/LaunchAgents/com.claude-os.resource-metrics.plist"
+if [ -f "$SAMPLER_PLIST" ] || launchctl print "gui/$(id -u)/$SAMPLER_LABEL" >/dev/null 2>&1; then
+    launchctl bootout "gui/$(id -u)/$SAMPLER_LABEL" >/dev/null 2>&1 || true
+    rm -f "$SAMPLER_PLIST"
+    ok "Removed resource-metrics launchd agent (sample data in $DATA_DIR/metrics retained)"
+else
+    skip "Resource-metrics sampler not installed"
+fi
+
+echo ""
+
+# ── Step 5: Purge ~/.claude-data (opt-in) ─────────────────────────────────────
+
+echo "--- Step 5: User data ---"
 
 if [ "$PURGE_DATA" != "1" ]; then
     skip "$DATA_DIR preserved (pass --purge-data to also delete it)"

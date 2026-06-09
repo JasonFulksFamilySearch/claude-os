@@ -94,3 +94,16 @@ test('buildReport + renderMarkdown produce the six labelled sections', () => {
     assert.match(md, new RegExp(h, 'i'));
   }
 });
+
+test('buildReport filters non-sample rows (no totals/sys) instead of crashing (D3)', () => {
+  assert.doesNotThrow(() => buildReport(parseSamples('{"foo":1}\n{"bar":2}')));
+  assert.match(renderMarkdown(buildReport(parseSamples('{"foo":1}\n{"bar":2}'))), /No samples yet/);
+});
+
+test('biggestLever uses all-time history, not just the latest sample (D5)', () => {
+  const rows = [
+    sample([{ name: 'claude-os', rss_kib: 600000 }, { name: 'tdd-advisor', rss_kib: 150000 }]),
+    sample([{ name: 'tdd-advisor', rss_kib: 150000 }]), // claude-os absent from the latest sample
+  ];
+  assert.equal(biggestLever(rows).name, 'claude-os');
+});

@@ -69,23 +69,32 @@ function perMcpCost(rows, { recentWindow = RECENT_WINDOW } = {}) {
 }
 
 function biggestLever(rows) {
-  // aggregate = mean rss * mean concurrency (how many sessions run it at once)
-  const cost = perMcpCost(rows);
-  const concurrencyByName = new Map();
+  // All-time: the structural biggest reclaimable lever (e.g. claude-os MCP) shouldn't vanish when
+  // it's momentarily not running, so this scans full history rather than the recency-filtered
+  // perMcpCost (which intentionally reflects only the current footprint). aggregate = mean rss ×
+  // mean concurrency (how many sessions run it at once).
+  const stat = new Map(); // name -> {sum, n, concSum, concN}
   for (const r of rows) {
     const seen = new Map();
-    for (const s of r.sessions || []) for (const m of s.mcp || []) seen.set(m.name, (seen.get(m.name) || 0) + 1);
-    for (const [name, c] of seen) {
-      if (!concurrencyByName.has(name)) concurrencyByName.set(name, { sum: 0, n: 0 });
-      const x = concurrencyByName.get(name); x.sum += c; x.n += 1;
+    for (const s of r.sessions || []) for (const m of s.mcp || []) {
+      if (!stat.has(m.name)) stat.set(m.name, { sum: 0, n: 0, concSum: 0, concN: 0 });
+      const a = stat.get(m.name);
+      a.sum += m.rss_kib; a.n += 1;
+      seen.set(m.name, (seen.get(m.name) || 0) + 1);
+    }
+    for (const [name, conc] of seen) {
+      const a = stat.get(name);
+      a.concSum += conc; a.concN += 1;
     }
   }
   let top = null;
-  for (const c of cost) {
-    const conc = concurrencyByName.get(c.name);
-    const meanConc = conc ? conc.sum / conc.n : 1;
-    const aggregate = c.mean_kib * meanConc;
-    if (!top || aggregate > top.aggregate_kib) top = { name: c.name, aggregate_kib: aggregate, mean_kib: c.mean_kib, mean_concurrency: meanConc };
+  for (const [name, a] of stat) {
+    const meanRss = a.sum / a.n;
+    const meanConc = a.concN ? a.concSum / a.concN : 1;
+    const aggregate = meanRss * meanConc;
+    if (!top || aggregate > top.aggregate_kib) {
+      top = { name, aggregate_kib: aggregate, mean_kib: meanRss, mean_concurrency: meanConc };
+    }
   }
   return top || { name: null, aggregate_kib: 0 };
 }
@@ -96,14 +105,16 @@ function projectCeiling({ onset, slope_kib, intercept_kib, mem_total, free_floor
     return { ceiling: onset.onset_session_count, basis: 'observed-swap-onset' };
   }
   const budget = mem_total - free_floor_bytes;            // bytes
-  const interceptB = (intercept_kib || 0) * KIB;
+  const interceptB = Math.max(0, (intercept_kib || 0) * KIB); // a negative-intercept fit must not inflate N*
   const slopeB = (slope_kib || 0) * KIB;
   if (slopeB <= 0) return { ceiling: null, basis: 'indeterminate' };
   const n = Math.floor((budget - interceptB) / slopeB);
   return { ceiling: Math.max(0, n), basis: 'extrapolated-rss' };
 }
 
-function buildReport(rows) {
+function buildReport(allRows) {
+  // Tolerate junk / partial JSON lines: a sample row must carry both `totals` and `sys`.
+  const rows = (allRows || []).filter((r) => r && r.totals && r.sys);
   const latest = rows[rows.length - 1] || null;
   const sessionPoints = rows.map((r) => [r.totals.session_count, r.totals.claude_rss_kib + (r.totals.daemon_infra_rss_kib || 0)]);
   const reg = linearRegression(sessionPoints);
@@ -147,7 +158,11 @@ function renderMarkdown(rep) {
   lines.push(`- Active swapping now: ${rep.swapping_now ? 'YES — starving' : 'no'} · load ${L.sys.load1}`);
   lines.push('');
   lines.push('## Baseline & marginal cost');
-  lines.push(`- Baseline (intercept): ${gb(rep.baseline_kib)} GB`);
+  if (rep.baseline_kib < 0) {
+    lines.push(`- Baseline: not yet estimable — concurrency hasn't varied enough to fit an intercept (raw fit ${gb(rep.baseline_kib)} GB).`);
+  } else {
+    lines.push(`- Baseline (intercept): ${gb(rep.baseline_kib)} GB`);
+  }
   lines.push(`- Marginal per concurrent session: ${gb(rep.marginal_kib_per_session)} GB (R²=${rep.r2.toFixed(2)}, ${rep.rows_n} samples, max ${rep.max_observed_sessions} concurrent)`);
   lines.push('');
   lines.push('## Per-MCP-server cost (local stdio only; remote servers carry ~0 local RSS)');

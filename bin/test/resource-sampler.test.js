@@ -109,3 +109,21 @@ test('classifyProcesses names only MCP servers; incidental children go to other_
   assert.equal(s.other_rss_kib, 10000 + 50000);
   assert.equal(s.total_rss_kib, 500000 + 300000 + 120000 + 200000 + 10000 + 50000);
 });
+
+test('mcpName skips npx/uvx launcher flags; @modelcontextprotocol servers are recognized', () => {
+  const ps = [
+    '  PID  PPID    RSS  %CPU     ELAPSED COMMAND',
+    ' 600     1 500000   0.0    01:00:00 /Users/x/.local/bin/claude',
+    ' 610   600 100000   0.0    01:00:00 npx -y @playwright/mcp@latest',
+    ' 620   600 120000   0.0    01:00:00 uvx mcp-server-fetch',
+    ' 630   600 140000   0.0    01:00:00 node /Users/x/.npm/_npx/zz/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js /tmp',
+  ].join('\n');
+  const s = classifyProcesses(parsePs(ps)).sessions.find((x) => x.root_pid === 600);
+  const names = s.mcp.map((m) => m.name);
+  assert.equal(names.includes('-y'), false);    // D1: a flag must never become the server name
+  assert.equal(names.includes('uvx'), false);   // D1: the launcher must never become the server name
+  assert.equal(s.mcp.length, 3);                // D2: all three attributed, none dropped to other
+  assert.equal(s.other_rss_kib, 0);
+  assert.ok(names.includes('mcp-server-fetch'));  // uvx server named by its package
+  assert.ok(names.includes('server-filesystem')); // @modelcontextprotocol server recognized + named
+});
