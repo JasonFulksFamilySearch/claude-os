@@ -143,9 +143,61 @@ def check_a2_hard(values, skill_path):
     }
 
 
+def _tokenize_tools(raw):
+    """Split an allowed-tools value into tool specs, treating a Bash(...) /
+    Tool(...) parenthetical as ONE token even when it contains spaces (e.g.
+    'Bash(gh pr *)'). Splits on commas and on whitespace only at paren depth 0,
+    because the space form 'Bash(gh *)' is otherwise shredded into bogus tokens."""
+    toks, buf, depth = [], [], 0
+    for ch in raw:
+        if ch == "(":
+            depth += 1
+            buf.append(ch)
+        elif ch == ")":
+            depth = max(0, depth - 1)
+            buf.append(ch)
+        elif depth == 0 and (ch.isspace() or ch == ","):
+            if buf:
+                toks.append("".join(buf))
+                buf = []
+        else:
+            buf.append(ch)
+    if buf:
+        toks.append("".join(buf))
+    return [t for t in toks if t]
+
+
+def _tool_command(spec):
+    """Family + command-token-list for a tool spec.
+    'Bash(gh run rerun:*)' -> ('Bash', ['gh','run','rerun']);
+    'Bash(gh *)' -> ('Bash', ['gh']); 'mcp__x__y' -> ('mcp__x__y', [])."""
+    m = re.match(r"^([^(]+)\((.*)\)$", spec)
+    if not m:
+        return spec, []
+    family, inside = m.group(1), m.group(2)
+    cmd = inside.split(":", 1)[0]              # drop the ':*' arg-wildcard
+    toks = [t for t in re.split(r"\s+", cmd) if t and t != "*"]
+    return family, toks
+
+
+def _is_denied(declared, deny_entry):
+    """A declared tool is denied iff it exactly matches a deny entry, OR (for
+    parenthetical command tools) a denied command is a TOKEN-PREFIX of the
+    declared command — i.e. the declared grant falls entirely within a denied
+    pattern. 'Bash(awk *)' is denied by 'Bash(awk:*)'; 'Bash(gh *)' is NOT
+    denied by 'Bash(gh run rerun:*)' (the deny only narrows a broad allow)."""
+    if declared == deny_entry:
+        return True
+    df, dt = _tool_command(declared)
+    nf, nt = _tool_command(deny_entry)
+    if df != nf or not dt or not nt:
+        return False
+    return len(nt) <= len(dt) and dt[:len(nt)] == nt
+
+
 def check_e1_deny(values, settings_paths):
     declared_raw = values.get("allowed-tools", "")
-    declared = [t for t in re.split(r"[,\s]+", declared_raw) if t]
+    declared = _tokenize_tools(declared_raw)
     deny, files_found = [], []
     for p in settings_paths:
         p = os.path.expanduser(p)
@@ -157,8 +209,7 @@ def check_e1_deny(values, settings_paths):
             deny += data.get("permissions", {}).get("deny", []) or []
         except Exception as e:
             files_found[-1] = f"{p} (UNPARSEABLE: {e})"
-    hits = sorted({d for d in declared for dn in deny
-                   if d == dn or d.split("(")[0] == dn.split("(")[0]})
+    hits = sorted({d for d in declared for dn in deny if _is_denied(d, dn)})
     if not declared:
         verdict = ("VACUOUS-PASS: no allowed-tools declared -> deny-direction "
                    "passes by rule (nothing declared can be denied); model judges "
