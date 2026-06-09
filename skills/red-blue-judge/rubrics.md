@@ -115,3 +115,106 @@ investigation confidence, release readiness). To add a mode:
 3. Keep each line **independently scorable** with concrete evidence (PASS/FAIL/UNRESOLVED).
 4. Harden it the way these were: run good + flawed fixtures through it (see `tests/`) and
    adjust lines that misfire.
+
+---
+
+## mode: `compliance` — Gate (ai-scientist VERDICT vs. Anthropic standards + scanned files)
+
+**Ground truth:** the scanned files (read them directly — do not trust the VERDICT's
+description of what they contain); the named Anthropic documentation sources cited per finding;
+the specialist check definitions in `prompt-linter.md`, `token-auditor.md`, `api-hygienist.md`.
+
+A compliance VERDICT is only as good as its grounding. The ai-scientist specialist agents read
+files and apply named checks — but they are LLMs and can hallucinate citations, misread line
+ranges, or issue BLOCKs on findings that don't hold when the file is read directly. These lines
+test that every finding is earned, every citation is real, and the VERDICT severity is calibrated
+— the anti-"plausible but unverified" bar for AI systems compliance findings.
+
+*Citation integrity — is the finding actually in the file?*
+- **CI1** Every BLOCK and WARN finding names a specific file path. A finding without a file path
+  is ungrounded → FAIL. (no floating findings)
+- **CI2** Every BLOCK finding names a line range or specific parameter/pattern. A BLOCK citing
+  only a file name without a location is insufficiently specific → FAIL. (BLOCK precision)
+- **CI3** The cited file exists and is readable (Glob/Read it). A finding citing a file that
+  does not exist at the named path is fabricated → FAIL. (file existence)
+- **CI4** The quoted or described violation is actually present at the cited location (Read the
+  file at the cited line). A BLOCK whose cited evidence is not present at the named location
+  is invalid → FAIL. (evidence present at location)
+
+*Standard provenance — is the finding grounded in a named standard?*
+- **SP1** Every BLOCK finding names the check ID that fired (C1–C7, T1–T6, A1–A6, O1–O4).
+  A BLOCK without a check ID cannot be verified against the standard → FAIL. (check traceability)
+- **SP2** Every check ID cited actually exists in the specialist agent's definition. A finding
+  citing a non-existent check ID indicates the agent fabricated the check → FAIL. (check validity)
+- **SP3** The violation described matches what the named check tests. A finding where the cited
+  check ID tests X but the finding describes Y is a mismatch → FAIL. (check-to-finding match)
+
+*Severity calibration — is BLOCK vs. WARN correctly assigned?*
+- **SC1** Every BLOCK finding describes a violation where the named check explicitly specifies
+  BLOCK severity (not WARN). A BLOCK issued on a WARN-level check is an escalation violation
+  → FAIL. (no severity inflation)
+- **SC2** No finding issues BLOCK on a condition the specialist check explicitly gates with
+  `[applies-if: …]` when that condition does not hold. Read the check definition and verify
+  the applies-if condition is met. `[applies-if: the finding is on a gated check]` (applies-if
+  gate respected)
+- **SC3** The overall VERDICT (BLOCK / CONDITIONAL / PASS) correctly reflects the findings:
+  BLOCK if any finding is BLOCK-severity; CONDITIONAL if findings are WARN-only; PASS only if
+  zero findings. A VERDICT that contradicts its own findings is invalid → FAIL. (verdict math)
+
+*Completeness — did the ai-scientist actually scan what it claims?*
+- **CO1** The SCOPE section names specific files scanned. A SCOPE section that says "all
+  claude-os files" without naming them is not auditable → FAIL. (scope specificity)
+- **CO2** All three specialists were invoked (prompt-linter, token-auditor, api-hygienist).
+  A VERDICT produced without invoking all three is incomplete → FAIL unless scope genuinely
+  contained no files relevant to a specialist, in which case that specialist's absence must
+  be explained. `[applies-if: any specialist is absent from the VERDICT]` (specialist coverage)
+- **CO3** The orchestration checks O1–O4 appear in the VERDICT or are explicitly noted as not
+  applicable with a reason. Silent omission of O1–O4 means they were not run → FAIL.
+  (orchestration check coverage)
+
+*Actionability — can Jason act on this?*
+- **AC1** Every BLOCK finding includes a specific required fix — not "update this" but the
+  exact change (e.g., "replace `budget_tokens: 8000` with `effort: \"high\"`"). A BLOCK
+  without an actionable fix is a blocker Jason cannot resolve → FAIL. (fix specificity)
+- **AC2** No finding recommends an action that would itself violate a standard. For example,
+  a fix that moves content from CLAUDE.md to a skill must not recommend a skill structure
+  that violates C4. `[applies-if: the recommended fix is structural]` (fix validity)
+
+---
+
+## mode: `qa` — Gate (QA verification plan vs. parent ticket + implementing PR + codebase)
+
+**Ground truth:** the parent ticket (description, acceptance criteria `customfield_10085`,
+comments); the implementing PR diff; the codebase (`file:line`); Harness flags; the named test
+fixture / RID.
+
+A QA verification sub-task is a *test plan derived from a ticket and the code that implements it*.
+It is only as good as its grounding: an LLM will happily emit a plausible-looking test list that
+restates the acceptance criteria without ever naming a way to observe pass/fail, leaves an AC
+uncovered, or asserts an Expected result the code never produces. These lines test that every AC
+is covered, every step is executable by a QA owner who lacks the dev's automation, and every cited
+fixture/event/path is real — the anti-"plausible but unrunnable test plan" bar.
+
+*Coverage / fidelity — does the plan test what the ticket requires?*
+- **Q1** Every acceptance criterion in the parent ticket maps to ≥1 test, and the test names the AC it covers. A criterion with no covering test is a gap → FAIL. (traceability)
+- **Q2** The plan adds no test for behavior absent from the ticket and PR — unless it is explicitly marked as a regression or guard. (no speculative scope creep)
+- **Q3** Each test traces to a real change in the PR diff at a cited `file:line` (it exercises code the PR actually touched), not a generic feature wish. (grounded in the implementation)
+
+*Executability / soundness — can a QA owner actually run each step?*
+- **Q4** Each test states concrete preconditions — env/browser, flag state, and a REAL provisioned RID or named seed fixture, not "set up a request." (grounded prerequisites)
+- **Q5** Each Expected result is observable and grounded in actual code behavior (a named dir/file/column/status value/event), not a paraphrase of the acceptance criterion. (falsifiable expected result)
+- **Q6** Each test names a verification surface that exists for this change — a Splunk `event_type` query, an on-disk artifact to inspect, a network call to watch, or a named unit test to fall back on. A step with no observable pass/fail signal → FAIL. (verifiable)
+- **Q7** Where the behavior is conditional, the plan includes the negative / false-positive guard (the clean case stays unflagged, resume produces no duplicate rows, flag-OFF reverts). (no happy-path-only)
+
+*Regression & flag honesty*
+- **Q8** If the change is feature-flagged, the plan includes a flag-ON and a flag-OFF (regression) case; if it ships flag-less, the plan says so and asserts there is no flag-off regression to run. `[applies-if: the change is gated by a feature flag]` (flag pairing)
+
+*Exit & integrity*
+- **Q9** The Pass Criteria are explicit exit criteria (a checklist) that, taken together, are sufficient to close the parent — not a vague "works as expected." (exit criteria)
+- **Q10** Every RID, `event_type`, file path, column name, or status value the plan cites is real — verified against the PR diff, the code, or a provisioned fixture — not invented. A fabricated identifier is a FAIL even if the rest of the test is sound. (citation integrity)
+
+The challenger's job: land ONE grounded FAIL — an acceptance criterion no test covers (Q1), an
+Expected result the code never produces (Q5), a cited `event_type` the diff never emits (Q6/Q10),
+or a fabricated RID/path (Q10).
+
+---

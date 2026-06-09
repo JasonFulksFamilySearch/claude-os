@@ -132,7 +132,7 @@ digraph rbj {
 ```
 
 **Step 0 — Pre-flight (always, before any dispatch).** Validate the invocation: `mode` is one
-of `prd|plan|diff|experience|defect`; `artifact`, `state_file`, and `cycle` are present; `cycle` is an integer
+of `prd|plan|diff|experience|defect|compliance|qa`; `artifact`, `state_file`, and `cycle` are present; `cycle` is an integer
 ≥ 1; the ground-truth refs the mode's rubric requires are present. Any failure → `ESCALATE
 (operational)` **without dispatching** — name the missing/invalid input. Pre-flight does **not**
 bound `cycle` from above: an over-cap `cycle` is a legitimate *cap-reached* state owned by the
@@ -199,7 +199,7 @@ emit no prose verdict outside it.
 
 ```
 === RBJ-VERDICT v1.0 ===
-mode: <prd|plan|diff|experience|defect>
+mode: <prd|plan|diff|experience|defect|compliance|qa>
 cycle: <n>/<max>
 verdict: <CLEAN|REVISE|ESCALATE>
 escalation_kind: <none|product|evidence|operational>

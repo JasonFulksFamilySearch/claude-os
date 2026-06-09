@@ -62,3 +62,27 @@ retry semantics with the analytics owner.
 Regression meaning: a gate **without** P6 returns CLEAN here (the pre-fix bug — the choice has no
 rubric line to land on); a gate **with** P6 escalates. fixture-plan-bad is CLEAN-vs-ESCALATE
 exactly on the presence of P6.
+
+## QA-mode fixtures (ground truth: fixture-qa-ticket.md + codebase/ResumeManager.java)
+
+These exercise `mode: qa` — a QA verification plan judged against a parent ticket's acceptance
+criteria + the implementing change.
+
+### fixture-qa-good.md — expected verdict CLEAN
+
+Three tests, each tagged `_(ACn)_`, cover AC1 (truncated → re-fetch), AC2 (complete → short-circuit,
+the negative guard), and AC3 (the real `manifest.resume.incomplete` WARN with path + missing count,
+verified in Splunk). Pass Criteria is a checklist mapping 1:1 to AC1–AC3. Flag-less is stated. No
+fabricated identifiers. A correct gate returns **CLEAN** (the challenger lands nothing).
+
+### fixture-qa-bad.md — expected verdict REVISE
+
+| ID | Rubric line | Defect |
+|----|-------------|--------|
+| Q-A | Q1 (traceability) | **AC3 has no covering test** — the WARN / `manifest.resume.incomplete` signal is never verified. Dropped requirement. |
+| Q-B | Q10 (citation integrity) | Test 2 cites `event_type=resume.partial.detected`, which **does not exist** (the real event is `manifest.resume.incomplete`, and the AC2 clean short-circuit emits no event at all). Fabricated identifier. |
+| Q-C | Q5/Q6 (falsifiable / verifiable) | Test 1's Expected — "resume works correctly and the download finishes" — is a paraphrase with **no observable verification surface**. |
+| Q-D | Q9 (exit criteria) | Pass Criteria is the single vague bullet "Resume works as expected" — not sufficient to close the parent. |
+
+A correct gate returns **REVISE** citing at least **Q-A** (uncovered AC3) and **Q-B** (fabricated
+event) — the two a naive reviewer that only skims for plausible-looking tests tends to miss.
