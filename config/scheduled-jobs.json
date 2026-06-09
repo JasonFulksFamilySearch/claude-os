@@ -10,6 +10,11 @@
       "name": "Sprint Staleness",
       "skill": "background-sprint-digest",
       "cron": "30 6 * * *"
+    },
+    {
+      "name": "Merge Progression",
+      "skill": "background-merge-progression",
+      "cron": "15 * * * 1-5"
     }
   ]
 }

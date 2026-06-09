@@ -2,7 +2,7 @@
 name: jira
 description: Deterministic Jira reference — loads all MCP tool names, transition IDs, formatting rules, and comment templates for the ARC project. Trigger when the user asks to fetch, update, comment on, or transition a Jira ticket; requests JQL search help; or when Jira memory context may be stale.
 argument-hint: "(no arguments — reference card)"
-allowed-tools: mcp__atlassian__getJiraIssue mcp__atlassian__searchJiraIssuesUsingJql mcp__atlassian__editJiraIssue mcp__atlassian__transitionJiraIssue mcp__atlassian__addCommentToJiraIssue mcp__atlassian__createJiraIssue mcp__atlassian__createIssueLink mcp__atlassian__getTransitionsForJiraIssue
+allowed-tools: mcp__atlassian__getJiraIssue mcp__atlassian__searchJiraIssuesUsingJql mcp__atlassian__editJiraIssue mcp__atlassian__transitionJiraIssue mcp__atlassian__addCommentToJiraIssue mcp__atlassian__createJiraIssue mcp__atlassian__createIssueLink mcp__atlassian__getTransitionsForJiraIssue Bash(jira *)
 ---
 
 <role>
@@ -20,11 +20,15 @@ transition IDs, field defaults, and comment format are applied.
 param, blind writes, wrong transition IDs, and unstructured comments.
 
 **Hard constraints:**
-- Use `mcp__atlassian__` exclusively — both retired prefixes fail silently.
-- Always include `fields` param on getJiraIssue and search calls.
-- Fetch before any edit or transition — never write blind.
-- Scope all JQL to `project = ARC` unless explicitly overridden.
-- Ticket numbers belong in commits, branches, and PR titles only.
+- Use `mcp__atlassian__` for fetch/search/edit because both retired prefixes fail silently;
+  transitions and comments are CLI-first via the `jira` CLI (see Advance Ticket) so that the
+  procedure also runs headless, with MCP `transitionJiraIssue`/`addCommentToJiraIssue` as the
+  interactive fallback.
+- Always include the `fields` param on getJiraIssue and search calls, because omitting it returns
+  ~12,500 tokens instead of ~2,000.
+- Fetch before any edit or transition so that field values are grounded — never write blind.
+- Scope all JQL to `project = ARC` unless explicitly overridden, to avoid returning cross-project noise.
+- Keep ticket numbers in commits, branches, and PR titles only, because code outlives the tracker.
 </task>
 
 You are the authoritative Jira operations layer for the ARC project. Apply this reference precisely on every Jira tool invocation. Fetch before any write. Confirm changes after applying them.
@@ -36,7 +40,8 @@ Two retired MCP plugin prefixes (`mcp__claude_ai_Atlassian__` and `mcp__c9b44d58
 <instructions>
 
 ## MCP Prefix
-Use `mcp__atlassian__` exclusively.
+Use `mcp__atlassian__` for fetch, search, edit, and create, because both retired prefixes below
+fail silently; transitions and comments are CLI-first (see Advance Ticket).
 - Retired and non-functional: `mcp__claude_ai_Atlassian__` (dead claude.ai gateway prefix)
 - Retired and non-functional: `mcp__c9b44d58-*` (UUID prefix)
 
@@ -84,7 +89,7 @@ Note: Issue type is `"User Story"` (not `Story`) in ARC.
 
 ## Comment Format
 Markdown input. ≤150 words. Sections + bullets over prose. Open with the heading directly — no filler openers.
-Match Jason's structured style with `## Heading` structure.
+Match the structured comment style below with `## Heading` structure.
 
 **Progress:** ## Status Update → Done / Active / Blocked / Next
 **Defect:** ## Root Cause Analysis → Root Cause / Affected / Fix / Verify
@@ -101,15 +106,59 @@ Match Jason's structured style with `## Heading` structure.
 Sections: Closes · Problem · Solution · Files changed (4+) · How to verify
 
 ## Guardrails
-- Fetch the issue before any edit — grounding prevents hallucinated field values
-- Append to descriptions; treat overwrite as destructive and unrecoverable
-- Apply existing labels only — never create new
-- Scope all JQL to `project = ARC` by default
-- Ticket numbers belong in commits, branches, and PR titles only (never in code comments)
-- Sub-Task priority: leave as None (inherits from parent)
+- Fetch the issue before any edit, because grounding prevents hallucinated field values.
+- Append to descriptions, because an overwrite is destructive and unrecoverable.
+- Apply existing labels only, to avoid polluting the shared label set with new ones.
+- Scope all JQL to `project = ARC` by default, to avoid returning cross-project results.
+- Keep ticket numbers in commits, branches, and PR titles only, because code outlives the tracker.
+- Leave Sub-Task priority as None, because it inherits from the parent.
+- Apply only the field or transition the operation requires — never edit adjacent fields, add
+  labels, or restructure a description that was not requested, so that the change stays minimal.
 
 ## Parallelism
-When fetching multiple independent tickets (e.g., a release audit across N keys), issue the `getJiraIssue` calls in parallel in a single tool batch — they have no inter-dependency. Sequence calls only when one depends on the other (fetch → edit; fetch status → transition). JQL searches and `getTransitionsForJiraIssue` lookups against different issues are likewise parallel-safe.
+When fetching multiple independent tickets (e.g., a release audit across N keys), issue the `getJiraIssue` calls in parallel in a single tool batch, because they have no inter-dependency. Sequence calls only when one depends on the other (fetch → edit; fetch status → transition). JQL searches and `getTransitionsForJiraIssue` lookups against different issues are likewise parallel-safe.
+
+## Advance Ticket → ⟨target status⟩
+
+Canonical, reusable transition procedure. Consumers (e.g. `investigate`, `background-merge-progression`)
+call it with a ticket key and a target status. CLI-first so it runs interactive **and** headless.
+
+**Status rank** (for idempotency / no-backward):
+- Simplified (User Story/Task/Sub-Task/Enhancement/Epic): `To Do=0 · In Progress=1 · In Test=2 · In Selloff=3 · Done=4` (`Cancelled` terminal — never auto-move).
+- Defect/Sighting: `Open=0 · Reopened=0 · Need More Information=0 · In Progress=1 · Resolved=2 · Closed=3`.
+
+**Procedure:**
+
+1. **Fetch** type + status (+ assignee if the caller needs the guard), because the target depends
+   on the issue type and the guard depends on the assignee:
+   ```
+   jira issue list -q"key = <KEY>" --plain --columns KEY,TYPE,STATUS,ASSIGNEE
+   ```
+2. **Map** TYPE to a workflow (Defect/Sighting → Defect; everything else → Simplified) so that the
+   rank lookup uses the right table, then read the current rank and the target rank from above.
+3. **Idempotency / no-backward:** if `current_rank >= target_rank`, **skip** — no transition, no
+   comment — so overlapping runs cannot double-move. Return `skipped: already <STATUS> (>= <target>)`.
+   If current status is `Cancelled`/`Closed`, skip and return `skipped: terminal`.
+4. **Transition** — the CLI validates the move is legal for the workflow, so for Defects this
+   enforces the state-specific machine for free:
+   ```
+   jira issue move "<KEY>" "<target status>"
+   ```
+5. **Audit comment** (work-tracking, not content) — use the caller-supplied line, else a default,
+   so that every move leaves a trail:
+   ```
+   jira issue comment add "<KEY>" "<audit line>"
+   ```
+6. **Fail-soft:** never abort the caller — on any non-zero exit (auth, illegal transition, network),
+   return `failed: <reason>` and let the caller continue.
+
+**MCP fallback** (interactive only, when the `jira` CLI is unavailable): fetch with
+`getJiraIssue` (fields `["status","issuetype","assignee"]`), resolve the transition id — Simplified
+from the table above (`21`=In Progress, `81`=In Test, `91`=In Selloff, `31`=Done); Defect via
+`getTransitionsForJiraIssue` (act only if the target is offered) — then `transitionJiraIssue` +
+`addCommentToJiraIssue`.
+
+**Returns** one of: `transitioned` · `skipped: <reason>` · `failed: <reason>`.
 
 </instructions>
 
@@ -118,7 +167,8 @@ Read-only (safe, no confirmation needed):
   getJiraIssue, searchJiraIssuesUsingJql, getTransitionsForJiraIssue
 
 Write (require fetch-first, then proceed):
-  addCommentToJiraIssue, transitionJiraIssue, createIssueLink
+  addCommentToJiraIssue, transitionJiraIssue, createIssueLink,
+  and their CLI equivalents `jira issue comment add` / `jira issue move` (used by Advance Ticket)
 
 Destructive (require explicit user confirmation before executing):
   editJiraIssue (description field overwrites existing content), createJiraIssue
@@ -151,6 +201,18 @@ Args: { "cloudId": "icseng.atlassian.net", "issueIdOrKey": "ARC-1234", "transiti
 Task: Search open defects assigned to me in ARC
 Tool: mcp__atlassian__searchJiraIssuesUsingJql
 Args: { "cloudId": "icseng.atlassian.net", "jql": "project = ARC AND issuetype = Defect AND statusCategory != Done ORDER BY priority ASC", "fields": ["summary","status","priority","assignee"] }
+</example>
+
+<example>
+Edge case — cached transition ID 404s (stale cache). Task: Advance ARC-1234 to In Test.
+Step 1 — `transitionJiraIssue` with cached id 81 returns 404.
+Step 2 — fall back to live `getTransitionsForJiraIssue`; if "In Test" is offered, use its returned id; otherwise report `failed: transition not available from current state`.
+</example>
+
+<example>
+Edge case — idempotent no-op. Task: Advance Ticket ARC-1234 → In Test when it is already In Test.
+Advance Ticket compares current rank (In Test=2) to target rank (In Test=2): 2 >= 2, so it skips.
+Returns `skipped: already In Test (>= In Test)`; no transition and no duplicate comment are written.
 </example>
 
 </examples>
