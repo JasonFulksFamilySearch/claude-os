@@ -14,6 +14,9 @@ credentials/
 *token*
 *secret*
 *credentials*
+# ...but token-auditor is a legitimate agent definition, not a secret. Exempt it
+# so the broad *token* guard above stops masking it.
+!agents/token-auditor.md
 
 # Claude Code scratch files (plans, tasks — not portable system code)
 .claude/
