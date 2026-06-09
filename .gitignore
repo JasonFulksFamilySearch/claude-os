@@ -51,3 +51,8 @@ config/episodes.json
 # Override user-global ignore that masks the tracked docs/ directory
 !docs/
 !docs/**
+
+# Re-ignore OS cruft inside the un-ignored docs/ tree — the .DS_Store rule
+# above is defeated by !docs/** for anything under docs/, so re-exclude it here.
+docs/.DS_Store
+docs/**/.DS_Store
