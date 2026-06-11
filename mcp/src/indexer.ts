@@ -269,6 +269,8 @@ export interface ReindexSummary {
   skipped: number;
   removed: number;
   durationMs: number;
+  vecMissingBefore: number;
+  vecMissingAfter: number;
 }
 
 /** Count observations that have no vec_items row (orphaned embeddings). */
@@ -412,6 +414,10 @@ export async function fullReindex(
     await embedObservation(db, id, content);
   }
 
+  // Self-healing coverage pass: repair any observation missing its vector (a past terminal
+  // embed failure that no change-driven pass would ever touch). Bounded per sweep.
+  const coverage = await vectorCoverageSweep(db);
+
   const candidateSet = candidates;
   const existingPaths = db
     .prepare("SELECT source_path FROM observations")
@@ -431,6 +437,8 @@ export async function fullReindex(
     skipped,
     removed,
     durationMs: Date.now() - start,
+    vecMissingBefore: coverage.before,
+    vecMissingAfter: coverage.after,
   };
   log("info", "fullReindex complete", { ...summary });
   return summary;

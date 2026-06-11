@@ -504,4 +504,26 @@ describe("vectorCoverageSweep", () => {
     expect(result.after).toBe(1);
     expect(countMissingVectors(db)).toBe(1);
   });
+
+  it("fullReindex heals a pre-existing orphan and reports coverage", async () => {
+    // Index a file so it has an observation + vector, then delete its vector to simulate
+    // a past terminal embed failure (an orphan no change-driven pass would ever repair).
+    const file = join(dataRoot, "context", "github.md");
+    writeFileSync(file, "# github\n\ngh cli command patterns\n", "utf8");
+    await fullReindex(db, config);
+    const obs = db
+      .prepare("SELECT id FROM observations WHERE source_path = ?")
+      .get(file) as { id: number };
+    db.prepare("DELETE FROM vec_items WHERE observation_id = ?").run(
+      BigInt(obs.id),
+    );
+    expect(countMissingVectors(db)).toBe(1);
+
+    // A reindex with NO content change must still heal the orphan via the coverage sweep.
+    const summary = await fullReindex(db, config);
+
+    expect(summary.vecMissingBefore).toBe(1);
+    expect(summary.vecMissingAfter).toBe(0);
+    expect(countMissingVectors(db)).toBe(0);
+  });
 });
