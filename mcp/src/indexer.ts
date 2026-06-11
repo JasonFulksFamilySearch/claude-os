@@ -284,6 +284,67 @@ export function countMissingVectors(db: Database.Database): number {
   return row.c;
 }
 
+export interface CoverageSweepResult {
+  /** Orphan count before the sweep. */
+  before: number;
+  /** Orphans successfully re-embedded this sweep (bounded by MAX_VECTOR_SWEEP). */
+  healed: number;
+  /** Orphan count after the sweep (remaining work + any permanently-failing rows). */
+  after: number;
+}
+
+/**
+ * Self-healing pass: re-embed observations that have no vec_items row, bounded per sweep.
+ * Reuses embedObservation (its catch-log-drop is unchanged; THIS sweep is the retry, so a
+ * transient embed failure self-heals next cycle). A permanently-failing row costs one
+ * bounded attempt per sweep and is named in the warn log rather than hot-looped.
+ */
+export async function vectorCoverageSweep(
+  db: Database.Database,
+): Promise<CoverageSweepResult> {
+  const before = countMissingVectors(db);
+  if (before === 0) return { before: 0, healed: 0, after: 0 };
+
+  const orphans = db
+    .prepare(
+      `SELECT o.id, o.content
+         FROM observations o
+         LEFT JOIN vec_items v ON o.id = v.observation_id
+        WHERE v.observation_id IS NULL
+        ORDER BY o.id
+        LIMIT ?`,
+    )
+    .all(MAX_VECTOR_SWEEP) as { id: number; content: string }[];
+
+  for (const { id, content } of orphans) {
+    // Failures are swallowed inside embedObservation (catch-log-drop); the sweep is the retry.
+    await embedObservation(db, id, content);
+  }
+
+  const after = countMissingVectors(db);
+  const healed = before - after;
+
+  if (after > 0) {
+    // Name the rows still missing (capped log) so a poisoned input is debuggable.
+    const stillMissing = db
+      .prepare(
+        `SELECT o.source_path
+           FROM observations o
+           LEFT JOIN vec_items v ON o.id = v.observation_id
+          WHERE v.observation_id IS NULL
+          ORDER BY o.id
+          LIMIT 20`,
+      )
+      .all() as { source_path: string }[];
+    log("warn", "vectorCoverageSweep: observations still missing vectors", {
+      remaining: after,
+      paths: stillMissing.map((r) => r.source_path),
+    });
+  }
+
+  return { before, healed, after };
+}
+
 export async function fullReindex(
   db: Database.Database,
   config: IndexerConfig,

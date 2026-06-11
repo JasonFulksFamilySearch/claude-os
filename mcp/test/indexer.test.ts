@@ -18,6 +18,8 @@ import {
   indexFile,
   fullReindex,
   countMissingVectors,
+  vectorCoverageSweep,
+  MAX_VECTOR_SWEEP,
   type IndexerConfig,
 } from "../src/indexer.js";
 import { embedDocument, serializeVector } from "../src/embedder.js";
@@ -451,6 +453,55 @@ describe("vectorCoverageSweep", () => {
     seedVec(a);
     seedVec(b);
 
+    expect(countMissingVectors(db)).toBe(1);
+  });
+
+  it("re-embeds all orphans when under the cap and reports counts", async () => {
+    const ids = [insertObs("a"), insertObs("b"), insertObs("c")];
+    seedVec(ids[0]); // one already covered; two orphaned
+
+    const result = await vectorCoverageSweep(db);
+
+    expect(result.before).toBe(2);
+    expect(result.healed).toBe(2);
+    expect(result.after).toBe(0);
+    expect(countMissingVectors(db)).toBe(0);
+  });
+
+  it("honors the per-sweep cap — heals up to the cap, leaves the rest reported", async () => {
+    // Cap+1 orphans → cap healed, 1 remains.
+    for (let i = 0; i < MAX_VECTOR_SWEEP + 1; i++) insertObs(`o${i}`);
+
+    const result = await vectorCoverageSweep(db);
+
+    expect(result.before).toBe(MAX_VECTOR_SWEEP + 1);
+    expect(result.healed).toBe(MAX_VECTOR_SWEEP);
+    expect(result.after).toBe(1);
+  });
+
+  it("is a no-op at full coverage (idempotent)", async () => {
+    const id = insertObs("a");
+    seedVec(id);
+
+    const first = await vectorCoverageSweep(db);
+    expect(first.before).toBe(0);
+    expect(first.healed).toBe(0);
+
+    const second = await vectorCoverageSweep(db);
+    expect(second.before).toBe(0);
+    expect(second.after).toBe(0);
+  });
+
+  it("does not hot-loop a permanently-failing row — counts it as still-missing", async () => {
+    insertObs("poison");
+    // embedObservation swallows the throw (catch-log-drop), so the row stays orphaned.
+    vi.mocked(embedDocument).mockRejectedValueOnce(new Error("embed boom"));
+
+    const result = await vectorCoverageSweep(db);
+
+    expect(result.before).toBe(1);
+    expect(result.healed).toBe(0); // attempted once, still missing
+    expect(result.after).toBe(1);
     expect(countMissingVectors(db)).toBe(1);
   });
 });
