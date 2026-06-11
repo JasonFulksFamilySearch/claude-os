@@ -11,6 +11,10 @@ import { embedDocument, serializeVector } from "./embedder.js";
 
 const MAX_FILE_BYTES = 1024 * 1024;
 
+// Max orphan re-embeds attempted per sweep. A poisoned row costs one bounded attempt
+// per cycle (named in the log), never a hot-loop; rows beyond the cap are next sweep's work.
+export const MAX_VECTOR_SWEEP = 50;
+
 export interface WatchedProject {
   slug: string;
   path: string;
@@ -265,6 +269,19 @@ export interface ReindexSummary {
   skipped: number;
   removed: number;
   durationMs: number;
+}
+
+/** Count observations that have no vec_items row (orphaned embeddings). */
+export function countMissingVectors(db: Database.Database): number {
+  const row = db
+    .prepare(
+      `SELECT count(*) AS c
+         FROM observations o
+         LEFT JOIN vec_items v ON o.id = v.observation_id
+        WHERE v.observation_id IS NULL`,
+    )
+    .get() as { c: number };
+  return row.c;
 }
 
 export async function fullReindex(

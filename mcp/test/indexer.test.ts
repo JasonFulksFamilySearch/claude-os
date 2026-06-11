@@ -17,9 +17,10 @@ import {
   classify,
   indexFile,
   fullReindex,
+  countMissingVectors,
   type IndexerConfig,
 } from "../src/indexer.js";
-import { embedDocument } from "../src/embedder.js";
+import { embedDocument, serializeVector } from "../src/embedder.js";
 
 let workDir: string;
 let dataRoot: string;
@@ -417,5 +418,39 @@ describe("fullReindex — vector index", () => {
       .prepare("SELECT count(*) AS c FROM vec_items WHERE observation_id = ?")
       .get(BigInt(obs!.id)) as { c: number };
     expect(vec.c).toBe(1);
+  });
+});
+
+describe("vectorCoverageSweep", () => {
+  // Insert an observation row directly (bypassing indexFile) so we control vector presence.
+  let seq = 0;
+  function insertObs(content: string): number {
+    seq++;
+    const now = Math.floor(Date.now() / 1000);
+    const r = db
+      .prepare(
+        `INSERT INTO observations
+          (source_type, source_path, project, topic, title, content, content_hash, file_mtime, indexed_at, frontmatter)
+         VALUES ('context', @sp, NULL, 't', 'T', @c, @h, @m, @m, NULL)`,
+      )
+      .run({ sp: `/tmp/sweep-o${seq}.md`, c: content, h: `h${seq}`, m: now });
+    return Number(r.lastInsertRowid);
+  }
+  // vec0 PK must bind as BigInt (better-sqlite3 sends numbers as FLOAT).
+  function seedVec(id: number): void {
+    db.prepare("INSERT INTO vec_items(observation_id, embedding) VALUES (?, ?)").run(
+      BigInt(id),
+      serializeVector(new Float32Array(768).fill(0.1)),
+    );
+  }
+
+  it("countMissingVectors counts observations with no vec_items row", () => {
+    const a = insertObs("alpha");
+    const b = insertObs("beta");
+    insertObs("gamma"); // orphan
+    seedVec(a);
+    seedVec(b);
+
+    expect(countMissingVectors(db)).toBe(1);
   });
 });
