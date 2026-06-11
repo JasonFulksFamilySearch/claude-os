@@ -11,6 +11,10 @@ import { embedDocument, serializeVector } from "./embedder.js";
 
 const MAX_FILE_BYTES = 1024 * 1024;
 
+// Max orphan re-embeds attempted per sweep. A poisoned row costs one bounded attempt
+// per cycle (named in the log), never a hot-loop; rows beyond the cap are next sweep's work.
+export const MAX_VECTOR_SWEEP = 50;
+
 export interface WatchedProject {
   slug: string;
   path: string;
@@ -265,6 +269,82 @@ export interface ReindexSummary {
   skipped: number;
   removed: number;
   durationMs: number;
+  vecMissingBefore: number;
+  vecMissingAfter: number;
+}
+
+/** Count observations that have no vec_items row (orphaned embeddings). */
+export function countMissingVectors(db: Database.Database): number {
+  const row = db
+    .prepare(
+      `SELECT count(*) AS c
+         FROM observations o
+         LEFT JOIN vec_items v ON o.id = v.observation_id
+        WHERE v.observation_id IS NULL`,
+    )
+    .get() as { c: number };
+  return row.c;
+}
+
+export interface CoverageSweepResult {
+  /** Orphan count before the sweep. */
+  before: number;
+  /** Orphans successfully re-embedded this sweep (bounded by MAX_VECTOR_SWEEP). */
+  healed: number;
+  /** Orphan count after the sweep (remaining work + any permanently-failing rows). */
+  after: number;
+}
+
+/**
+ * Self-healing pass: re-embed observations that have no vec_items row, bounded per sweep.
+ * Reuses embedObservation (its catch-log-drop is unchanged; THIS sweep is the retry, so a
+ * transient embed failure self-heals next cycle). A permanently-failing row costs one
+ * bounded attempt per sweep and is named in the warn log rather than hot-looped.
+ */
+export async function vectorCoverageSweep(
+  db: Database.Database,
+): Promise<CoverageSweepResult> {
+  const before = countMissingVectors(db);
+  if (before === 0) return { before: 0, healed: 0, after: 0 };
+
+  const orphans = db
+    .prepare(
+      `SELECT o.id, o.content
+         FROM observations o
+         LEFT JOIN vec_items v ON o.id = v.observation_id
+        WHERE v.observation_id IS NULL
+        ORDER BY o.id
+        LIMIT ?`,
+    )
+    .all(MAX_VECTOR_SWEEP) as { id: number; content: string }[];
+
+  for (const { id, content } of orphans) {
+    // Failures are swallowed inside embedObservation (catch-log-drop); the sweep is the retry.
+    await embedObservation(db, id, content);
+  }
+
+  const after = countMissingVectors(db);
+  const healed = before - after;
+
+  if (after > 0) {
+    // Name the rows still missing (capped log) so a poisoned input is debuggable.
+    const stillMissing = db
+      .prepare(
+        `SELECT o.source_path
+           FROM observations o
+           LEFT JOIN vec_items v ON o.id = v.observation_id
+          WHERE v.observation_id IS NULL
+          ORDER BY o.id
+          LIMIT 20`,
+      )
+      .all() as { source_path: string }[];
+    log("warn", "vectorCoverageSweep: observations still missing vectors", {
+      remaining: after,
+      paths: stillMissing.map((r) => r.source_path),
+    });
+  }
+
+  return { before, healed, after };
 }
 
 export async function fullReindex(
@@ -334,6 +414,10 @@ export async function fullReindex(
     await embedObservation(db, id, content);
   }
 
+  // Self-healing coverage pass: repair any observation missing its vector (a past terminal
+  // embed failure that no change-driven pass would ever touch). Bounded per sweep.
+  const coverage = await vectorCoverageSweep(db);
+
   const candidateSet = candidates;
   const existingPaths = db
     .prepare("SELECT source_path FROM observations")
@@ -353,6 +437,8 @@ export async function fullReindex(
     skipped,
     removed,
     durationMs: Date.now() - start,
+    vecMissingBefore: coverage.before,
+    vecMissingAfter: coverage.after,
   };
   log("info", "fullReindex complete", { ...summary });
   return summary;

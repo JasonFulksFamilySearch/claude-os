@@ -1,0 +1,20 @@
+# RBJ audit record — skill v1.0
+# utc: 2026-06-11T22:34:25Z   mode: plan   cycle: 1/2
+# artifact: docs/superpowers/plans/2026-06-11-d2-vector-coverage-sweep.md   ground_truth: GitHub issue #33 PRD + mcp/src/indexer.ts + mcp/src/db.ts + mcp/test/indexer.test.ts + mcp/test/reembed.test.ts
+=== RBJ-VERDICT v1.0 ===
+mode: plan
+cycle: 1/2
+verdict: REVISE
+escalation_kind: none
+scores:
+- P1 PASS none :: All 5 PRD Implementation Decisions + 5 Testing Decisions map to tasks (Decision1→Task2+3; Decision2 cap/naming→Task2; Decision3 metrics→Task3; Decision4 no-behavior-change→Design Decisions; Tests1-5→Task2/Task3 tests)
+- P2 PASS none :: Plan adds only in-scope content (const, helper, function, 2 summary fields); no schema/retrieval/ranking change; named-failure logging is explicit PRD Decision 2
+- P3 FAIL technical :: Task1 Step1 import instruction (plan:52) adds countMissingVectors+vectorCoverageSweep but omits MAX_VECTOR_SWEEP; Task2 test code uses MAX_VECTOR_SWEEP+1 → Task2 Step2 fails "MAX_VECTOR_SWEEP is not defined" not the documented "vectorCoverageSweep is not a function"
+- P4 PASS none :: Dependency order correct: Task1(countMissingVectors)→Task2(uses it)→Task3(calls vectorCoverageSweep in fullReindex)→Task4(verify); no task needs a later task's output
+- P5 PASS none :: Each task fits ~3hr block (T1 const+helper+test; T2 interface+fn+5 tests; T3 extend+wire+integration test; T4 verify)
+- P6 NA applies-if :: Plan makes no product/semantic choice the PRD left open — cap=50, metric names, log strategy all from PRD Decision2/Decision3/User Story3
+red_challenge: not-run
+revise_lines: P3
+escalation_ask: none
+=== END RBJ-VERDICT ===
+Gate 2 cycle 1: REVISE — P3 import omission (MAX_VECTOR_SWEEP not added to test import). Fix and re-run.
