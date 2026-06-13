@@ -39,7 +39,8 @@ venv/
 # Node (in case any tooling shows up)
 node_modules/
 package-lock.json
-mcp/package-lock.json
+# mcp/package-lock.json is committed on purpose: it is the reproducible-install
+# source for the CI gate (npm ci in .github/workflows/ci.yml). Keep it tracked.
 
 # Logs
 *.log

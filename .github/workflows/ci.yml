@@ -1,0 +1,52 @@
+name: CI
+
+# The MCP server (mcp/) is the only compiled, tested code in this repo — the rest
+# is markdown + shell with no build step. This gate verifies that subproject:
+# reproducible install (npm ci) -> typecheck/build (tsc) -> tests (vitest).
+# Scoped to mcp/** so edits to skills, agents, hooks, or docs don't spin up a Node job.
+
+on:
+  pull_request:
+    paths:
+      - "mcp/**"
+      - ".github/workflows/ci.yml"
+  push:
+    branches:
+      - master
+    paths:
+      - "mcp/**"
+      - ".github/workflows/ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  mcp:
+    name: mcp build + test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mcp
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pin to the floor of the supported range (package.json engines: ">=20"),
+      # not the latest. Catches "works on my newer local Node, breaks on minimum".
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: mcp/package-lock.json
+
+      # npm ci requires a committed lockfile and installs exactly what it pins —
+      # this is the reproducible half of the gate. Fails loudly if the lockfile
+      # and package.json have drifted apart.
+      - name: Install
+        run: npm ci
+
+      # build = tsc; type errors fail the gate.
+      - name: Typecheck / build
+        run: npm run build
+
+      - name: Test
+        run: npm test
