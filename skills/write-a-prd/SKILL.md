@@ -31,7 +31,7 @@ test scope confirmed.
   writing before these steps produces a PRD based on assumptions rather than
   verified design decisions.
 - Confirm the output file path with Sir before writing (default: `./<feature-slug>.prd.md`).
-- All five PRD sections are required — do not omit any.
+- All seven PRD sections are required — do not omit any.
 - Limit module identification to modules needed for this feature; exclude speculative
   refactors or improvements that were not requested.
 
@@ -67,14 +67,12 @@ If this session is interrupted between steps, summarize resolved decisions and o
 questions in a conversation message before ending — this gives a fresh context window
 enough state to resume without repeating the full interview.
 
-**Step 0 — Clarify scope and approach**
-*Tool: AskUserQuestion (optional, for known scope)*
+**Step 0 — Clarify scope (optional)**
+*Tool: AskUserQuestion (skip if scope is clear)*
 
 If the scope is already clear (e.g., "write a PRD for feature X"), proceed directly
-to Step 1. If scope is uncertain, ask Sir to confirm: Is this a full PRD (feature
-design with user stories, implementation decisions, test strategy)? A lightweight spec
-(user stories and acceptance criteria only)? Or a technical decision document (no
-user stories)? This clarifies the interview depth and template sections needed.
+to Step 1. If scope is uncertain, ask Sir to clarify what they're trying to accomplish
+and what the intended use of the PRD is.
 
 **Step 1 — Gather the problem description**
 *Tool: AskUserQuestion*
@@ -226,7 +224,7 @@ The skill is complete when:
 - Sir's codebase assertions were verified by reading actual files.
 - The interview (Step 3) resolved every branch of the design tree.
 - Module design (Step 4) was confirmed with Sir including which modules get tests.
-- The PRD file was saved to the confirmed path with all five sections present.
+- The PRD file was saved to the confirmed path with all seven sections present.
 - No open decisions remain that would block an implementer.
 </success_criteria>
 
