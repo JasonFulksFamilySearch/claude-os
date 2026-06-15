@@ -1,65 +1,66 @@
 ---
 name: generate-qa-subtask
-description: Generates a structured Jira QA verification sub-task from code changes and acceptance criteria, with red-blue-judge gate verification. Use when authoring a QA verification sub-task for user-facing behavior that requires manual verification — e.g., "/generate-qa-subtask ARC-1234" after code review, before opening PR.
+description: Generates a structured Jira QA verification sub-task using Agile Manual Verification protocol, with honesty-focused red-blue-judge gate verification. Use when authoring a QA verification sub-task for user-facing behavior that requires manual verification — e.g., "/generate-qa-subtask ARC-1234" after code review, before opening PR.
 ---
 
 # Generate QA Subtask
 
 <role>
-You are a QA engineering assistant. Your role is to guide developers in invoking a tool that auto-generates structured, verified QA sub-tasks so that QA verification is clear, traceable, and complete from the start — reducing back-and-forth between dev and QA.
+You are a QA engineering assistant. Your role is to guide developers in invoking a tool that auto-generates Agile Manual Verification sub-tasks so that QA workflows are clear, traceable, and grounded in the actual code changes — reducing back-and-forth and catching test gaps early.
 </role>
 
 <task>
-**What this skill does:** It teaches a developer how to invoke `/generate-qa-subtask` — a tool that automatically creates a Jira QA sub-task with ISTQB-structured test steps, tied to acceptance criteria, verified by red-blue-judge before creation.
+**What this skill does:** It teaches how to invoke `/generate-qa-subtask` — a tool that automatically creates a Jira QA sub-task with Agile Manual Verification structure (Prerequisites, Tests, Pass Criteria), verified by red-blue-judge for honesty against the code diff and acceptance criteria before creation.
 
-**Why it matters:** Without this skill, developers manually create sub-tasks (slow, error-prone, incomplete), leaving QA to reverse-engineer vague tests. With it, one command generates a verified sub-task in 30–60 seconds, eliminating guesswork and rework.
+**Why it matters:** Without this skill, developers manually write vague test steps that QA reverse-engineers (15–20 minutes of friction). With it, one command generates a verified sub-task in 30–60 seconds that actually checks what changed, maps to AC, and covers error cases the code handles.
 </task>
 
 <instructions>
 
 ## Overview
 
-When you've implemented a feature with user-facing behavior, QA needs to verify it. This skill invokes a tool that **auto-generates a structured Jira QA sub-task** tied to your story's acceptance criteria, with a red-blue-judge verification gate ensuring the tests are sound.
+When you've implemented a feature, QA needs concrete, honest test steps to verify it. This skill invokes a tool that **auto-generates an Agile Manual Verification sub-task** tied to your acceptance criteria and code changes, with a red-blue-judge gate that ensures the tests are honest (actually verify the diff), complete (cover all AC), and realistic (QA can execute them).
 
-**Without this skill:** You'd manually create a sub-task, copy-paste acceptance criteria into the description, guess at assignees, and hope the structure is clear enough for QA — a 15–20 minute process that often produces incomplete tests.
+**Without this skill:** You leave vague test steps in Jira. QA asks clarifying questions. Tests miss edge cases the code handles. Rework loop.
 
-**With this skill:** One command generates a sub-task with ISTQB-structured test steps (Prerequisites, Test N with Expected/Verify, Pass Criteria) — each step grounded in a specific acceptance criterion — and the judge verifies it against your code diff before creating the Jira ticket, so you know the tests are testable and complete.
+**With this skill:** Tests are generated from your code diff and AC, verified to be honest against both, and ready for QA to execute immediately.
 
 ## When to Use
 
 **Use when:**
-- Feature is implemented and code-reviewed, **because** at this point the code diff is stable and AC mapping is reliable
-- Story/defect has acceptance criteria written in Jira (AC field), **so that** the tool can tie each test to a concrete AC criterion
-- No QA sub-task exists yet on the parent ticket, **because** the tool asks for confirmation if one exists, but creating fresh is the happy path
-- **Behavior is QA-verifiable** (QA can inspect it without logs), **to avoid** tests that are unmeasurable or require log diving:
+- Feature is implemented and code-reviewed, **because** the code diff is stable and changes are clear
+- Story/defect has acceptance criteria written in Jira (AC field), **so that** tests can tie explicitly to each criterion
+- No QA sub-task exists yet on the parent ticket, **because** a fresh sub-task with honest tests is better than a vague manual one
+- **Behavior is QA-verifiable** (QA can test it without reading logs), **to avoid** unverifiable tests:
   - File system state (temp folders, checkpoint files, teardown)
   - Browser state (IndexedDB, localStorage, DOM, Network requests)
   - User workflows (pause/resume, state transitions, error recovery)
 
 **Skip when:**
-- Change is internal/infrastructure only (no observable user behavior), **because** QA cannot verify it without code-level inspection
-- Cypress/Playwright E2E tests fully cover the user workflow, **so that** you don't duplicate test coverage
+- Change is internal/infrastructure only (no observable user behavior), **because** QA cannot verify code-internal changes
+- Cypress/Playwright E2E tests fully cover the workflow, **so that** you don't duplicate test coverage
 - Sub-task already exists (tool will ask if you want to replace it), **and** you decide not to regenerate
 
-**Scope decision grid** (use this to decide whether behavior is QA-verifiable):
+**Scope decision grid** (observable behavior = use the skill):
 
 | Observable by QA? | Example | Action |
 |---|---|---|
 | Yes — file state | Download creates temp folder, teardown removes it | ✓ Use `/generate-qa-subtask` |
 | Yes — browser state | IndexedDB persists across sessions; user can see it in DevTools | ✓ Use `/generate-qa-subtask` |
 | Yes — network | Resume sends Range header with checkpoint; inspect via Network tab | ✓ Use `/generate-qa-subtask` |
-| No — logs only | Error logged to Splunk; no observable artifact | ✗ Skip; handle in E2E tests or manual debugging |
+| Yes — error path | Error is displayed to user; graceful degradation on network failure | ✓ Use `/generate-qa-subtask` |
+| No — logs only | Error logged to Splunk; no observable artifact | ✗ Skip; handle in E2E tests or monitoring |
 | No — internal state | In-memory cache invalidation; no QA-facing behavior | ✗ Skip; unit tests only |
 
 ## Time Cost vs. Manual Workaround
 
-**Running `/generate-qa-subtask`:** 30–60 seconds. Tool creates Jira sub-task after judge passes (usually 1–2 iterations), **because** the judge loops internally without requiring your input.
+**Running `/generate-qa-subtask`:** 30–60 seconds. Tool generates tests from diff and AC, judge verifies honesty and coverage (1–2 iterations typical).
 
-**Doing it manually:** 15–20 minutes upfront for you (creating sub-task, structuring tests, guessing at AC mapping) + 15–30 minutes later for QA (reverse-engineering vague test steps, asking clarifying questions, iterating on what's actually testable), **so** the true cost is 30–50 minutes total and introduces delay into QA verification.
+**Doing it manually:** 15–20 minutes upfront for you (writing test steps, guessing at completeness) + 15–30 minutes for QA (asking for clarification, discovering missing edge cases, retesting).
 
-**Skipping it:** 0 minutes upfront + 45–60 minutes total for QA (no structured tests, must infer from AC + code diff + trial-and-error), **which** delays QA and usually creates rework when tests are found to be unmeasurable.
+**Skipping it:** 0 minutes upfront + 45–60 minutes for QA (reverse-engineering from AC + code, missing error cases, discovering unmeasurable tests).
 
-**Bottom line:** Tool pays for itself after one code-review cycle. If you're in a time crunch, skipping this doesn't save time—it just delays the work to QA and usually creates rework.
+**Bottom line:** Tool pays for itself immediately. Time pressure is when you most need it—skipping doesn't save time, just shifts burden and rework to QA.
 
 ---
 
@@ -89,68 +90,77 @@ When you've implemented a feature with user-facing behavior, QA needs to verify 
 
 The tool executes these steps in order:
 
-1. **Ground** — Fetch parent ticket AC, read your code diff, check for existing sub-tasks, **to ensure** all inputs are available and consistent
-2. **Draft** — Dispatch an agent to generate test steps in ISTQB format, tied to each AC criterion, **because** AI-assisted generation catches edge cases faster than manual writing
-3. **Gate** — Red-blue-judge verifies the tests:
-   - ✓ ISTQB structure (Prerequisites, Test N, Pass Criteria properly formed)
-   - ✓ AC mapping (each test step grounds to a specific acceptance criterion)
-   - ✓ Executability (tests are verifiable by inspecting actual artifacts, not logs)
+1. **Ground** — Fetch parent ticket AC, read your code diff, check for existing sub-tasks, **to ensure** all inputs are available and clear
+2. **Draft** — Dispatch an agent to generate test steps in Agile Manual Verification format (Prerequisites, Tests, Pass Criteria), tied to each AC criterion and error paths in the diff, **because** agent-assisted generation catches edge cases faster than manual writing
+3. **Gate** — Red-blue-judge verifies the tests across three dimensions:
+   - **Coverage**: Does every AC criterion have at least one test?
+   - **Honesty**: Do the tests actually verify what the diff changed (not make-believe tests)?
+   - **Executability**: Can QA realistically execute these tests given the changes?
    
-   **This gate is essential, so that** malformed or untestable sub-tasks never reach Jira
-4. **Iterate** — If judge fails, tool regenerates and re-verifies (you don't see this; waits until passing), **to ensure** the sub-task is actually correct before you see it
-5. **Create** — Once judge passes, tool creates the Jira sub-task and links it to the parent, **because** judge passing is your guarantee that the tests are sound
+   **This gate is essential, so that** unverifiable or dishonest sub-tasks never reach Jira
+4. **Iterate** — If judge fails on any gate, tool regenerates and re-verifies (you see the verdicts; tool loops up to 3 times), **to ensure** the sub-task is sound before creation
+5. **Create** — Once all three gates pass, tool creates the Jira sub-task and links it to the parent, **because** judge passing is your guarantee that tests are honest and complete
 
 ## What the Generated Sub-Task Looks Like
 
 **Summary:** `QA: Verify [feature name] per ARC-[ticket]`
 
-**Description (ISTQB structure):**
+**Description (Agile Manual Verification format):**
 
 ```
-Prerequisites:
-- Test environment: [staging/local dev build]
-- Fresh browser session (no cached state)
+## QA Verification Steps
 
-Test 1: Pause in-flight download
-- Setup: Start a large download
-- Step 1: Click "Pause" button after 30% complete
-  Expected: Download halts, resume button appears
-- Step 2: Wait 5 seconds
-  Expected: Paused state persists, no progress change
-- Verify: Check temp folder — checkpoint file exists with current byte offset
-- Pass Criteria: Download halted, checkpoint file present, byte offset matches
+Fix for ARC-4831 — pause/resume download functionality.
 
-Test 2: Resume from checkpoint
-- Setup: Paused download from Test 1
-- Step 1: Click "Resume"
-  Expected: Download continues from checkpoint, not from start
-- Verify: Inspect browser Network tab — request has Range header with saved byte offset
-- Pass Criteria: Download continues from checkpoint within 1% of saved offset
+### Prerequisites
 
-Test 3: Resume across browser sessions
-- Setup: Complete Test 1, close browser, reopen to same URL
-- Step 1: Navigate to in-progress download (from history/session storage)
-  Expected: Download state is restored
-- Step 2: Resume download
-  Expected: Continues from checkpoint
-- Verify: Check temp folder — resume reads sidecars from temp dir, not fresh state
-- Pass Criteria: Download resumes without losing progress
+* Integration environment with feature deployed
+* Chrome or Edge browser (File System Access API required)
+* Feature flag `arc_v3_downloads` enabled
+* Test file: at least 10 MB to trigger resume scenario
 
-Test 4: Edge case — completion with errors
-- Setup: Start download, inject a network error during transfer
-- Step 1: Download fails midway
-  Expected: Temp folder persists (not deleted on error)
-- Step 2: Resolve network issue, retry
-  Expected: Resume works from saved checkpoint
-- Verify: Temp folder contains sidecars; resumption reads from them
-- Pass Criteria: Error preserves temp state; resume restores from it
+### Test 1: Pause in-flight download
 
-Test 5: Edge case — all-downloaded short-circuit
-- Setup: Download completes
-- Step 1: User clicks "Download" again for same file
-  Expected: System detects completion, skips retransfer
-- Verify: Check temp folder — cleaned up after completion; new download starts fresh
-- Pass Criteria: No temp folder pollution; teardown removes completed state
+1. Start a large download (>10 MB)
+2. After 30% completes, click "Pause"
+3. Wait 5 seconds to confirm pause persists
+
+**Expected:** Download halts, resume button appears, progress is retained
+
+### Test 2: Resume from checkpoint
+
+1. From paused state (Test 1), click "Resume"
+2. Monitor Network tab during resume
+3. Confirm download continues
+
+**Expected:** Request has Range header with saved byte offset; download continues from checkpoint, not from start
+
+### Test 3: Resume across browser sessions
+
+1. Complete Test 1 (pause download)
+2. Close browser completely
+3. Reopen and navigate to downloads
+4. Click "Resume" on paused download
+
+**Expected:** Download state is restored; resume continues from checkpoint without losing progress
+
+### Test 4: Error case — network interruption during pause
+
+1. Start download
+2. Pause at 50%
+3. Disconnect network (airplane mode)
+4. Wait 10 seconds
+5. Reconnect and click "Resume"
+
+**Expected:** Download resumes successfully from checkpoint (or shows explicit error message); does NOT stall indefinitely
+
+### Pass Criteria
+
+* [ ] Pause button halts download and preserves state (filesystem checkpoint exists)
+* [ ] Resume continues from checkpoint, not from start (confirmed via Network Range header)
+* [ ] Resume works after browser close/reopen (state persisted in IndexedDB or localStorage)
+* [ ] Network error during pause does not stall download; graceful recovery or explicit error message
+* [ ] Download completes or fails with clear status message (not silent failure)
 ```
 
 **Assignee:** `[QA owner or unassigned for team lead routing]`
@@ -159,39 +169,39 @@ Test 5: Edge case — all-downloaded short-circuit
 
 | Mistake | What happens | Skill prevents by |
 |---------|---------|---------|
-| **Forget entirely** | QA waits for guidance; ticket sits in `In Test` with no sub-task | Skill invocation is a deliberate step in your workflow; once you learn it, habit prevents skipping |
-| **Manual + incomplete** | QA sub-task lacks structure; test steps are vague; AC mapping is implicit | Tool enforces ISTQB format; every step is grounded in a specific AC; judge verifies this |
-| **Miss edge cases** | Happy-path tests only; error states and state transitions untested | Agent generates tests from code diff, identifying error paths and transitions; judge requires coverage |
-| **Unverifiable tests** | QA can't run the tests because they assume logs/Splunk data | Agent generates tests that inspect actual artifacts (temp folders, network requests, file state); judge rejects log-only tests |
-| **Wrong assignee/convention** | Sub-task is assigned to wrong person or lost in backlog | Skill documents convention (QA owner, or unassigned for backlog); you provide `--assignee` explicitly |
+| **Vague test steps** | QA asks clarifying questions; tests are ambiguous | Tests are grounded in the diff; each step is concrete and tied to observable state |
+| **Missing edge cases** | Error paths and state transitions are untested | Agent detects error handling in code (try/catch, fallbacks) and generates error-case tests |
+| **Unverifiable tests** | QA can't execute tests because they assume logs or internal state | Judge rejects any test that requires logs; enforces observable verification only |
+| **AC coverage gaps** | Some AC criteria have no tests; QA guesses what to verify | Judge requires every AC criterion mapped to at least one test |
+| **Wrong assignment** | Sub-task is lost in team backlog | Skill documents convention; you use `--assignee` explicitly |
 
-## Real Example: What a Successful Run Looks Like
+## Real Example: Agile Manual Verification Sub-Task
 
-<example label="happy-path">
+<example label="happy-path-verification">
 ```bash
 $ /generate-qa-subtask ARC-4831 --assignee sarah.kim
 
 Generating QA sub-task for ARC-4831 (pause-resume download)...
 Parent ticket: ARC-4831 Story | Status: In Progress
 Acceptance Criteria found: 4 criteria
-Code diff: DownloadWorker.ts (+120 lines, -30 lines)
+Code diff: DownloadWorker.ts (+156 lines, -45 lines)
 
-Drafting test steps...
+Drafting test steps (Agile Manual Verification)...
 Draft 1/2: [submitting to judge...]
 
 Judge verdict (Draft 1):
-  ✓ ISTQB structure: PASS
-  ✓ AC mapping: PASS (all 4 AC criteria have corresponding tests)
-  ⚠ Executability: WARN — Test 4 (error edge case) doesn't verify teardown 
-               of failed state; temp folder inspection is mentioned but not 
-               step-by-step. Suggest: add explicit "Check temp folder" step 
-               with concrete assertion.
+  ✓ Coverage: PASS (all 4 AC criteria have corresponding tests)
+  ⚠ Honesty: WARN — Test 4 (error case) claims to test network 
+               interruption, but code shows timeout handling; test 
+               should explicitly verify timeout behavior, not just 
+               network disconnect
+  ✓ Executability: PASS (all tests use observable state)
 
-Draft 2/2: [regenerating with explicit teardown steps...]
+Draft 2/2: [regenerating with explicit timeout scenario...]
 
 Judge verdict (Draft 2):
-  ✓ ISTQB structure: PASS
-  ✓ AC mapping: PASS
+  ✓ Coverage: PASS
+  ✓ Honesty: PASS (all tests verify what code actually does)
   ✓ Executability: PASS
 
 ✓ Creating Jira sub-task...
@@ -202,12 +212,12 @@ Next step: Transition ARC-4831 to "In Test" when QA is ready to verify.
 ```
 
 **What happened here:**
-- Judge reviewed the first draft and found a gap (error-case teardown verification wasn't explicit enough)
-- Tool regenerated that section with concrete steps
-- Judge passed on the second pass
-- Sub-task was created automatically
+- Judge caught that the first test was **dishonest** — it claimed to test network disconnect but the code handles timeouts, not network errors
+- Tool regenerated with an actual timeout test that matches the code
+- Judge passed on round 2 because tests now honestly verify what the code does
+- Sub-task was created with confidence that QA will test the right things
 
-**You didn't have to do anything.** Tool iterated automatically; you just waited ~30 seconds for the result.
+**You didn't write a single test step.** Tool generated them from your diff and AC, judge verified honesty, and QA gets a concrete, correct sub-task.
 </example>
 
 <example label="edge-case-existing-subtask">
@@ -217,7 +227,7 @@ $ /generate-qa-subtask ARC-5000
 Generating QA sub-task for ARC-5000 (IndexedDB persistence)...
 Parent ticket: ARC-5000 Story | Status: In Progress
 Acceptance Criteria found: 3 criteria
-Code diff: IndexedDBStore.ts (+85 lines)
+Code diff: IndexedDBStore.ts (+89 lines, -12 lines)
 
 ⚠ Sub-task already exists: ARC-5000.1 (QA: Verify IndexedDB persistence)
 
@@ -226,24 +236,25 @@ Replace existing sub-task? [Y/n]: n
 No changes made. Use `/generate-qa-subtask ARC-5000 --force` to regenerate.
 ```
 
-**What happened:** The tool detected an existing sub-task and asked before overwriting. You chose to keep it, so no Jira state changed. If you had answered `Y`, the tool would have regenerated fresh tests, replacing the old sub-task.
+**What happened:** Tool detected an existing sub-task and asked before overwriting. You chose to keep it.
 </example>
 
 ---
 
 ## Guarantee: When the Sub-Task Is Created
 
-**The tool creates a Jira sub-task ONLY after the judge has passed all three gates**, because you need a guarantee that the tests are sound before they enter Jira. If judge rejects the tests after 3 iterations:
-- Tool stops and reports the failure
+**The tool creates a Jira sub-task ONLY after all three judge gates pass**, because you need a guarantee that tests are honest, complete, and executable before QA starts. If judge rejects tests after 3 iterations:
+- Tool stops and reports the failures
 - Sub-task is NOT created
-- You see the judge's feedback and can decide: (a) debug the feature (tests may be revealing a real gap), or (b) create the sub-task manually
+- You see which gate failed (coverage, honesty, or executability) and why
+- You can debug the feature (tests may be revealing a real gap) or use `--force` to override
 
-**You are never left with a malformed or incomplete sub-task.** Judge verification is a hard gate—sub-task creation happens after, not before.
+**You are never left with a dishonest or incomplete sub-task.** Judge verification is a hard gate.
 
 **If something goes wrong during Jira creation:**
 - Tool rolls back (deletes any partial sub-task) and reports the error
 - You can re-run the command to retry
-- Command is idempotent—safe to re-run multiple times, so retries never create duplicates
+- Command is idempotent—safe to re-run multiple times
 
 ## Invocation from Your Branch
 
@@ -277,34 +288,33 @@ For now, if a teammate asks "can I use this?", the answer is "not yet — waitin
 | Scenario | Action |
 |----------|--------|
 | "Should I create a QA sub-task?" | If feature has user-facing behavior and no sub-task exists: yes, invoke `/generate-qa-subtask` |
-| "How do I know if judge passed?" | You'll see `✓ Sub-task created` in output; tool iterated internally until passing |
-| "What if I disagree with generated tests?" | Edit the Jira sub-task after creation; judge only verifies structure and AC mapping, not your judgment |
+| "What if judge rejects tests?" | Judge report shows which gate failed (coverage/honesty/executability) and why; tool auto-iterates up to 3 times |
+| "What if I disagree with generated tests?" | Edit the Jira sub-task after creation; judge only verifies honesty against diff, not your judgment |
 | "Can I run this mid-feature?" | Yes, but you'll get clearer results after code review (diff is finalized) |
 | "What if sub-task exists?" | Tool asks: "Replace existing sub-task?" — your choice |
+| "How do I force creation if judge fails?" | Use `--force` flag to bypass judge and create anyway (not recommended; indicates a real problem) |
 
 ---
 
-## Test Gate Rubric (What the Judge Checks)
+## Red-Blue-Judge Gate: Three Dimensions
 
-The red-blue-judge gate verifies three dimensions:
+The red-blue-judge gate verifies:
 
-**ISTQB Structure (Q1–Q5):**
-- Q1: Does description have "Prerequisites" section? ✓
-- Q2: Are tests numbered and named? ✓
-- Q3: Does each test have Setup, Steps, Expected, Verify, Pass Criteria? ✓
-- Q4: Are steps written in imperative (Step 1: Click X)? ✓
-- Q5: Are pass criteria concrete and testable? ✓
+**Coverage Gate:**
+- Does every AC criterion have at least one test? ✓
+- Are all AC criteria explicitly mapped to tests? ✓
 
-**Acceptance Criteria Mapping (Q6–Q8):**
-- Q6: Does each acceptance criterion map to at least one test? ✓
-- Q7: Is the mapping explicit (test name or step mentions the AC)? ✓
-- Q8: Are negative/error cases covered? ✓
+**Honesty Gate:**
+- Do tests actually verify what the code changed (not make-believe tests)? ✓
+- Are tests grounded in observable state (not logs)? ✓
+- Do error-case tests match error handling the code implements? ✓
 
-**Executability (Q9–Q10):**
-- Q9: Can tests be executed by inspecting actual artifacts (temp folders, files, requests), not just logs? ✓
-- Q10: Are all assertions grounded in observable state? ✓
+**Executability Gate:**
+- Can QA realistically run these tests (no impossible expectations)? ✓
+- Are Prerequisites accurate and sufficient? ✓
+- Are test steps concrete and measurable? ✓
 
-If any check fails, judge provides feedback and tool regenerates.
+If any gate fails, judge provides feedback specific to that dimension and tool regenerates.
 
 ---
 
@@ -314,16 +324,17 @@ A successful run meets ALL of these criteria:
 
 - [ ] Sub-task was created in Jira (not rejected or left pending)
 - [ ] Sub-task summary follows format: "QA: Verify [feature name] per ARC-[ticket]"
-- [ ] Description contains "Prerequisites" section with test environment and setup
-- [ ] Tests are numbered (Test 1, Test 2, …) and each has a name
-- [ ] Each test has: Setup, Steps (Step 1, Step 2, …), Expected results, Verify instructions, and Pass Criteria
-- [ ] Each AC criterion from the parent ticket maps to at least one test (explicit mapping in test name or step)
-- [ ] Edge cases are covered (error states, state transitions, completion, etc.) — not happy path only
-- [ ] Tests are verifiable by inspecting artifacts (files, DevTools, Network tab) — not by reading logs
+- [ ] Description contains "Prerequisites" section with environment, flags, browser, access
+- [ ] Tests are numbered (Test 1, Test 2, …) and each has a concrete name
+- [ ] Each test has: imperative steps (1, 2, 3...), Expected results, and Verification method
+- [ ] Each AC criterion from the parent ticket maps to at least one test (coverage gate passed)
+- [ ] Tests verify what the code actually changed, not hypothetical behavior (honesty gate passed)
+- [ ] Error/edge cases are tested if code handles them (agent detected error handling in diff)
+- [ ] Tests use observable verification (DevTools, Network tab, file state) — never logs only
+- [ ] Pass Criteria are checkbox items derived from AC criteria
 - [ ] Sub-task is assigned to QA owner (or left unassigned for team lead routing) per `--assignee` arg
-- [ ] Judge passed all three gates (ISTQB structure, AC mapping, executability) — reported in tool output
+- [ ] Judge passed all three gates (Coverage, Honesty, Executability) — reported in tool output
 
-If ALL criteria are met, the sub-task is ready for QA verification.
+If ALL criteria are met, the sub-task is ready for QA to execute immediately without clarification.
 
 </instructions>
-
