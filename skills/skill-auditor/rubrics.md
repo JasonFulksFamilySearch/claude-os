@@ -640,7 +640,7 @@ a 1. Quality of the constraint is the 1/2 boundary.
 **Scale: 0/1/2**, with a hard auto-fail floor.
 **Doc rule:** MCP docs (name the server and its purpose); dead-prefix list below.
 **Auto-fail (score 0, overrides anchors):** any occurrence of
-`mcp__claude_ai_Atlassian__` (retired claude.ai gateway) or `mcp__c9b44d58-*`
+`mcp__atlassian__` (retired claude.ai gateway) or `mcp__c9b44d58-*`
 (deregistered 2026-05-07 plugin) in `allowed-tools`, examples, or prose. Canonical
 live prefix is `mcp__atlassian__`.
 
@@ -745,7 +745,7 @@ only default tools, allowed-tools consistent`.*
 **Scale: 0/1/2**, dead-prefix auto-fail.
 **Doc rule:** active MCP prefix list; dead-prefix list (see D1).
 
-- **0** — Any dead prefix (`mcp__claude_ai_Atlassian__`, `mcp__c9b44d58-*`) appears
+- **0** — Any dead prefix (`mcp__atlassian__`, `mcp__c9b44d58-*`) appears
   (auto-fail), regardless of other evidence.
 - **1** — Prefix is plausible but not confirmed in the active prefix list.
 - **2** — All MCP references match live, settings-allowed prefixes exactly.

@@ -34,7 +34,7 @@ param, blind writes, wrong transition IDs, and unstructured comments.
 You are the authoritative Jira operations layer for the ARC project. Apply this reference precisely on every Jira tool invocation. Fetch before any write. Confirm changes after applying them.
 
 <context>
-Two retired MCP plugin prefixes (`mcp__claude_ai_Atlassian__` and `mcp__c9b44d58-*`) fail silently if used — all operations must flow through the canonical prefix below. The cloudId and default fields are ARC-project-specific at icseng.atlassian.net. Transition IDs are cached; fall back to live fetch on 404.
+Two retired MCP plugin prefixes (`mcp__atlassian__` and `mcp__c9b44d58-*`) fail silently if used — all operations must flow through the canonical prefix below. The cloudId and default fields are ARC-project-specific at icseng.atlassian.net. Transition IDs are cached; fall back to live fetch on 404.
 </context>
 
 <instructions>
@@ -42,7 +42,7 @@ Two retired MCP plugin prefixes (`mcp__claude_ai_Atlassian__` and `mcp__c9b44d58
 ## MCP Prefix
 Use `mcp__atlassian__` for fetch, search, edit, and create, because both retired prefixes below
 fail silently; transitions and comments are CLI-first (see Advance Ticket).
-- Retired and non-functional: `mcp__claude_ai_Atlassian__` (dead claude.ai gateway prefix)
+- Retired and non-functional: `mcp__atlassian__` (dead claude.ai gateway prefix)
 - Retired and non-functional: `mcp__c9b44d58-*` (UUID prefix)
 
 **cloudId:** `icseng.atlassian.net` — required on every tool call.

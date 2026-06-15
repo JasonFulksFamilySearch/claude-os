@@ -24,7 +24,7 @@ parent issue, propose sub-tasks for approval, then create approved sub-tasks.
 converts a well-structured PRD into a parent issue with derivation-based sub-tasks.
 
 **Hard constraints:**
-- Always use `mcp__atlassian__` — never `mcp__claude_ai_Atlassian__` (dead gateway prefix, fails silently).
+- Always use `mcp__atlassian__` — never `mcp__atlassian__` (dead gateway prefix, fails silently).
 - Always include `fields` param when fetching issues — never fetch blind (the default response is too large and obscures the fields you actually need).
 - Present proposed sub-tasks for approval before creating any (sub-task creation is hard to undo cleanly — bulk-delete in JIRA is manual).
 - Never create labels that don't already exist in JIRA (label sprawl is a long-standing team pain point).
@@ -203,7 +203,7 @@ Show the user:
 
 ## Rules
 
-- Always use `mcp__atlassian__` prefix (never `mcp__claude_ai_Atlassian__` — that prefix is the dead gateway and fails silently).
+- Always use `mcp__atlassian__` prefix (never `mcp__atlassian__` — that prefix is the dead gateway and fails silently).
 - Always include `fields` param when fetching issues.
 - Never create labels — use existing labels only.
 - Issue type in ARC is `"User Story"` (not `Story`).
@@ -225,7 +225,7 @@ The skill is complete when:
 - Description does NOT contain a `## Acceptance Criteria` section (it lives in the custom field instead).
 - Sub-tasks were proposed and Sir approved before any sub-tasks were created.
 - Results page showed parent issue key/URL and list of sub-task keys.
-- No `mcp__claude_ai_Atlassian__` prefix was used — all calls used `mcp__atlassian__`.
+- No `mcp__atlassian__` prefix was used — all calls used `mcp__atlassian__`.
 </success_criteria>
 
 <examples>
@@ -273,7 +273,7 @@ Input: /prd-to-jira ./prd.md (Atlassian MCP returns 401)
 
 Step 3: `getJiraProjectIssueTypesMetadata` returned 401 Unauthorized. Surfaced
 the error verbatim to Sir and stopped. Did not retry, did not switch to the
-retired `mcp__claude_ai_Atlassian__` prefix, did not attempt to create issues via any
+retired `mcp__atlassian__` prefix, did not attempt to create issues via any
 fallback path.
 </example>
 
