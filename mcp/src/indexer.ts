@@ -121,13 +121,13 @@ function sha256(s: string): string {
 
 const upsertSql = `
   INSERT INTO observations (
-    source_type, source_path, project, topic, title,
+    source_type, source_path, anchor, project, topic, title,
     content, content_hash, file_mtime, indexed_at, frontmatter
   ) VALUES (
-    @source_type, @source_path, @project, @topic, @title,
+    @source_type, @source_path, '', @project, @topic, @title,
     @content, @content_hash, @file_mtime, @indexed_at, @frontmatter
   )
-  ON CONFLICT(source_path) DO UPDATE SET
+  ON CONFLICT(source_path, anchor) DO UPDATE SET
     source_type  = excluded.source_type,
     project      = excluded.project,
     topic        = excluded.topic,

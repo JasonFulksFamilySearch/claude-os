@@ -136,6 +136,22 @@ describe("access_stats", () => {
   });
 });
 
+describe("v3 schema", () => {
+  it("fresh DB has v3 observations schema", () => {
+    const cols = db.prepare("PRAGMA table_info(observations)").all() as { name: string }[];
+    expect(cols.map(c => c.name)).toContain("anchor");
+    expect(cols.map(c => c.name)).toContain("parent_title");
+    expect(db.pragma("user_version", { simple: true })).toBe(3);
+  });
+
+  it("fresh DB enforces (source_path, anchor) uniqueness, not source_path alone", () => {
+    const ins = db.prepare(`INSERT INTO observations (source_type,source_path,anchor,content,content_hash,file_mtime,indexed_at) VALUES ('learning','/x.md',?, 'c','h',0,0)`);
+    ins.run("");           // ok
+    ins.run("2026-01-01"); // same path, different anchor — must succeed
+    expect(() => ins.run("")).toThrow(); // duplicate (path, '') — must fail
+  });
+});
+
 describe("novelty_flags", () => {
   const insertFlag = (over: Record<string, unknown> = {}) =>
     db
