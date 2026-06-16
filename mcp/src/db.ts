@@ -3,6 +3,7 @@ import * as sqliteVec from "sqlite-vec";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
+import { isV3Schema } from "./migrations.js";
 
 export const DEFAULT_DB_PATH = join(homedir(), ".claude-data", "memory.db");
 
@@ -12,6 +13,19 @@ export function openDb(dbPath: string = DEFAULT_DB_PATH): Database.Database {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   sqliteVec.load(db);
+
+  // Fail fast if observations already exists but is pre-C2 (no anchor column).
+  // This check must run before initSchema so that the v2 table's missing columns
+  // do not cause index-creation errors inside initSchema.
+  const tableExists = (db.prepare("PRAGMA table_info(observations)").all()).length > 0;
+  if (tableExists && !isV3Schema(db)) {
+    db.close();
+    throw new Error(
+      "memory.db schema is pre-C2 (no anchor column). Run `npm run migrate` to upgrade. " +
+      "The MCP server will not start against a v2 store."
+    );
+  }
+
   initSchema(db);
   return db;
 }
