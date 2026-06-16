@@ -57,7 +57,7 @@ const CANONICAL_GUARD_HOOKS = [
     // A permissionDecision:"deny" hook.
     event: 'PreToolUse',
     matcher: 'Bash',
-    command: 'c=$(jq -r \'.tool_input.command\'); printf \'%s\' "$c" | grep -qE \'^cd\\s+.*&&\\s*git\\s\' && ! printf \'%s\' "$c" | grep -qE \'^cd\\s+[^&]*/worktrees/\' && echo \'{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Rule 11: cd && git must be separate commands (run cd first, then git). Worktree paths under /worktrees/ are exempt."}}\'',
+    command: 'c=$(jq -r \'.tool_input.command\'); printf \'%s\' "$c" | grep -qE \'^cd[[:space:]]+.*&&[[:space:]]*git[[:space:]]\' && ! printf \'%s\' "$c" | grep -qE \'^cd[[:space:]]+[^&]*/worktrees/\' && echo \'{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Rule 11: cd && git must be separate commands (run cd first, then git). Worktree paths under /worktrees/ are exempt."}}\'',
     statusMessage: 'Checking cd && git...',
   },
   {
