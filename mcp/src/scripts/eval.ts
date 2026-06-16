@@ -236,6 +236,8 @@ async function main(): Promise<void> {
 }
 
 // Only run when invoked directly as a script (npm run eval), never on import (tests).
+// pathToFileURL resolves a relative argv[1] against cwd (it does not throw); npm runs
+// from the package root and tsx sets argv[1] to this file, so the comparison holds.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((err: unknown) => {
     const msg = err instanceof Error ? (err.stack ?? err.message) : String(err);
