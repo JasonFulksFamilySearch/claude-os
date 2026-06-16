@@ -144,10 +144,16 @@ describe("classify", () => {
   });
 
   it("rejects archive files (and the guard is selective)", () => {
-    // Guard: archive paths classify to null...
+    // Asserts the archive->null invariant and, via the positive control, that the
+    // classifier is selective. Note: the classify() archive guard is redundant with
+    // classify's terminal `return null` (no archive path matches a positive branch),
+    // so this assertion does not uniquely falsify that guard line — it pins the
+    // invariant against a future catch-all branch. The load-bearing, falsifiable
+    // archive-exclusion guards are the isWatchIgnored test and the post-fullReindex
+    // corpus assertion below.
     const archived = join(dataRoot, "archive", "old.md");
     expect(classify(archived, config)).toBeNull();
-    // ...positive control: a non-archive context file still classifies non-null,
+    // Positive control: a non-archive context file still classifies non-null,
     // proving the guard rejects archive specifically, not everything.
     const context = join(dataRoot, "context", "jira.md");
     expect(classify(context, config)).not.toBeNull();

@@ -203,7 +203,11 @@ async function main(): Promise<void> {
       );
       const verdict = composeVerdict(presence, Object.values(stageResults));
       console.log(`\nPresence: ${presence}  (baseline r@${k}=${base.presence.mean_recall_at_k.toFixed(4)} mrr=${base.presence.mrr.toFixed(4)})`);
-      console.log(`VERDICT: ${verdict}`);
+      // Echo the cause on the verdict line — this gate runs unattended at memory-merger
+      // close, where a bare INCONCLUSIVE costs an investigation round-trip.
+      const reason =
+        presence === "INCONCLUSIVE" ? " (presence labels broken — see the [fix labels] flags above)" : "";
+      console.log(`VERDICT: ${verdict}${reason}`);
       if (verdict === "FAIL" || verdict === "INCONCLUSIVE") process.exitCode = 1;
     }
 

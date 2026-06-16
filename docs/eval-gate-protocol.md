@@ -18,6 +18,14 @@ Stage 1 is **not** a labeled-absence probe at the retrieval layer — that would
 vacuous (an archived file is never indexed, so a "is it absent from top-k?" probe
 always passes). It lives at the indexer boundary where the guarantee is real.
 
+Within that indexer-boundary suite the falsifiable load is carried by the
+`isWatchIgnored` test (flips if the `/archive/` branch is removed) and the
+post-`fullReindex` corpus assertion (flips if reindex ever walks `archive/`). The
+`classify` archive assertion documents the archive→null invariant but is redundant
+with `classify`'s terminal `return null` (no archive path matches a positive branch),
+so it pins the invariant against a future catch-all branch rather than uniquely
+exercising the guard line.
+
 ## Running the gate
 
 ```bash

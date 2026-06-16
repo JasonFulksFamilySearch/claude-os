@@ -358,8 +358,9 @@ export async function fullReindex(
   return summary;
 }
 
-// Watcher ignore predicate, extracted verbatim from watchAll's inline arrow so it
-// can be unit-asserted. Three branches: archive paths, _legacy* basenames, and
+// Watcher ignore predicate, extracted behavior-for-behavior from watchAll's inline
+// arrow so it can be unit-asserted (it recomputes dataRoot, which the arrow captured
+// from its enclosing scope). Three branches: archive paths, _legacy* basenames, and
 // underscore-prefixed files under episodes/ (mirrors the fullReindex walk filters).
 export function isWatchIgnored(p: string, config: IndexerConfig): boolean {
   const dataRoot = resolve(config.dataRoot);
