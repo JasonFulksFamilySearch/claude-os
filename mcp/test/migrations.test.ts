@@ -35,16 +35,21 @@ describe("openDb fail-fast on pre-C2 schema", () => {
       const raw = new Database(v2Path);
       raw.pragma("journal_mode = WAL");
       sqliteVec.load(raw);
-      // Pre-C2 shape: no anchor column
+      // Pre-C2 shape: faithful v2 columns, no anchor or parent_title
       raw.exec(`
         CREATE TABLE observations (
           id           INTEGER PRIMARY KEY AUTOINCREMENT,
           source_type  TEXT NOT NULL,
           source_path  TEXT NOT NULL,
+          project      TEXT,
+          topic        TEXT,
+          title        TEXT,
+          frontmatter  TEXT,
           content      TEXT NOT NULL,
           content_hash TEXT NOT NULL,
           file_mtime   INTEGER NOT NULL,
-          indexed_at   INTEGER NOT NULL
+          indexed_at   INTEGER NOT NULL,
+          UNIQUE(source_path)
         );
       `);
       raw.close();
@@ -62,7 +67,6 @@ describe("openDb fail-fast on pre-C2 schema", () => {
     try {
       expect(() => openDb(freshPath)).not.toThrow();
     } finally {
-      // open a handle to close before cleanup
       rmSync(freshDir, { recursive: true, force: true });
     }
   });
