@@ -196,14 +196,16 @@ async function main(): Promise<void> {
         ),
       };
       writeBaseline(BASELINE_PATH, baseline);
-      console.log(`\nBASELINE CAPTURED → ${BASELINE_PATH} (no verdict this run)`);
+      // Every terminal branch emits a VERDICT: line so the output parses uniformly
+      // (the memory-merger closing step reads it). Capture renders no pass/fail.
+      console.log(`\nVERDICT: BASELINE CAPTURED (recorded → ${BASELINE_PATH}; no pass/fail this run)`);
     } else {
       const base = existing as Baseline;
       if (k !== base.presence.k) {
-        // recall@k across different k is not comparable — surface it rather than emit a
+        // recall@k across different k is not comparable — INCONCLUSIVE rather than a
         // misleading PASS/FAIL. Re-baseline to compose a verdict against the new k.
         console.log(
-          `\nBASELINE STALE: current k=${k} but the baseline was captured at k=${base.presence.k}. Re-capture with --rebaseline before composing a verdict.`,
+          `\nVERDICT: INCONCLUSIVE (baseline stale — captured at k=${base.presence.k}, current k=${k}; re-baseline with --rebaseline)`,
         );
         process.exitCode = 1;
       } else {
