@@ -143,9 +143,14 @@ describe("classify", () => {
     ).toEqual({ source_type: "project_readme", topic: null, project: "ext" });
   });
 
-  it("rejects archive files", () => {
-    const p = join(dataRoot, "archive", "old.md");
-    expect(classify(p, config)).toBeNull();
+  it("rejects archive files (and the guard is selective)", () => {
+    // Guard: archive paths classify to null...
+    const archived = join(dataRoot, "archive", "old.md");
+    expect(classify(archived, config)).toBeNull();
+    // ...positive control: a non-archive context file still classifies non-null,
+    // proving the guard rejects archive specifically, not everything.
+    const context = join(dataRoot, "context", "jira.md");
+    expect(classify(context, config)).not.toBeNull();
   });
 
   it("classifies episode files", () => {
@@ -413,6 +418,9 @@ describe("fullReindex", () => {
     expect(paths).toContain(join(dataRoot, "context", "jira.md"));
     expect(paths).toContain(join(dataRoot, "projects", "demo", "CLAUDE.md"));
     expect(paths).not.toContain(join(dataRoot, "context", "_index.md"));
+    // C1 archive-exclusion invariant (Stage 1): archived files never enter the
+    // corpus. Control-backed — the toContain assertions above prove this is not
+    // vacuously satisfied by an empty result set.
     expect(paths).not.toContain(join(dataRoot, "archive", "old.md"));
   });
 });
