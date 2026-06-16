@@ -17,6 +17,7 @@ import {
   classify,
   indexFile,
   fullReindex,
+  isWatchIgnored,
   type IndexerConfig,
 } from "../src/indexer.js";
 import { embedDocument } from "../src/embedder.js";
@@ -168,6 +169,24 @@ describe("classify", () => {
       topic: null,
       project: null,
     });
+  });
+});
+
+describe("isWatchIgnored — watcher archive/legacy/episode predicate", () => {
+  it("ignores files under archive/", () => {
+    expect(isWatchIgnored(join(dataRoot, "archive", "old.md"), config)).toBe(true);
+  });
+  it("does NOT ignore a legitimately-watched context file (selective)", () => {
+    expect(isWatchIgnored(join(dataRoot, "context", "jira.md"), config)).toBe(false);
+  });
+  it("ignores _legacy-prefixed basenames", () => {
+    expect(isWatchIgnored(join(dataRoot, "agent", "_legacy.md"), config)).toBe(true);
+  });
+  it("ignores underscore-prefixed files in episodes/", () => {
+    expect(isWatchIgnored(join(dataRoot, "episodes", "_scratch.md"), config)).toBe(true);
+  });
+  it("does NOT ignore a normal episode file", () => {
+    expect(isWatchIgnored(join(dataRoot, "episodes", "2026-05-14-abc.md"), config)).toBe(false);
   });
 });
 
