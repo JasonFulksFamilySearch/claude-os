@@ -14,6 +14,7 @@ import {
   existsSync,
   readFileSync,
   writeFileSync,
+  mkdirSync,
   mkdtempSync,
   rmSync,
 } from "node:fs";
@@ -79,6 +80,8 @@ export function readBaseline(path: string): Baseline | null {
 }
 
 export function writeBaseline(path: string, baseline: Baseline): void {
+  // Ensure the parent dir exists — a custom DB path on a fresh machine may not have ~/.claude-data/.
+  mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(baseline, null, 2) + "\n", "utf8");
 }
 
@@ -196,19 +199,28 @@ async function main(): Promise<void> {
       console.log(`\nBASELINE CAPTURED → ${BASELINE_PATH} (no verdict this run)`);
     } else {
       const base = existing as Baseline;
-      const presence = presenceVerdict(
-        metrics,
-        { meanRecallAtK: base.presence.mean_recall_at_k, mrr: base.presence.mrr },
-        brokenLabels,
-      );
-      const verdict = composeVerdict(presence, Object.values(stageResults));
-      console.log(`\nPresence: ${presence}  (baseline r@${k}=${base.presence.mean_recall_at_k.toFixed(4)} mrr=${base.presence.mrr.toFixed(4)})`);
-      // Echo the cause on the verdict line — this gate runs unattended at memory-merger
-      // close, where a bare INCONCLUSIVE costs an investigation round-trip.
-      const reason =
-        presence === "INCONCLUSIVE" ? " (presence labels broken — see the [fix labels] flags above)" : "";
-      console.log(`VERDICT: ${verdict}${reason}`);
-      if (verdict === "FAIL" || verdict === "INCONCLUSIVE") process.exitCode = 1;
+      if (k !== base.presence.k) {
+        // recall@k across different k is not comparable — surface it rather than emit a
+        // misleading PASS/FAIL. Re-baseline to compose a verdict against the new k.
+        console.log(
+          `\nBASELINE STALE: current k=${k} but the baseline was captured at k=${base.presence.k}. Re-capture with --rebaseline before composing a verdict.`,
+        );
+        process.exitCode = 1;
+      } else {
+        const presence = presenceVerdict(
+          metrics,
+          { meanRecallAtK: base.presence.mean_recall_at_k, mrr: base.presence.mrr },
+          brokenLabels,
+        );
+        const verdict = composeVerdict(presence, Object.values(stageResults));
+        console.log(`\nPresence: ${presence}  (baseline r@${k}=${base.presence.mean_recall_at_k.toFixed(4)} mrr=${base.presence.mrr.toFixed(4)})`);
+        // Echo the cause on the verdict line — this gate runs unattended at memory-merger
+        // close, where a bare INCONCLUSIVE costs an investigation round-trip.
+        const reason =
+          presence === "INCONCLUSIVE" ? " (presence labels broken — see the [fix labels] flags above)" : "";
+        console.log(`VERDICT: ${verdict}${reason}`);
+        if (verdict === "FAIL" || verdict === "INCONCLUSIVE") process.exitCode = 1;
+      }
     }
 
     console.log(
