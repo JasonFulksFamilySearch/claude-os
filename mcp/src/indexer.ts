@@ -358,6 +358,22 @@ export async function fullReindex(
   return summary;
 }
 
+// Watcher ignore predicate, extracted behavior-for-behavior from watchAll's inline
+// arrow so it can be unit-asserted (it recomputes dataRoot, which the arrow captured
+// from its enclosing scope). Three branches: archive paths, _legacy* basenames, and
+// underscore-prefixed files under episodes/ (mirrors the fullReindex walk filters).
+export function isWatchIgnored(p: string, config: IndexerConfig): boolean {
+  const dataRoot = resolve(config.dataRoot);
+  const norm = resolve(p);
+  if (norm.includes("/archive/")) return true;
+  if (basename(norm).startsWith("_legacy")) return true;
+  const episodesDir = resolve(dataRoot, "episodes");
+  if (norm.startsWith(episodesDir + "/") && basename(norm).startsWith("_")) {
+    return true;
+  }
+  return false;
+}
+
 export function watchAll(
   db: Database.Database,
   config: IndexerConfig,
@@ -379,18 +395,7 @@ export function watchAll(
   }
 
   const watcher = chokidar.watch(paths, {
-    ignored: (p: string) => {
-      const norm = resolve(p);
-      if (norm.includes("/archive/")) return true;
-      if (basename(norm).startsWith("_legacy")) return true;
-      // Episodes dir uses the broader `_*` skip — mirrors the fullReindex walk
-      // filter so the watcher and the reindex pass stay symmetric.
-      const episodesDir = resolve(dataRoot, "episodes");
-      if (norm.startsWith(episodesDir + "/") && basename(norm).startsWith("_")) {
-        return true;
-      }
-      return false;
-    },
+    ignored: (p: string) => isWatchIgnored(p, config),
     ignoreInitial: true,
     awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 },
     persistent: true,

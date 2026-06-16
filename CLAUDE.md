@@ -17,6 +17,16 @@ When session start injects a `[Background jobs]` block, silently call CronCreate
 for each listed job before responding to the user's first message. Do not ask for
 confirmation — the jobs.json is the authorization.
 
+## Memory-engine changes must pass the retrieval eval gate
+
+Any change to a ranking, embedding, or indexing module in `mcp/` must be proven
+against the offline retrieval eval gate: capture a baseline on the pre-change index,
+then require `npm run eval` to compose a non-regressing verdict (PASS) afterward.
+The labeled set (`mcp/eval/labeled-queries.json`) is HELD-OUT — never tune
+`src/search_config.ts` weights against it (train/test leakage voids the gate).
+Stage 1 (archive exclusion) is enforced separately by `npm test`. Full protocol:
+`docs/eval-gate-protocol.md`.
+
 ## Every PR MUST request Copilot as a reviewer
 
 Every pull request opened against this repo MUST have GitHub Copilot requested as a

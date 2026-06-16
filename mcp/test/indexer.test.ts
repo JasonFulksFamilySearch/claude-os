@@ -17,6 +17,7 @@ import {
   classify,
   indexFile,
   fullReindex,
+  isWatchIgnored,
   type IndexerConfig,
 } from "../src/indexer.js";
 import { embedDocument } from "../src/embedder.js";
@@ -142,9 +143,20 @@ describe("classify", () => {
     ).toEqual({ source_type: "project_readme", topic: null, project: "ext" });
   });
 
-  it("rejects archive files", () => {
-    const p = join(dataRoot, "archive", "old.md");
-    expect(classify(p, config)).toBeNull();
+  it("rejects archive files (and the guard is selective)", () => {
+    // Asserts the archive->null invariant and, via the positive control, that the
+    // classifier is selective. Note: the classify() archive guard is redundant with
+    // classify's terminal `return null` (no archive path matches a positive branch),
+    // so this assertion does not uniquely falsify that guard line — it pins the
+    // invariant against a future catch-all branch. The load-bearing, falsifiable
+    // archive-exclusion guards are the isWatchIgnored test and the post-fullReindex
+    // corpus assertion below.
+    const archived = join(dataRoot, "archive", "old.md");
+    expect(classify(archived, config)).toBeNull();
+    // Positive control: a non-archive context file still classifies non-null,
+    // proving the guard rejects archive specifically, not everything.
+    const context = join(dataRoot, "context", "jira.md");
+    expect(classify(context, config)).not.toBeNull();
   });
 
   it("classifies episode files", () => {
@@ -168,6 +180,24 @@ describe("classify", () => {
       topic: null,
       project: null,
     });
+  });
+});
+
+describe("isWatchIgnored — watcher archive/legacy/episode predicate", () => {
+  it("ignores files under archive/", () => {
+    expect(isWatchIgnored(join(dataRoot, "archive", "old.md"), config)).toBe(true);
+  });
+  it("does NOT ignore a legitimately-watched context file (selective)", () => {
+    expect(isWatchIgnored(join(dataRoot, "context", "jira.md"), config)).toBe(false);
+  });
+  it("ignores _legacy-prefixed basenames", () => {
+    expect(isWatchIgnored(join(dataRoot, "agent", "_legacy.md"), config)).toBe(true);
+  });
+  it("ignores underscore-prefixed files in episodes/", () => {
+    expect(isWatchIgnored(join(dataRoot, "episodes", "_scratch.md"), config)).toBe(true);
+  });
+  it("does NOT ignore a normal episode file", () => {
+    expect(isWatchIgnored(join(dataRoot, "episodes", "2026-05-14-abc.md"), config)).toBe(false);
   });
 });
 
@@ -394,6 +424,9 @@ describe("fullReindex", () => {
     expect(paths).toContain(join(dataRoot, "context", "jira.md"));
     expect(paths).toContain(join(dataRoot, "projects", "demo", "CLAUDE.md"));
     expect(paths).not.toContain(join(dataRoot, "context", "_index.md"));
+    // C1 archive-exclusion invariant (Stage 1): archived files never enter the
+    // corpus. Control-backed — the toContain assertions above prove this is not
+    // vacuously satisfied by an empty result set.
     expect(paths).not.toContain(join(dataRoot, "archive", "old.md"));
   });
 });
