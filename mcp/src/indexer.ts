@@ -7,7 +7,7 @@ import { homedir } from "node:os";
 import matter from "gray-matter";
 import type { SourceType } from "./db.js";
 import { log } from "./logger.js";
-import { embedDocument, serializeVector } from "./embedder.js";
+import { embedDocument, serializeVector, composeEmbedText } from "./embedder.js";
 import { chunkFile } from "./chunker.js";
 
 // THE single read of the c2_chunking_enabled flag lives in indexFile (the chokepoint).
@@ -361,8 +361,10 @@ export async function embedPathObservations(
   }
 
   for (const row of rows) {
-    // Task 8 will change WHAT text is embedded here; for now embed the raw content.
-    await embedObservation(db, row.id, row.content);
+    // Whole-file rows (anchor="") embed raw content — byte-identical to pre-chunking.
+    // Chunked rows (anchor != "") embed contextually enriched text: title context
+    // prepended so search can match on heading terms in addition to body content.
+    await embedObservation(db, row.id, composeEmbedText(row.parent_title, row.anchor === "" ? null : row.title, row.content));
   }
 }
 

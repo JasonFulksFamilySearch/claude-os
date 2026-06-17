@@ -1,12 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-vi.mock("../src/embedder.js", () => ({
-  embedDocument: vi.fn().mockResolvedValue(new Float32Array(768).fill(0)),
-  embedQuery: vi.fn().mockResolvedValue(new Float32Array(768).fill(0)),
-  serializeVector: (v: Float32Array) => Buffer.from(v.buffer, v.byteOffset, v.byteLength),
-  EMBEDDING_DIM: 768,
-  MODEL_ID: "nomic-ai/nomic-embed-text-v1.5",
-}));
+vi.mock("../src/embedder.js", async (importOriginal) => {
+  // Import the real module so we get pure functions (composeEmbedText, serializeVector,
+  // constants) without pulling in the heavyweight @huggingface/transformers pipeline.
+  // We override only the async ML functions that would attempt to load a model.
+  const actual = await importOriginal<typeof import("../src/embedder.js")>();
+  return {
+    ...actual,
+    embedDocument: vi.fn().mockResolvedValue(new Float32Array(768).fill(0)),
+    embedQuery: vi.fn().mockResolvedValue(new Float32Array(768).fill(0)),
+  };
+});
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -655,6 +659,45 @@ describe("removeFile — all chunks (C2)", () => {
         .get(BigInt(id)) as { c: number };
       expect(vec.c).toBe(0);
     }
+  });
+});
+
+describe("embedPathObservations — composeEmbedText applied per row (C2/T8)", () => {
+  it("whole-file row (anchor='') embeds raw content unchanged (flag-off byte-identical)", async () => {
+    // flag OFF → single whole-file chunk with anchor=""
+    // The chunk's content is the full parsed body (including the H1 line) as stored by indexFile.
+    const fileBody = "# jira\n\nbody text\n";
+    const p = join(dataRoot, "context", "jira.md");
+    writeFileSync(p, fileBody, "utf8");
+    vi.mocked(embedDocument).mockClear();
+    await indexAndEmbed(db, p, config);
+
+    // The arg passed to embedDocument must be the raw content column — no context prefix.
+    expect(embedDocument).toHaveBeenCalledTimes(1);
+    const embeddedText = vi.mocked(embedDocument).mock.calls[0][0];
+    // Whole-file rows: content is passed through unchanged (composeEmbedText with null sectionTitle).
+    // Confirm it does NOT have a " > " prefix (which would indicate erroneous enrichment).
+    expect(embeddedText).not.toContain(" > ");
+    // And confirm the body text is present — this is what was stored in the observation.
+    expect(embeddedText).toContain("body text");
+  });
+
+  it("chunked row (anchor != '') embeds enriched text with title context", async () => {
+    enableChunking();
+    const p = join(dataRoot, "agent", "learnings.md");
+    writeFileSync(p, TWO_ENTRY_LEARNINGS, "utf8");
+    vi.mocked(embedDocument).mockClear();
+    await indexAndEmbed(db, p, config);
+
+    // Two chunks embedded — each with title context prefix.
+    expect(embedDocument).toHaveBeenCalledTimes(2);
+    const calls = vi.mocked(embedDocument).mock.calls.map((c) => c[0]);
+    // Both calls should contain a " > " separator (parent > section prefix).
+    for (const text of calls) {
+      expect(text).toContain(" > ");
+    }
+    // Verify at least one call contains the parent title "Learnings" and section heading.
+    expect(calls.some((t) => t.startsWith("Learnings > "))).toBe(true);
   });
 });
 

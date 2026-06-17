@@ -1,12 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-vi.mock("../src/embedder.js", () => ({
-  embedDocument: vi.fn().mockResolvedValue(new Float32Array(768).fill(0)),
-  embedQuery: vi.fn().mockResolvedValue(new Float32Array(768).fill(0)),
-  serializeVector: (v: Float32Array) => Buffer.from(v.buffer, v.byteOffset, v.byteLength),
-  EMBEDDING_DIM: 768,
-  MODEL_ID: "nomic-ai/nomic-embed-text-v1.5",
-}));
+vi.mock("../src/embedder.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/embedder.js")>();
+  return {
+    ...actual,
+    embedDocument: vi.fn().mockResolvedValue(new Float32Array(768).fill(0)),
+    embedQuery: vi.fn().mockResolvedValue(new Float32Array(768).fill(0)),
+  };
+});
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
