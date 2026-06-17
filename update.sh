@@ -61,7 +61,7 @@ if [ ! -f "$MEMORY_DB" ]; then
     skip "No memory.db found — skipping migration (fresh machine)"
 else
     echo "  memory.db found — running migrate script (no-op if already v3)..."
-    if (cd "$MCP_DIR" && npm run migrate --silent 2>/dev/null || npm run migrate); then
+    if (cd "$MCP_DIR" && npm run migrate); then
         ok "DB migration complete (or already v3)"
     else
         warn "DB migration failed — run manually: (cd $MCP_DIR && npm run migrate)"

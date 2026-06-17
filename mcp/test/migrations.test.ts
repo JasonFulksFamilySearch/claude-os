@@ -243,13 +243,16 @@ describe("runMigrations v2 → v3", () => {
     expect(v2.pragma("user_version", { simple: true })).toBe(3);
   });
 
-  it("backupDb writes a readable copy", () => {
+  it("backupDb writes a pre-migration v2 snapshot", () => {
     const backupPath = join(v2Dir, "backup.db");
     backupDb(v2, backupPath);
     expect(existsSync(backupPath)).toBe(true);
     const c = openRaw(backupPath);
     try {
+      // Must have data
       expect((c.prepare("SELECT COUNT(*) c FROM observations").get() as { c: number }).c).toBeGreaterThan(0);
+      // Backup was taken before migration — must NOT have the anchor column (still v2)
+      expect(isV3Schema(c)).toBe(false);
     } finally {
       c.close();
     }
@@ -288,17 +291,16 @@ describe("migrate script main()", () => {
     rmSync(smokeDir, { recursive: true, force: true });
   });
 
-  it("creates a backup and upgrades the DB to v3", async () => {
-    await migrateMain(smokeDbPath, smokeBackupPath);
+  it("creates a backup and upgrades the DB to v3", () => {
+    migrateMain(smokeDbPath, smokeBackupPath);
 
     // Backup must exist and be a readable SQLite file
     expect(existsSync(smokeBackupPath)).toBe(true);
     const bak = new Database(smokeBackupPath);
     try {
-      // Backup was taken before migration — it should still be a v2 snapshot
-      // (no anchor column). Confirm it has the observations table at all.
-      const rows = bak.prepare("SELECT COUNT(*) AS c FROM observations").get() as { c: number };
-      expect(rows.c).toBeGreaterThanOrEqual(0);
+      // Backup was taken before migration — it must be a v2 snapshot (no anchor column)
+      expect((bak.prepare("SELECT COUNT(*) AS c FROM observations").get() as { c: number }).c).toBeGreaterThan(0);
+      expect(isV3Schema(bak)).toBe(false);
     } finally {
       bak.close();
     }
@@ -313,9 +315,19 @@ describe("migrate script main()", () => {
     }
   });
 
-  it("is idempotent — running twice on a v3 DB does not throw", async () => {
-    await migrateMain(smokeDbPath, smokeBackupPath);
-    // Second run: backup already exists, script should still succeed (no-op migration)
-    await migrateMain(smokeDbPath, smokeBackupPath + ".2");
+  it("is idempotent — running twice with the SAME backup path does not throw", () => {
+    migrateMain(smokeDbPath, smokeBackupPath);
+    // Second run: DB is already v3. With the C1 fix, main() detects v3 FIRST and
+    // returns immediately — it never reaches backupDb, so the fixed backup path
+    // does NOT cause a VACUUM INTO collision.
+    expect(() => migrateMain(smokeDbPath, smokeBackupPath)).not.toThrow();
+    // DB must still be v3 after the second (no-op) run
+    const afterSecond = new Database(smokeDbPath);
+    sqliteVec.load(afterSecond);
+    try {
+      expect(isV3Schema(afterSecond)).toBe(true);
+    } finally {
+      afterSecond.close();
+    }
   });
 });
