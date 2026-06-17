@@ -107,6 +107,20 @@ if [ -f "$DEPRECATED_LABELS" ]; then
     ok "Removed deprecated in-repo labeled set (now machine-local at ~/.claude-data/eval/)"
 fi
 
+# Arming the eval gate is a one-time, human-gated, PER-MACHINE step that cannot be
+# scripted — the labeled set must be curated against THIS machine's corpus, and the
+# baseline captured on THIS machine's index. Surface the reminder only while the gate
+# is unarmed (no baseline captured yet) so it stops nagging once done.
+EVAL_BASELINE="$HOME/.claude-data/eval-baseline.json"
+if [ ! -f "$EVAL_BASELINE" ]; then
+    warn "Eval gate not yet armed on this machine — OPTIONAL follow-up:"
+    echo "      1. Curate: draft ~20-30 candidate queries from THIS machine's corpus,"
+    echo "         approve 15-25, write them into $LABELS_LIVE"
+    echo "         (do NOT copy another machine's set — queries are corpus-specific)."
+    echo "      2. Baseline: (cd $REPO_DIR/mcp && npm run eval -- --rebaseline)"
+    echo "      Do NOT run 'npm run cutover' — the C2 chunk-split is deferred pending hardening."
+fi
+
 echo ""
 
 # ── Step 3: Hook registrations in settings.json ──────────────────────────────
