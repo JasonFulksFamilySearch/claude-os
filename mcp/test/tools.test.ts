@@ -195,6 +195,60 @@ describe("search_memory", () => {
   it("does not throw on a malformed FTS query", async () => {
     await expect(searchMemory(db, { query: '"unbalanced' })).resolves.toBeDefined();
   });
+
+  it("result objects include an anchor field", async () => {
+    const results = await searchMemory(db, { query: "checkstyle" });
+    expect(results.length).toBeGreaterThan(0);
+    for (const r of results) {
+      expect("anchor" in r).toBe(true);
+      expect(typeof r.anchor).toBe("string");
+    }
+  });
+
+  it("whole-file rows (anchor='') produce identical order/content to pre-shaper baseline (no-op proof)", async () => {
+    // All fixture files are indexed as whole-file rows (anchor=''), so the shaper
+    // is a no-op — result list is unchanged in length and order vs. no-shaper world.
+    const results = await searchMemory(db, { query: "java OR jira OR lesson", limit: 10 });
+    expect(results.length).toBeGreaterThan(0);
+    // Scores must still be descending — shaper must not reorder.
+    for (let i = 1; i < results.length; i++) {
+      expect(results[i - 1].score).toBeGreaterThanOrEqual(results[i].score);
+    }
+    // All anchors are empty string for whole-file rows.
+    for (const r of results) {
+      expect(r.anchor).toBe("");
+    }
+  });
+
+  it("per-file cap: 3 chunks from one file returns ≤2 results for that file", async () => {
+    // Insert 3 chunk rows for the same source_path but distinct anchors, plus one row
+    // from a different file, then search for a term only these rows contain.
+    const uniqueToken = "xorwibblefnordchunk";
+    const chunkPath = "/fake/chunked-file.md";
+    const otherPath = "/fake/other-file.md";
+    const now = Math.floor(Date.now() / 1000);
+    const insert = db.prepare(
+      `INSERT INTO observations
+         (source_type, source_path, anchor, project, topic, title, content, content_hash, file_mtime, indexed_at)
+       VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)`
+    );
+    for (let i = 1; i <= 3; i++) {
+      insert.run(
+        "learning", chunkPath, `section-${i}`, `Chunk ${i}`,
+        `${uniqueToken} chunk ${i} body`, `hash-chunk-${i}`, now, now
+      );
+    }
+    // One row from a different file so we have a control.
+    insert.run(
+      "learning", otherPath, "", "Other", `${uniqueToken} other body`, "hash-other", now, now
+    );
+
+    const results = await searchMemory(db, { query: uniqueToken, limit: 10 });
+    const fromChunkPath = results.filter((r) => r.source_path === chunkPath);
+    expect(fromChunkPath.length).toBeLessThanOrEqual(2);
+    // The other file's row should still appear.
+    expect(results.some((r) => r.source_path === otherPath)).toBe(true);
+  });
 });
 
 describe("get_topic", () => {
