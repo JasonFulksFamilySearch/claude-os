@@ -27,6 +27,13 @@ The labeled set (`mcp/eval/labeled-queries.json`) is HELD-OUT — never tune
 Stage 1 (archive exclusion) is enforced separately by `npm test`. Full protocol:
 `docs/eval-gate-protocol.md`.
 
+As of C2 (entry-granular indexing), the index supports **anchored rows** — one DB
+row per dated learning entry rather than one row per file. The schema carries new
+`anchor` and `parent_title` columns. Schema migrations run via **`npm run migrate`**
+(wired into `update.sh`) — never on server boot. The chunk-split CUTOVER (flag
+`c2_chunking_enabled`) ships default-off; arm it post-curation via `npm run cutover`
+after capturing an eval baseline (see `docs/eval-gate-protocol.md` C2 cutover note).
+
 ## Every PR MUST request Copilot as a reviewer
 
 Every pull request opened against this repo MUST have GitHub Copilot requested as a
