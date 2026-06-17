@@ -194,7 +194,7 @@ export async function searchMemory(
   //     With whole-file rows (all anchor=''), each path has exactly one row so
   //     this is a no-op, preserving today's behavior.
   const shaped = shapeResults(
-    ranked.map((rc) => ({ ...rc, source_path: (meta.get(rc.id) as MetaRow).source_path, anchor: (meta.get(rc.id) as MetaRow).anchor })),
+    ranked.map((rc) => { const m = meta.get(rc.id)!; return { ...rc, source_path: m.source_path, anchor: m.anchor }; }),
   ).slice(0, limit);
 
   // 5. Materialize results in ranked order (FTS snippet when available, else a slice).

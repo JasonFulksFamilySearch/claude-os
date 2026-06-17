@@ -220,32 +220,56 @@ describe("search_memory", () => {
     }
   });
 
-  it("per-file cap: 3 chunks from one file returns ≤2 results for that file", async () => {
-    // Insert 3 chunk rows for the same source_path but distinct anchors, plus one row
-    // from a different file, then search for a term only these rows contain.
-    const uniqueToken = "xorwibblefnordchunk";
-    const chunkPath = "/fake/chunked-file.md";
-    const otherPath = "/fake/other-file.md";
+  it("per-file cap: retains the TOP-2 by score, not arbitrary 2", async () => {
+    // Arrange three chunks from the same file with a deterministic score ordering:
+    //   chunkA — title IS the query token → earns W_EXACT_TITLE (highest)
+    //   chunkB — title differs, content matches → earns W_EXACT_CONTENT (middle; lower id than C)
+    //   chunkC — title differs, content matches → earns W_EXACT_CONTENT (lowest; higher id, loses id tiebreak)
+    // The cap must retain chunkA and chunkB, and DROP chunkC.
+    // This assertion fails if the cap kept an arbitrary two instead of the top two.
+    const uniqueToken = "xorwibblefnordchunktop2";
+    const chunkPath = "/fake/chunked-file-top2.md";
+    const otherPath = "/fake/other-file-top2.md";
     const now = Math.floor(Date.now() / 1000);
     const insert = db.prepare(
       `INSERT INTO observations
          (source_type, source_path, anchor, project, topic, title, content, content_hash, file_mtime, indexed_at)
        VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)`
     );
-    for (let i = 1; i <= 3; i++) {
-      insert.run(
-        "learning", chunkPath, `section-${i}`, `Chunk ${i}`,
-        `${uniqueToken} chunk ${i} body`, `hash-chunk-${i}`, now, now
-      );
-    }
+    // chunkA: title == query token → W_EXACT_TITLE bonus; rank 1
+    const rA = insert.run("learning", chunkPath, "section-A", uniqueToken,
+      `${uniqueToken} body text`, `hash-A-${uniqueToken}`, now, now);
+    // chunkB: title differs, content matches → W_EXACT_CONTENT bonus; rank 2 (lower id than C)
+    const rB = insert.run("learning", chunkPath, "section-B", "Chunk B unrelated title",
+      `${uniqueToken} body text`, `hash-B-${uniqueToken}`, now, now);
+    // chunkC: same exact-match class as B but higher id → loses id tiebreak → rank 3 (should be dropped)
+    const rC = insert.run("learning", chunkPath, "section-C", "Chunk C unrelated title",
+      `${uniqueToken} body text`, `hash-C-${uniqueToken}`, now, now);
+
     // One row from a different file so we have a control.
-    insert.run(
-      "learning", otherPath, "", "Other", `${uniqueToken} other body`, "hash-other", now, now
-    );
+    insert.run("learning", otherPath, "", "Other", `${uniqueToken} other body`, `hash-other-${uniqueToken}`, now, now);
+
+    const idA = Number(rA.lastInsertRowid);
+    const idB = Number(rB.lastInsertRowid);
+    const idC = Number(rC.lastInsertRowid);
 
     const results = await searchMemory(db, { query: uniqueToken, limit: 10 });
     const fromChunkPath = results.filter((r) => r.source_path === chunkPath);
+
+    // Cap must allow at most 2 from this file.
     expect(fromChunkPath.length).toBeLessThanOrEqual(2);
+
+    // The two retained must be A and B (highest-scored), not an arbitrary pair.
+    const retainedIds = new Set(fromChunkPath.map((r) => r.id));
+    expect(retainedIds.has(idA)).toBe(true);  // highest score (title match) — must be retained
+    expect(retainedIds.has(idB)).toBe(true);  // second score (lower id tiebreak) — must be retained
+    expect(retainedIds.has(idC)).toBe(false); // lowest score (higher id tiebreak) — must be dropped
+
+    // Scores must confirm A outranks B.
+    const scoreA = fromChunkPath.find((r) => r.id === idA)!.score;
+    const scoreB = fromChunkPath.find((r) => r.id === idB)!.score;
+    expect(scoreA).toBeGreaterThan(scoreB);
+
     // The other file's row should still appear.
     expect(results.some((r) => r.source_path === otherPath)).toBe(true);
   });
