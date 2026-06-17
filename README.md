@@ -205,7 +205,7 @@ session lifecycle:
 |---|---|---|
 | `session-start-check.js` | SessionStart | Injects CLAUDE.md staleness alerts and recent episode digests into context |
 | `topic-preload.js` | UserPromptSubmit | Keyword-matches the prompt against `_index.md`; auto-injects matching topic files |
-| `learnings-flush.js` | Stop | Flushes `_tmp_pending_learning.json` entries to the appropriate `learnings.md` |
+| `learnings-flush.js` | Stop | Flushes `_tmp_pending_learning-<suffix>.json` marker family (plus legacy un-suffixed) entries to the appropriate `learnings.md` |
 | `session-observer.js` | Stop | Spawns the detached `session-observer-worker.js` (Haiku) to summarize the session and write an episode |
 
 > Hooks are wired automatically by `install.sh` (fresh installs) and reconciled by `update.sh` (existing machines) via `hooks/hooks-install.js`. Re-running either is safe — registration is idempotent at the command level.

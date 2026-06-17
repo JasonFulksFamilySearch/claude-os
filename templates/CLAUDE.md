@@ -13,8 +13,12 @@ You are ${USER_NAME}'s agent on the ${MACHINE_DESC}. Your name in this configura
 - Read the project-specific `CLAUDE.md` and `learnings.md` for the active
   project before beginning work in that project.
 - When a session produces a non-obvious lesson, correction, or decision: write
-  it to `~/.claude-data/_tmp_pending_learning.json` as a JSON array entry
-  `{ "scope": "agent"|"project", "title": "...", "content": "...", "project"?: "..." }`.
+  it to `~/.claude-data/_tmp_pending_learning-<session-suffix>.json` as a JSON
+  array entry `{ "scope": "agent"|"project", "title": "...", "content": "...", "project"?: "..." }`.
+  Choose one stable suffix (e.g. a short random token) at the start of a session
+  and reuse it for all entries that session — this prevents concurrent sessions from
+  clobbering each other's marker files. The flush hook globs the whole family plus
+  the legacy un-suffixed name, so all variants are consumed at Stop time.
   Do this during the session when the insight occurs — not only at the end.
   The Stop hook delivers all pending entries at session close. For immediate
   or manual capture, `mcp__claude-os-mcp__append_learning` still works directly.
