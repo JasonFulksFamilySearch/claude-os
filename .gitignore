@@ -52,6 +52,10 @@ skills/daily-action/plans/
 config/watched-projects.json
 config/episodes.json
 
+# Machine-local eval set (provisioned from labeled-queries.template.json by update.sh
+# Step 2.6; curated per-machine because each corpus differs — like eval-baseline.json)
+mcp/eval/labeled-queries.json
+
 # Override user-global ignore that masks the tracked docs/ directory
 !docs/
 !docs/**

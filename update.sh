@@ -76,6 +76,28 @@ fi
 
 echo ""
 
+# ── Step 2.6: Eval labeled-set provisioning (machine-local) ──────────────────
+
+echo "--- Step 2.6: Eval labeled-set ---"
+
+LABELS_TEMPLATE="$REPO_DIR/mcp/eval/labeled-queries.template.json"
+LABELS_LIVE="$REPO_DIR/mcp/eval/labeled-queries.json"
+
+# The live labeled set is machine-local (gitignored) because each machine's corpus
+# differs — same rationale as eval-baseline.json. The eval runner reads LABELS_LIVE,
+# so a fresh checkout needs it provisioned from the committed template. Only-if-absent:
+# never clobber a machine's curated set.
+if [ ! -f "$LABELS_TEMPLATE" ]; then
+    skip "No labeled-queries template — skipping"
+elif [ -f "$LABELS_LIVE" ]; then
+    skip "Eval labeled set already present (machine-local; curate via a curation session)"
+else
+    cp "$LABELS_TEMPLATE" "$LABELS_LIVE"
+    ok "Provisioned eval labeled set from template (placeholders — curate before arming the gate)"
+fi
+
+echo ""
+
 # ── Step 3: Hook registrations in settings.json ──────────────────────────────
 
 echo "--- Step 3: Hook registrations ---"
