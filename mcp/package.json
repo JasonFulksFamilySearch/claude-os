@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "reembed": "tsx src/scripts/reembed.ts",
     "eval": "tsx src/scripts/eval.ts",
-    "migrate": "tsx src/scripts/migrate.ts"
+    "migrate": "tsx src/scripts/migrate.ts",
+    "cutover": "tsx src/scripts/cutover.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.0.0",

@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -7,6 +7,16 @@ import * as sqliteVec from "sqlite-vec";
 import { openDb } from "../src/db.js";
 import { isV3Schema, runMigrations, backupDb, verifyV3 } from "../src/migrations.js";
 import { main as migrateMain } from "../src/scripts/migrate.js";
+
+// Mock the embedder so cutover tests don't pull in @huggingface/transformers.
+vi.mock("../src/embedder.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/embedder.js")>();
+  return {
+    ...actual,
+    embedDocument: vi.fn().mockResolvedValue(new Float32Array(768).fill(0)),
+    embedQuery: vi.fn().mockResolvedValue(new Float32Array(768).fill(0)),
+  };
+});
 
 let workDir: string;
 let dbPath: string;
@@ -329,5 +339,114 @@ describe("migrate script main()", () => {
     } finally {
       afterSecond.close();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 13: cutover.ts — deferred chunk-split cutover script
+// ---------------------------------------------------------------------------
+
+import { runCutover } from "../src/scripts/cutover.js";
+import type { IndexerConfig } from "../src/indexer.js";
+
+// A two-entry learnings file: two dated entries → 2 chunk rows when chunking on.
+const TWO_ENTRY_LEARNINGS = [
+  "# Agent Learnings",
+  "",
+  "## 2026-01-10 — first insight",
+  "",
+  "Body of the first entry about jira workflows.",
+  "",
+  "## 2026-01-11 — second insight",
+  "",
+  "Body of the second entry about git conventions.",
+  "",
+].join("\n");
+
+describe("runCutover", () => {
+  let cutoverDir: string;
+  let cutoverDbPath: string;
+  let cutoverDb: Database.Database;
+  let cutoverConfig: IndexerConfig;
+  let dataRoot: string;
+  let learningsPath: string;
+
+  beforeEach(() => {
+    cutoverDir = mkdtempSync(join(tmpdir(), "claude-os-cutover-"));
+    cutoverDbPath = join(cutoverDir, "cutover.db");
+
+    // Fixture: v3 DB opened through openDb (schema already v3, flag off by default).
+    cutoverDb = openDb(cutoverDbPath);
+
+    // Seed a whole-file learnings row (anchor='', flag was off when originally indexed).
+    cutoverDb.prepare(`
+      INSERT INTO observations
+        (source_type, source_path, anchor, parent_title, project, topic, title,
+         content, content_hash, file_mtime, indexed_at, frontmatter)
+      VALUES (?, ?, '', NULL, NULL, NULL, 'Agent Learnings',
+              ?, 'hash-whole', 1000, 2000, NULL)
+    `).run("learning", join(cutoverDir, "learnings.md"), TWO_ENTRY_LEARNINGS);
+
+    // Write the actual file to disk so fullReindex can read and re-index it.
+    dataRoot = join(cutoverDir, ".claude-data");
+    mkdirSync(join(dataRoot, "agent"), { recursive: true });
+    learningsPath = join(dataRoot, "agent", "learnings.md");
+    writeFileSync(learningsPath, TWO_ENTRY_LEARNINGS, "utf8");
+
+    // Register the learningsPath as the watched source (cutoverDb row must match).
+    // Update the seeded row to the actual path.
+    cutoverDb.prepare("UPDATE observations SET source_path = ? WHERE source_type = 'learning'")
+      .run(learningsPath);
+
+    cutoverConfig = { dataRoot, watchedProjects: [] };
+  });
+
+  afterEach(() => {
+    cutoverDb.close();
+    rmSync(cutoverDir, { recursive: true, force: true });
+  });
+
+  it("sets c2_chunking_enabled=1 in the meta table", async () => {
+    await runCutover(cutoverDb, cutoverConfig, cutoverDbPath + ".pre-cutover.bak");
+    const row = cutoverDb.prepare("SELECT value FROM meta WHERE key='c2_chunking_enabled'").get() as
+      | { value: string }
+      | undefined;
+    expect(row?.value).toBe("1");
+  });
+
+  it("re-chunks: the learnings file now has N chunk rows with dated anchors", async () => {
+    await runCutover(cutoverDb, cutoverConfig, cutoverDbPath + ".pre-cutover.bak");
+    const rows = cutoverDb.prepare(
+      "SELECT anchor FROM observations WHERE source_path = ? ORDER BY anchor",
+    ).all(learningsPath) as { anchor: string }[];
+    // Both entries get their own anchor row; the whole-file '' row is gone.
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+    expect(rows.every(r => r.anchor !== "")).toBe(true);
+    // Each anchor is a date string matching the entry headings.
+    expect(rows.some(r => r.anchor.startsWith("2026-01-10"))).toBe(true);
+    expect(rows.some(r => r.anchor.startsWith("2026-01-11"))).toBe(true);
+  });
+
+  it("returns a rechunked count > 0", async () => {
+    const result = await runCutover(cutoverDb, cutoverConfig, cutoverDbPath + ".pre-cutover.bak");
+    expect(result.rechunked).toBeGreaterThan(0);
+  });
+
+  it("creates the .pre-cutover.bak backup file", async () => {
+    const backupPath = cutoverDbPath + ".pre-cutover.bak";
+    await runCutover(cutoverDb, cutoverConfig, backupPath);
+    expect(existsSync(backupPath)).toBe(true);
+  });
+
+  it("is idempotent — second call does not throw (distinct backup path avoids collision)", async () => {
+    const backupPath = cutoverDbPath + ".pre-cutover.bak";
+    await runCutover(cutoverDb, cutoverConfig, backupPath);
+    // Second call: flag already '1', backup path already exists. Must not throw.
+    await expect(runCutover(cutoverDb, cutoverConfig, backupPath)).resolves.not.toThrow();
+    // Flag still '1'.
+    const row = cutoverDb.prepare("SELECT value FROM meta WHERE key='c2_chunking_enabled'").get() as
+      | { value: string }
+      | undefined;
+    expect(row?.value).toBe("1");
   });
 });
