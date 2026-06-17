@@ -176,6 +176,57 @@ test('flushAll processes every family member independently', () => {
   assert.ok(agg.quarantined >= 1, 'bad file quarantined, not lost');
 });
 
+test('residue filename is idempotent — a second flush of a residue file does not grow the name', () => {
+  // Scenario: first flush → residue.json; second flush of that residue.json → still residue.json (not residue.residue.json).
+  const root = join(TMP, 'residue-idempotent');
+  mkdirSync(root, { recursive: true });
+
+  const marker = join(root, '_tmp_pending_learning-idem.json');
+  const throwingAppend = () => { throw new Error('simulated write failure'); };
+
+  // First flush — produces residue file.
+  writeFileSync(marker, JSON.stringify([{ scope: 'agent', content: 'entry-1', title: 'T1' }]), 'utf8');
+  const r1 = flushFile(marker, { appendFn: throwingAppend });
+  assert.ok(r1.residue, 'first flush must produce a residue file');
+  assert.ok(r1.residue.endsWith('.residue.json'), 'residue name ends with .residue.json');
+  assert.ok(!r1.residue.includes('.residue.residue'), 'no name stacking on first run');
+
+  // Second flush — flush the residue file itself (simulating the next session's run picking it up).
+  writeFileSync(r1.residue, JSON.stringify([{ scope: 'agent', content: 'entry-2', title: 'T2' }]), 'utf8');
+  const r2 = flushFile(r1.residue, { appendFn: throwingAppend });
+  assert.ok(r2.residue, 'second flush must still produce a residue file');
+  // The name must be identical — no growth.
+  assert.equal(r2.residue, r1.residue, 'residue filename must not grow on second flush cycle');
+});
+
+test('two failing flush cycles merge into a single residue file with all entries', () => {
+  // Both cycles fail; the second must READ the existing residue, concat, and write back atomically.
+  const root = join(TMP, 'residue-merge');
+  mkdirSync(root, { recursive: true });
+
+  const marker = join(root, '_tmp_pending_learning-merge.json');
+  const throwingAppend = () => { throw new Error('simulated write failure'); };
+
+  // Cycle 1: one failing entry → residue.
+  writeFileSync(marker, JSON.stringify([{ scope: 'agent', content: 'entry-1', title: 'T1' }]), 'utf8');
+  const r1 = flushFile(marker, { appendFn: throwingAppend });
+  assert.ok(r1.residue, 'cycle 1 must produce residue');
+  const cycle1Entries = JSON.parse(readFileSync(r1.residue, 'utf8'));
+  assert.equal(cycle1Entries.length, 1, 'cycle 1 residue has 1 entry');
+
+  // Cycle 2: another failing entry via the SAME marker path (new session writes to it again).
+  writeFileSync(marker, JSON.stringify([{ scope: 'agent', content: 'entry-2', title: 'T2' }]), 'utf8');
+  const r2 = flushFile(marker, { appendFn: throwingAppend });
+  assert.ok(r2.residue, 'cycle 2 must produce residue');
+
+  // There should be exactly ONE residue file (idempotent name) with BOTH entries.
+  assert.equal(r2.residue, r1.residue, 'same residue path for both cycles');
+  const merged = JSON.parse(readFileSync(r2.residue, 'utf8'));
+  assert.equal(merged.length, 2, 'merged residue must contain both cycles\' entries');
+  const contents = merged.map(e => e.content).sort();
+  assert.deepEqual(contents, ['entry-1', 'entry-2'], 'both entries present after merge');
+});
+
 test('quarantine is terminal — a quarantine file is never reprocessed by flushAll', () => {
   const { readdirSync: readdirSyncNode } = require('node:fs');
   const root = join(TMP, 'quarantine-terminal');

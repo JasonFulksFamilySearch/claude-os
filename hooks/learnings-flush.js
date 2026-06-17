@@ -87,9 +87,22 @@ function flushFile(markerPath, { appendFn = appendEntry } = {}) {
   }
 
   if (failed.length > 0) {
-    const residue = markerPath.replace(/\.json$/, '') + '.residue.json';
+    // Derive the residue name from the ORIGINAL base — strip any existing .residue segment
+    // first so repeated flush cycles never produce .residue.residue.json name stacking
+    // (Copilot review). The atomic tmp+rename keeps the write crash-safe.
+    const base = markerPath.replace(/\.residue(\.json)?$/, '.json').replace(/\.json$/, '');
+    const residue = base + '.residue.json';
+
+    // Merge with any prior residue so no failed entries are lost across flush cycles.
+    let prior = [];
+    if (existsSync(residue)) {
+      try { prior = JSON.parse(readFileSync(residue, 'utf8')); } catch { prior = []; }
+      if (!Array.isArray(prior)) prior = [];
+    }
+    const merged = prior.concat(failed);
+
     const residueTmp = residue + '.tmp';
-    writeFileSync(residueTmp, JSON.stringify(failed), 'utf8');
+    writeFileSync(residueTmp, JSON.stringify(merged), 'utf8');
     renameSync(residueTmp, residue);
     try { unlinkSync(markerPath); } catch {}
     return { flushed, skipped, residue };
