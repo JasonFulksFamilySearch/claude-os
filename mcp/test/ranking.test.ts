@@ -81,6 +81,12 @@ describe("exactMatchBonus", () => {
   it("whole-file row (parent_title null): body match earns content bonus as before", () => {
     expect(exactMatchBonus("foo", "no match title", null, "a foo body")).toBe(W_EXACT_CONTENT);
   });
+  it("both title and parent_title match: bonus is W_EXACT_TITLE exactly (no double-count)", () => {
+    // title contains query AND parent_title contains query — the sequential return on title
+    // short-circuits before parent_title is evaluated, so the bonus must be W_EXACT_TITLE once.
+    expect(exactMatchBonus("foo", "a foo title", "foo parent", "body")).toBe(W_EXACT_TITLE);
+    expect(exactMatchBonus("foo", "a foo title", "foo parent", "body")).not.toBe(2 * W_EXACT_TITLE);
+  });
 });
 
 describe("rankCandidates", () => {

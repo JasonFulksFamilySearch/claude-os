@@ -59,6 +59,8 @@ export function reinforcementBonus(
 // the parent file's title for chunk rows) is the strongest signal; in the body, weaker.
 // Deliberately relevance-strength, so it may exceed W_REINFORCE — exact-match is
 // relevance, not a tie-breaker.
+// Priority: title is checked first; if it matches, W_EXACT_TITLE is returned immediately
+// and parent_title is never evaluated — so when BOTH match, the bonus is applied ONCE.
 export function exactMatchBonus(
   query: string,
   title: string | null,
