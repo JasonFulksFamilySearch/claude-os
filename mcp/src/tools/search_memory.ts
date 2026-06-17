@@ -75,6 +75,7 @@ interface MetaRow {
   project: string | null;
   topic: string | null;
   title: string | null;
+  parent_title: string | null;
   content: string;
   indexed_at: number;
   last_accessed: number | null;
@@ -156,7 +157,7 @@ export async function searchMemory(
   const metaRows = db
     .prepare(
       `SELECT o.id AS id, o.source_type, o.source_path, o.anchor, o.project, o.topic, o.title,
-              o.content, o.indexed_at, a.last_accessed, a.access_count
+              o.parent_title, o.content, o.indexed_at, a.last_accessed, a.access_count
        FROM observations o
        LEFT JOIN access_stats a ON a.observation_id = o.id
        WHERE o.id IN (${unionIds.map(() => "?").join(",")})${filterClause}`,
@@ -179,6 +180,7 @@ export async function searchMemory(
       ftsPos: ftsPos.get(m.id) ?? null,
       vecPos: vecPos.get(m.id) ?? null,
       title: m.title,
+      parent_title: m.parent_title,
       content: m.content,
       indexed_at: m.indexed_at,
       last_accessed: m.last_accessed,
