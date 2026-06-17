@@ -136,6 +136,12 @@ function buildEpisodeContent(obs, sessionId, turnCount) {
   return fmLines.join('\n') + sections.join('\n\n') + '\n';
 }
 
+// Pure predicate: returns true when the transcript path is absent (dead-letter candidate).
+// Exported so tests can prove the missing-vs-present distinction without running main().
+function shouldDeadLetterMissingTranscript(transcriptPath) {
+  return !existsSync(transcriptPath);
+}
+
 async function main() {
   let input = '';
   for await (const chunk of process.stdin) input += chunk;
@@ -146,20 +152,22 @@ async function main() {
   const transcriptPath = hookData.transcript_path;
   if (!transcriptPath) process.exit(0);
 
+  // Missing transcript must be dead-lettered BEFORE parseTurns/MIN_TURNS gating.
+  // parseTurns() silently returns [] for missing files, which causes the MIN_TURNS
+  // guard to exit quietly — bypassing the dead-letter path entirely (Copilot review).
+  const sessionId = hookData.session_id || String(Date.now());
+  const queue = createCaptureQueue({ queueDir: QUEUE_DIR, deadLetterDir: DEAD_LETTER_DIR });
+  if (shouldDeadLetterMissingTranscript(transcriptPath)) {
+    queue.deadLetter(sessionId, 'transcript no longer exists');
+    process.exit(0);
+  }
+
   const turns = parseTurns(transcriptPath);
+  // File exists but has too few turns — silent skip, not a dead-letter (normal short session).
   if (turns.length < MIN_TURNS) process.exit(0);
 
   const transcriptText = buildTranscriptText(turns);
   if (!transcriptText.trim()) process.exit(0);
-
-  const sessionId = hookData.session_id || String(Date.now());
-  const queue = createCaptureQueue({ queueDir: QUEUE_DIR, deadLetterDir: DEAD_LETTER_DIR });
-
-  // Missing transcript -> dead-letter (cannot summarize a gone session).
-  if (!existsSync(transcriptPath)) {
-    queue.deadLetter(sessionId, 'transcript no longer exists');
-    process.exit(0);
-  }
 
   const record = queue.upsert(sessionId, { transcriptPath, turnCount: turns.length });
   const hash = tailHash(transcriptText);
@@ -195,7 +203,7 @@ async function main() {
   process.exit(0);
 }
 
-module.exports = { parseTurns, buildTranscriptText, buildEpisodeContent, episodeFilename, preservePromoted, coerceObservation, safeString };
+module.exports = { parseTurns, buildTranscriptText, buildEpisodeContent, episodeFilename, preservePromoted, coerceObservation, safeString, shouldDeadLetterMissingTranscript };
 
 if (require.main === module) {
   main().catch(err => {
