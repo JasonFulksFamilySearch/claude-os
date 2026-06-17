@@ -8,6 +8,16 @@ import matter from "gray-matter";
 import type { SourceType } from "./db.js";
 import { log } from "./logger.js";
 import { embedDocument, serializeVector } from "./embedder.js";
+import { chunkFile } from "./chunker.js";
+
+// THE single read of the c2_chunking_enabled flag lives in indexFile (the chokepoint).
+// Default '0' (off) when the meta row is absent. No other call site reads the flag.
+function readFlag(db: Database.Database, key: string): string {
+  const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as
+    | { value: string }
+    | undefined;
+  return row?.value ?? "0";
+}
 
 const MAX_FILE_BYTES = 1024 * 1024;
 
@@ -121,14 +131,15 @@ function sha256(s: string): string {
 
 const upsertSql = `
   INSERT INTO observations (
-    source_type, source_path, anchor, project, topic, title,
+    source_type, source_path, anchor, parent_title, project, topic, title,
     content, content_hash, file_mtime, indexed_at, frontmatter
   ) VALUES (
-    @source_type, @source_path, '', @project, @topic, @title,
+    @source_type, @source_path, @anchor, @parent_title, @project, @topic, @title,
     @content, @content_hash, @file_mtime, @indexed_at, @frontmatter
   )
   ON CONFLICT(source_path, anchor) DO UPDATE SET
     source_type  = excluded.source_type,
+    parent_title = excluded.parent_title,
     project      = excluded.project,
     topic        = excluded.topic,
     title        = excluded.title,
@@ -141,12 +152,15 @@ const upsertSql = `
 `;
 
 const selectExistingSql = `
-  SELECT content_hash FROM observations WHERE source_path = ?
+  SELECT anchor, content_hash FROM observations WHERE source_path = ?
 `;
 
 export interface IndexResult {
   status: "indexed" | "skipped_unchanged" | "skipped_unclassified" | "skipped_too_large" | "skipped_missing";
   source_path: string;
+  // The anchors upserted (created or content-changed) on THIS call — drives the
+  // targeted re-embed. Empty when nothing changed.
+  changedAnchors: string[];
 }
 
 export function indexFile(
@@ -158,59 +172,119 @@ export function indexFile(
     throw new Error(`indexFile requires absolute path, got: ${absPath}`);
   }
   if (!existsSync(absPath)) {
-    return { status: "skipped_missing", source_path: absPath };
+    return { status: "skipped_missing", source_path: absPath, changedAnchors: [] };
   }
 
   const cls = classify(absPath, config);
   if (!cls) {
-    return { status: "skipped_unclassified", source_path: absPath };
+    return { status: "skipped_unclassified", source_path: absPath, changedAnchors: [] };
   }
 
   const stat = statSync(absPath);
   if (stat.size > MAX_FILE_BYTES) {
     log("warn", "Skipping oversized file", { absPath, size: stat.size });
-    return { status: "skipped_too_large", source_path: absPath };
+    return { status: "skipped_too_large", source_path: absPath, changedAnchors: [] };
   }
 
   const raw = readFileSync(absPath, "utf8");
-  const { body, frontmatter, title, data } = parseFile(raw);
+  const { body, frontmatter, data } = parseFile(raw);
 
   const effectiveProject =
     cls.source_type === "episode"
       ? (typeof data.project === "string" && data.project.length > 0 ? data.project : null)
       : cls.project;
 
-  const contentHash = sha256(body);
-
-  const existing = db.prepare(selectExistingSql).get(absPath) as
-    | { content_hash: string }
-    | undefined;
-  if (existing && existing.content_hash === contentHash) {
-    return { status: "skipped_unchanged", source_path: absPath };
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-  db.prepare(upsertSql).run({
-    source_type: cls.source_type,
-    source_path: absPath,
-    project: effectiveProject,
-    topic: cls.topic,
-    title: title ?? basename(absPath, ".md"),
+  // THE single flag chokepoint — no other site reads c2_chunking_enabled.
+  const chunks = chunkFile({
+    sourceType: cls.source_type,
     content: body,
-    content_hash: contentHash,
-    file_mtime: Math.floor(stat.mtimeMs / 1000),
-    indexed_at: now,
-    frontmatter,
+    chunkingEnabled: readFlag(db, "c2_chunking_enabled") === "1",
   });
 
-  return { status: "indexed", source_path: absPath };
+  // Existing rows for this path, keyed by anchor → content_hash, so we can hash-gate
+  // each chunk (skip byte-identical) and detect which anchors no longer exist.
+  const existingRows = db.prepare(selectExistingSql).all(absPath) as {
+    anchor: string;
+    content_hash: string;
+  }[];
+  const existingByAnchor = new Map(existingRows.map((r) => [r.anchor, r.content_hash]));
+
+  const now = Math.floor(Date.now() / 1000);
+  const fileMtime = Math.floor(stat.mtimeMs / 1000);
+  const upsert = db.prepare(upsertSql);
+
+  const changedAnchors: string[] = [];
+  const newAnchors = new Set<string>();
+
+  for (const chunk of chunks) {
+    newAnchors.add(chunk.anchor);
+    const chunkHash = sha256(chunk.content);
+    if (existingByAnchor.get(chunk.anchor) === chunkHash) {
+      continue; // unchanged — hash-gate skip
+    }
+    upsert.run({
+      source_type: cls.source_type,
+      source_path: absPath,
+      anchor: chunk.anchor,
+      // Title fallback lives HERE (the chunker has no sourcePath): for files with no
+      // H1 the chunk title is null, and we fall back to the basename, preserving the
+      // flag-off title parity established before chunking.
+      title: chunk.title ?? basename(absPath, ".md"),
+      parent_title: chunk.parentTitle,
+      project: effectiveProject,
+      topic: cls.topic,
+      content: chunk.content,
+      content_hash: chunkHash,
+      file_mtime: fileMtime,
+      indexed_at: now,
+      frontmatter,
+    });
+    changedAnchors.push(chunk.anchor);
+  }
+
+  // Reconcile: remove rows for this path whose anchor is no longer present in the
+  // new chunk set (an entry was deleted or its anchor changed). Collect their ids
+  // FIRST so we can delete their vec_items by BigInt id before the row vanishes.
+  const staleIds = (
+    db.prepare("SELECT id, anchor FROM observations WHERE source_path = ?").all(absPath) as {
+      id: number;
+      anchor: string;
+    }[]
+  )
+    .filter((r) => !newAnchors.has(r.anchor))
+    .map((r) => r.id);
+
+  if (staleIds.length > 0) {
+    const delVec = db.prepare("DELETE FROM vec_items WHERE observation_id = ?");
+    const delObs = db.prepare("DELETE FROM observations WHERE id = ?");
+    for (const id of staleIds) {
+      // BigInt: sqlite-vec vec0 PKs must bind as INTEGER; better-sqlite3 sends numbers as FLOAT.
+      delVec.run(BigInt(id));
+      delObs.run(id);
+    }
+  }
+
+  // "indexed" when anything changed (a chunk upserted OR a stale row pruned);
+  // otherwise the file is byte-for-byte the same set we already hold.
+  if (changedAnchors.length === 0 && staleIds.length === 0) {
+    return { status: "skipped_unchanged", source_path: absPath, changedAnchors: [] };
+  }
+
+  return { status: "indexed", source_path: absPath, changedAnchors };
 }
 
 export function removeFile(db: Database.Database, absPath: string): void {
-  const row = db.prepare("SELECT id FROM observations WHERE source_path = ?").get(absPath) as { id: number } | undefined;
+  // Select ALL ids for the path (a chunked file holds N rows), delete each row's
+  // vec_items by BigInt id, then delete every observation for the path.
+  const ids = (
+    db.prepare("SELECT id FROM observations WHERE source_path = ?").all(absPath) as {
+      id: number;
+    }[]
+  ).map((r) => r.id);
   db.prepare("DELETE FROM observations WHERE source_path = ?").run(absPath);
   // BigInt: sqlite-vec vec0 PKs must bind as INTEGER; better-sqlite3 sends numbers as FLOAT.
-  if (row) db.prepare("DELETE FROM vec_items WHERE observation_id = ?").run(BigInt(row.id));
+  const delVec = db.prepare("DELETE FROM vec_items WHERE observation_id = ?");
+  for (const id of ids) delVec.run(BigInt(id));
 }
 
 export async function embedObservation(
@@ -242,6 +316,58 @@ export async function embedObservation(
       error: err instanceof Error ? err.message : String(err),
     });
   }
+}
+
+// THE single embed routine for a file's observations. Selects the rows for the path
+// (only the given anchors when supplied — the targeted incremental re-embed; else
+// every row for the path) and embeds each via embedObservation. Both production embed
+// callers (fullReindex's post-index pass and the watcher's onChange) route through here,
+// so a chunked file embeds ALL N of its chunks — never just the one a single-row .get()
+// would have returned.
+export async function embedPathObservations(
+  db: Database.Database,
+  sourcePath: string,
+  anchors?: string[],
+): Promise<void> {
+  let rows: { id: number; content: string }[];
+  if (anchors && anchors.length > 0) {
+    const placeholders = anchors.map(() => "?").join(", ");
+    rows = db
+      .prepare(
+        `SELECT id, content, title, parent_title, anchor FROM observations
+         WHERE source_path = ? AND anchor IN (${placeholders})`,
+      )
+      .all(sourcePath, ...anchors) as { id: number; content: string }[];
+  } else if (anchors && anchors.length === 0) {
+    // An explicit empty anchor list means "nothing changed" — embed nothing.
+    return;
+  } else {
+    rows = db
+      .prepare(
+        "SELECT id, content, title, parent_title, anchor FROM observations WHERE source_path = ?",
+      )
+      .all(sourcePath) as { id: number; content: string }[];
+  }
+
+  for (const row of rows) {
+    // Task 8 will change WHAT text is embedded here; for now embed the raw content.
+    await embedObservation(db, row.id, row.content);
+  }
+}
+
+// Index a file and, when its content changed, embed the changed chunks. THE single
+// entry point used by the watcher (add/change) so the inline single-row read at the
+// old watcher site is gone — a live-edited chunked file embeds every changed chunk.
+export async function indexAndEmbed(
+  db: Database.Database,
+  absPath: string,
+  config: IndexerConfig,
+): Promise<IndexResult> {
+  const result = indexFile(db, absPath, config);
+  if (result.status === "indexed") {
+    await embedPathObservations(db, absPath, result.changedAnchors);
+  }
+  return result;
 }
 
 function walk(dir: string): string[] {
@@ -317,21 +443,23 @@ export async function fullReindex(
   let indexed = 0;
   let unchanged = 0;
   let skipped = 0;
-  const newlyIndexed: Array<{ id: number; content: string }> = [];
+  // Per-path changed anchors — drives the targeted multi-chunk embed pass below.
+  const newlyIndexed: Array<{ path: string; changedAnchors: string[] }> = [];
 
   for (const file of candidates) {
     const r = indexFile(db, file, config);
     if (r.status === "indexed") {
       indexed++;
-      const row = db.prepare("SELECT id, content FROM observations WHERE source_path = ?").get(file) as { id: number; content: string } | undefined;
-      if (row) newlyIndexed.push(row);
+      newlyIndexed.push({ path: file, changedAnchors: r.changedAnchors });
     } else if (r.status === "skipped_unchanged") unchanged++;
     else skipped++;
   }
 
-  // Async embedding pass for newly indexed docs — runs after sync FTS work
-  for (const { id, content } of newlyIndexed) {
-    await embedObservation(db, id, content);
+  // Async embedding pass for newly indexed docs — runs after sync FTS work.
+  // Routes through embedPathObservations (THE single embed routine) so a chunked
+  // file embeds every changed chunk, identically to the watcher path.
+  for (const { path, changedAnchors } of newlyIndexed) {
+    await embedPathObservations(db, path, changedAnchors);
   }
 
   const candidateSet = candidates;
@@ -405,12 +533,10 @@ export function watchAll(
     if (!p.endsWith(".md")) return;
     void (async () => {
       try {
-        const r = indexFile(db, p, config);
+        // indexAndEmbed routes both index + multi-chunk embed through ONE path, so a
+        // live-edited chunked file embeds every changed chunk (not just one row).
+        const r = await indexAndEmbed(db, p, config);
         log("info", "watcher event", { path: p, status: r.status });
-        if (r.status === "indexed") {
-          const row = db.prepare("SELECT id, content FROM observations WHERE source_path = ?").get(p) as { id: number; content: string } | undefined;
-          if (row) await embedObservation(db, row.id, row.content);
-        }
       } catch (err) {
         log("error", "watcher indexFile failed", {
           path: p,

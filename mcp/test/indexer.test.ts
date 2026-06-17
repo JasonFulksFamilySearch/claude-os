@@ -18,9 +18,35 @@ import {
   indexFile,
   fullReindex,
   isWatchIgnored,
+  removeFile,
+  embedPathObservations,
+  indexAndEmbed,
   type IndexerConfig,
 } from "../src/indexer.js";
 import { embedDocument } from "../src/embedder.js";
+
+// Enable per-entry chunking by setting the meta flag the indexer reads at its
+// single chokepoint. Default (no row) is '0' → flag off.
+function enableChunking(): void {
+  db.prepare(
+    "INSERT INTO meta(key, value) VALUES ('c2_chunking_enabled', '1') " +
+      "ON CONFLICT(key) DO UPDATE SET value = '1'",
+  ).run();
+}
+
+// A 2-entry learnings file: two dated entries → two anchors when chunking is on.
+const TWO_ENTRY_LEARNINGS = [
+  "# Learnings",
+  "",
+  "## 2026-01-01 — first",
+  "",
+  "body of the first entry",
+  "",
+  "## 2026-01-02 — second",
+  "",
+  "body of the second entry",
+  "",
+].join("\n");
 
 let workDir: string;
 let dataRoot: string;
@@ -450,5 +476,222 @@ describe("fullReindex — vector index", () => {
       .prepare("SELECT count(*) AS c FROM vec_items WHERE observation_id = ?")
       .get(BigInt(obs!.id)) as { c: number };
     expect(vec.c).toBe(1);
+  });
+});
+
+describe("indexFile — per-(path,anchor) reconcile (C2)", () => {
+  it("flag off → editing a 2-entry learnings file keeps exactly one anchor='' row", () => {
+    // Default: no c2_chunking_enabled meta row → flag off → whole-file chunk.
+    const p = join(dataRoot, "agent", "learnings.md");
+    writeFileSync(p, TWO_ENTRY_LEARNINGS, "utf8");
+    expect(indexFile(db, p, config).status).toBe("indexed");
+
+    // Edit the file (content changes) and re-index — still one whole-file row.
+    writeFileSync(p, TWO_ENTRY_LEARNINGS + "\nappended line\n", "utf8");
+    expect(indexFile(db, p, config).status).toBe("indexed");
+
+    const rows = db
+      .prepare("SELECT anchor FROM observations WHERE source_path = ?")
+      .all(p) as { anchor: string }[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0].anchor).toBe("");
+  });
+
+  it("flag on → a 2-entry learnings file produces 2 anchored rows", () => {
+    enableChunking();
+    const p = join(dataRoot, "agent", "learnings.md");
+    writeFileSync(p, TWO_ENTRY_LEARNINGS, "utf8");
+    expect(indexFile(db, p, config).status).toBe("indexed");
+
+    const anchors = (
+      db
+        .prepare("SELECT anchor FROM observations WHERE source_path = ? ORDER BY anchor")
+        .all(p) as { anchor: string }[]
+    ).map((r) => r.anchor);
+    expect(anchors).toEqual(["2026-01-01", "2026-01-02"]);
+  });
+
+  it("reports only the changed anchor on a single-entry edit (US13)", () => {
+    enableChunking();
+    const p = join(dataRoot, "agent", "learnings.md");
+    writeFileSync(p, TWO_ENTRY_LEARNINGS, "utf8");
+    indexFile(db, p, config);
+
+    // Edit ONLY the second entry's body; the first is byte-identical (hash-skip).
+    const edited = TWO_ENTRY_LEARNINGS.replace(
+      "body of the second entry",
+      "EDITED body of the second entry",
+    );
+    writeFileSync(p, edited, "utf8");
+    const r = indexFile(db, p, config);
+    expect(r.changedAnchors).toEqual(["2026-01-02"]);
+  });
+
+  it("deleting an entry removes its anchor row and its vec_items", async () => {
+    enableChunking();
+    const p = join(dataRoot, "agent", "learnings.md");
+    writeFileSync(p, TWO_ENTRY_LEARNINGS, "utf8");
+    await indexAndEmbed(db, p, config);
+
+    // Capture the id of the second entry's row before removal.
+    const second = db
+      .prepare("SELECT id FROM observations WHERE source_path = ? AND anchor = ?")
+      .get(p, "2026-01-02") as { id: number };
+    expect(second).toBeDefined();
+
+    // Drop the second entry from the file.
+    const oneEntry = [
+      "# Learnings",
+      "",
+      "## 2026-01-01 — first",
+      "",
+      "body of the first entry",
+      "",
+    ].join("\n");
+    writeFileSync(p, oneEntry, "utf8");
+    indexFile(db, p, config);
+
+    const remaining = (
+      db
+        .prepare("SELECT anchor FROM observations WHERE source_path = ?")
+        .all(p) as { anchor: string }[]
+    ).map((r) => r.anchor);
+    expect(remaining).toEqual(["2026-01-01"]);
+
+    const vec = db
+      .prepare("SELECT COUNT(*) c FROM vec_items WHERE observation_id = ?")
+      .get(BigInt(second.id)) as { c: number };
+    expect(vec.c).toBe(0);
+  });
+});
+
+describe("embed unification — both production paths (C2)", () => {
+  it("watcher path (indexAndEmbed) embeds ALL N chunks on first index", async () => {
+    enableChunking();
+    const p = join(dataRoot, "agent", "learnings.md");
+    writeFileSync(p, TWO_ENTRY_LEARNINGS, "utf8");
+
+    await indexAndEmbed(db, p, config);
+
+    const vecCount = (
+      db
+        .prepare(
+          "SELECT COUNT(*) c FROM vec_items v JOIN observations o ON o.id = v.observation_id WHERE o.source_path = ?",
+        )
+        .get(p) as { c: number }
+    ).c;
+    // Both chunks embedded — would be 1 with the old single-row .get() read.
+    expect(vecCount).toBe(2);
+  });
+
+  it("watcher path re-embeds ONLY the changed chunk on edit (US13)", async () => {
+    enableChunking();
+    const p = join(dataRoot, "agent", "learnings.md");
+    writeFileSync(p, TWO_ENTRY_LEARNINGS, "utf8");
+    await indexAndEmbed(db, p, config);
+
+    const secondId = (
+      db
+        .prepare("SELECT id FROM observations WHERE source_path = ? AND anchor = ?")
+        .get(p, "2026-01-02") as { id: number }
+    ).id;
+
+    vi.mocked(embedDocument).mockClear();
+    const edited = TWO_ENTRY_LEARNINGS.replace(
+      "body of the second entry",
+      "EDITED body of the second entry",
+    );
+    writeFileSync(p, edited, "utf8");
+    await indexAndEmbed(db, p, config);
+
+    // Only the changed anchor's row is re-embedded.
+    expect(embedDocument).toHaveBeenCalledTimes(1);
+    // And its vec_items row still exists for the changed chunk.
+    const vec = db
+      .prepare("SELECT COUNT(*) c FROM vec_items WHERE observation_id = ?")
+      .get(BigInt(secondId)) as { c: number };
+    expect(vec.c).toBe(1);
+  });
+
+  it("indexAndEmbed does not embed when the file is unchanged", async () => {
+    enableChunking();
+    const p = join(dataRoot, "agent", "learnings.md");
+    writeFileSync(p, TWO_ENTRY_LEARNINGS, "utf8");
+    await indexAndEmbed(db, p, config);
+
+    vi.mocked(embedDocument).mockClear();
+    const r = await indexAndEmbed(db, p, config);
+    expect(r.status).toBe("skipped_unchanged");
+    expect(embedDocument).not.toHaveBeenCalled();
+  });
+});
+
+describe("removeFile — all chunks (C2)", () => {
+  it("deletes ALL chunks for a path and their vec_items", async () => {
+    enableChunking();
+    const p = join(dataRoot, "agent", "learnings.md");
+    writeFileSync(p, TWO_ENTRY_LEARNINGS, "utf8");
+    await indexAndEmbed(db, p, config);
+
+    const ids = (
+      db.prepare("SELECT id FROM observations WHERE source_path = ?").all(p) as {
+        id: number;
+      }[]
+    ).map((r) => r.id);
+    expect(ids).toHaveLength(2);
+
+    removeFile(db, p);
+
+    const obsCount = (
+      db
+        .prepare("SELECT COUNT(*) c FROM observations WHERE source_path = ?")
+        .get(p) as { c: number }
+    ).c;
+    expect(obsCount).toBe(0);
+
+    for (const id of ids) {
+      const vec = db
+        .prepare("SELECT COUNT(*) c FROM vec_items WHERE observation_id = ?")
+        .get(BigInt(id)) as { c: number };
+      expect(vec.c).toBe(0);
+    }
+  });
+});
+
+describe("fullReindex — reconciles stale (path, anchor) pairs (C2)", () => {
+  it("removes a (path, anchor) row + vec when its entry is dropped from the file", async () => {
+    enableChunking();
+    const p = join(dataRoot, "agent", "learnings.md");
+    writeFileSync(p, TWO_ENTRY_LEARNINGS, "utf8");
+    await fullReindex(db, config);
+
+    const second = db
+      .prepare("SELECT id FROM observations WHERE source_path = ? AND anchor = ?")
+      .get(p, "2026-01-02") as { id: number };
+    expect(second).toBeDefined();
+
+    // Drop the second entry, then run a full reindex.
+    const oneEntry = [
+      "# Learnings",
+      "",
+      "## 2026-01-01 — first",
+      "",
+      "body of the first entry",
+      "",
+    ].join("\n");
+    writeFileSync(p, oneEntry, "utf8");
+    await fullReindex(db, config);
+
+    const anchors = (
+      db
+        .prepare("SELECT anchor FROM observations WHERE source_path = ?")
+        .all(p) as { anchor: string }[]
+    ).map((r) => r.anchor);
+    expect(anchors).toEqual(["2026-01-01"]);
+
+    const vec = db
+      .prepare("SELECT COUNT(*) c FROM vec_items WHERE observation_id = ?")
+      .get(BigInt(second.id)) as { c: number };
+    expect(vec.c).toBe(0);
   });
 });
