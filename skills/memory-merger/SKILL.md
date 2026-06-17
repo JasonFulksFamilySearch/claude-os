@@ -112,6 +112,18 @@ Then read all of the following:
   Layer-2 learning entries (write-time flags + a fresh semantic scan), each with a `flag_id`
   and both entries' text. These feed Phase 3 below. (v1 surfaces near-duplicates; you still
   judge each pair duplicate/contradiction/distinct.)
+- **Capture health (D1):** read the durable capture-queue state and surface it as an evidence
+  line beside the existing proposals — this is read-only reporting, no writes.
+  Use `createCaptureQueue({ queueDir, deadLetterDir }).depth()` /
+  `.deadLetterStats()` from `hooks/lib/capture-queue.js` (or count files directly):
+  - Queue depth: count of `.json` records in `~/.claude-data/capture-queue/`
+  - Dead-letter: count of `.json` records in `~/.claude-data/capture-queue/dead-letter/`
+    plus the oldest entry's timestamp (from `deadLetterStats().oldest`)
+  Report as a single evidence line, e.g.:
+  > "Capture health: queue depth 2; dead-letter 1 (oldest 2026-06-16T14:03:00.000Z)."
+  A non-zero dead-letter count or a persistently growing queue is a signal to **surface to Sir**,
+  not to auto-fix. Surface it in the Step 4 proposals as an informational note; do not take
+  any remediation action without explicit approval.
 
 ---
 

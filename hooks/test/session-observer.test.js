@@ -11,7 +11,6 @@ const {
   parseTurns,
   buildTranscriptText,
   buildEpisodeContent,
-  extractJsonFromText,
   coerceObservation,
   safeString,
 } = require('../session-observer-worker.js');
@@ -92,31 +91,6 @@ test('buildTranscriptText includes at least one turn even when a single turn exc
   const text = buildTranscriptText(turns);
   assert.ok(text.length > 0);
   assert.ok(text.includes('USER:'));
-});
-
-// --- extractJsonFromText ---
-
-test('extractJsonFromText extracts clean JSON', () => {
-  const result = extractJsonFromText('{"summary":"ok","decisions":[]}');
-  assert.equal(result.summary, 'ok');
-});
-
-test('extractJsonFromText handles JSON wrapped in prose', () => {
-  const result = extractJsonFromText('Here is my analysis:\n{"summary":"Fixed bug","decisions":[]}\n\nLet me know.');
-  assert.equal(result.summary, 'Fixed bug');
-});
-
-test('extractJsonFromText handles braces inside string values', () => {
-  const result = extractJsonFromText('{"summary":"Fixed the {stall} in SplunkService","decisions":[]}');
-  assert.equal(result.summary, 'Fixed the {stall} in SplunkService');
-});
-
-test('extractJsonFromText returns null when no JSON present', () => {
-  assert.equal(extractJsonFromText('No JSON here.'), null);
-});
-
-test('extractJsonFromText returns null when JSON is malformed', () => {
-  assert.equal(extractJsonFromText('{"summary": "broken"'), null);
 });
 
 // --- coerceObservation ---

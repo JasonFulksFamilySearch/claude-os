@@ -113,8 +113,11 @@ elif grep -qF "Read the index file at" "$CLAUDE_MD"; then
     echo "      \`mcp__claude-os-mcp__get_topic\`. The hook handles detection; the agent handles"
     echo "      the relevance judgment. Reading \`_index.md\` manually is no longer needed."
     echo "    - When a session produces a non-obvious lesson, correction, or decision: write"
-    echo "      it to \`~/.claude-data/_tmp_pending_learning.json\` as a JSON array entry"
-    echo "      { \"scope\": \"agent\"|\"project\", \"title\": \"...\", \"content\": \"...\", \"project\"?: \"...\" }."
+    echo "      it to \`~/.claude-data/_tmp_pending_learning-<session-suffix>.json\` (choose"
+    echo "      one stable suffix per session — prevents concurrent sessions clobbering each"
+    echo "      other's markers). The flush hook globs the whole family plus the legacy"
+    echo "      un-suffixed name, so all variants are consumed at Stop time."
+    echo "      JSON entry shape: { \"scope\": \"agent\"|\"project\", \"title\": \"...\", \"content\": \"...\", \"project\"?: \"...\" }."
     echo "      Do this during the session when the insight occurs — not only at the end."
     echo "      The Stop hook delivers all pending entries at session close. For immediate"
     echo "      or manual capture, \`mcp__claude-os-mcp__append_learning\` still works directly."
@@ -132,8 +135,11 @@ With these two rules:
     `mcp__claude-os-mcp__get_topic`. The hook handles detection; the agent handles
     the relevance judgment. Reading `_index.md` manually is no longer needed.
   - When a session produces a non-obvious lesson, correction, or decision: write
-    it to `~/.claude-data/_tmp_pending_learning.json` as a JSON array entry
-    { "scope": "agent"|"project", "title": "...", "content": "...", "project"?: "..." }.
+    it to `~/.claude-data/_tmp_pending_learning-<session-suffix>.json` (choose one
+    stable suffix per session — prevents concurrent sessions clobbering each other's
+    markers). The flush hook globs the whole family plus the legacy un-suffixed name,
+    so all variants are consumed at Stop time.
+    JSON entry shape: { "scope": "agent"|"project", "title": "...", "content": "...", "project"?: "..." }.
     Do this during the session when the insight occurs — not only at the end.
     The Stop hook delivers all pending entries at session close. For immediate
     or manual capture, `mcp__claude-os-mcp__append_learning` still works directly.
@@ -449,6 +455,15 @@ else
         skip "resource-samples.jsonl within size cap"
     fi
 fi
+
+echo ""
+
+# ── Step 11: Capture-queue directories (D1 durable capture) ─────────────────
+
+echo "--- Step 11: Capture-queue directories ---"
+
+mkdir -p "$HOME/.claude-data/capture-queue/dead-letter"
+ok "capture-queue directories ready"
 
 echo ""
 
