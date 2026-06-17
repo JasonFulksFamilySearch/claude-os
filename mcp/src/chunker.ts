@@ -101,7 +101,8 @@ function uniqueAnchor(text: string, seen: Map<string, number>): string {
 
 // A parsed markdown section: the heading line and the body text that follows.
 interface Section {
-  headingText: string; // raw heading text (e.g. "Section A")
+  headingLine: string; // the full original heading line (e.g. "#### Subsection A")
+  headingText: string; // raw heading text stripped of leading #s (e.g. "Subsection A")
   body: string; // content from this heading to the next (excludes leading heading line)
 }
 
@@ -112,30 +113,40 @@ function parseSections(content: string): { preamble: string; sections: Section[]
   const lines = content.split("\n");
   const sections: Section[] = [];
   let preamble = "";
-  let currentHeading: string | null = null;
+  let currentHeadingLine: string | null = null;
+  let currentHeadingText: string | null = null;
   const bodyLines: string[] = [];
 
   for (const line of lines) {
     if (/^#{1,6} /.test(line)) {
-      if (currentHeading === null) {
+      if (currentHeadingLine === null) {
         // Everything before the first heading is preamble.
         preamble = bodyLines.join("\n");
         bodyLines.length = 0;
       } else {
-        sections.push({ headingText: currentHeading, body: bodyLines.join("\n") });
+        sections.push({
+          headingLine: currentHeadingLine,
+          headingText: currentHeadingText!,
+          body: bodyLines.join("\n"),
+        });
         bodyLines.length = 0;
       }
-      currentHeading = line.replace(/^#{1,6} /, "").trim();
+      currentHeadingLine = line;
+      currentHeadingText = line.replace(/^#{1,6} /, "").trim();
     } else {
       bodyLines.push(line);
     }
   }
 
   // Flush last section (or preamble if there were no headings at all).
-  if (currentHeading === null) {
+  if (currentHeadingLine === null) {
     preamble = bodyLines.join("\n");
   } else {
-    sections.push({ headingText: currentHeading, body: bodyLines.join("\n") });
+    sections.push({
+      headingLine: currentHeadingLine,
+      headingText: currentHeadingText!,
+      body: bodyLines.join("\n"),
+    });
   }
 
   return { preamble, sections };
@@ -157,9 +168,11 @@ function packSections(
   const seen = new Map<string, number>();
   const chunks: Chunk[] = [];
 
-  // Materialise each section as its full text (heading line + body).
+  // Materialise each section as its full text (original heading line + body).
+  // headingLine preserves the original #-level (e.g. "####") so structural info
+  // is not lost by hard-coding a different level in the reconstructed chunk.
   const sectionTexts = sections.map(
-    (s) => `## ${s.headingText}\n${s.body}`
+    (s) => `${s.headingLine}\n${s.body}`
   );
 
   // Build groups: greedily pack sections until the target size is hit.
@@ -186,6 +199,9 @@ function packSections(
     const chunkContent = overlapText + groupSections.join("\n\n");
 
     // Anchor from the first heading in this group (slug-deduped).
+    // When multiple sections pack into one chunk, the chunk's anchor is the FIRST
+    // packed section's slug (per-chunk addressing); later-packed sections share
+    // that anchor — they have no independent chunk to address.
     const anchor = uniqueAnchor(sections[groupStart].headingText, seen);
     const title = sections[groupStart].headingText;
 
@@ -212,10 +228,15 @@ function chunkByHeadings(content: string): Chunk[] {
   const { preamble, sections } = parseSections(content);
 
   if (sections.length === 0) {
-    // No headings found — can't split.
+    // No headings found — can't split on heading boundaries.
+    // The PRD splits at heading boundaries only; char-windowing a structureless
+    // doc is out of scope. Emit ONE anchored whole-file chunk.
     return [wholeFileChunk(content)];
   }
 
+  // When the file has only an H1 and a single body section (no sub-sections to
+  // divide on), packSections will also emit ONE anchored chunk — there are no
+  // heading boundaries to split on, and char-windowing is out of scope.
   const parentTitle = extractH1(content);
   return packSections(sections, preamble, parentTitle, content);
 }

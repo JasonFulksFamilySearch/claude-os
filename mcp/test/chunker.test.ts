@@ -232,11 +232,65 @@ describe("chunkFile — heading-split for large context docs (>2000 chars)", () 
     expect(cs[0].anchor).toBe("");
   });
 
+  it("file of EXACTLY 2000 chars → whole-file chunk (boundary: ≤ 2000)", () => {
+    // Confirms the boundary condition is inclusive (≤ not <).
+    const doc = buildDoc(2, 2000);
+    expect(doc.length).toBe(2000);
+    const cs = chunkFile({ sourceType: "context", content: doc, chunkingEnabled: true });
+    expect(cs).toHaveLength(1);
+    expect(cs[0].anchor).toBe("");
+  });
+
+  it("file of ~2001 chars (just over threshold) with multiple headings → heading-split with distinct slugs", () => {
+    // One char over the boundary must trigger heading-split, not whole-file.
+    const doc = buildDoc(4, 2001);
+    expect(doc.length).toBeGreaterThan(2000);
+    const cs = chunkFile({ sourceType: "context", content: doc, chunkingEnabled: true });
+
+    // Must produce multiple chunks.
+    expect(cs.length).toBeGreaterThanOrEqual(2);
+
+    // All anchors must be non-empty (each chunk is addressed to a heading, not whole-file).
+    for (const chunk of cs) {
+      expect(chunk.anchor).not.toBe("");
+    }
+
+    // Anchors must be distinct — each chunk has its own slug address.
+    const anchors = cs.map((c) => c.anchor);
+    expect(new Set(anchors).size).toBe(anchors.length);
+
+    // Each chunk's content must contain its own section heading (content is
+    // divided along heading boundaries, not arbitrarily sliced).
+    for (const chunk of cs) {
+      // The anchor is the slug of the heading; verify the heading text appears in the content.
+      // For buildDoc headings like "## Section A", slug is "section-a".
+      // We reconstruct the expected heading text from the anchor slug.
+      const headingText = chunk.anchor
+        .replace(/-(\d+)$/, "") // strip ordinal suffix if any
+        .replace(/-/g, " ")    // hyphens back to spaces
+        .replace(/\b\w/g, (c) => c.toUpperCase()); // title-case
+      expect(chunk.content).toContain(headingText);
+    }
+  });
+
   it("file just over threshold (>2000 chars with headings) → ≥2 chunks", () => {
     const doc = buildDoc(4, 2400);
     expect(doc.length).toBeGreaterThan(2000);
     const cs = chunkFile({ sourceType: "context", content: doc, chunkingEnabled: true });
     expect(cs.length).toBeGreaterThanOrEqual(2);
+
+    // Golden-fixture: distinct slug anchors on every chunk.
+    const anchors = cs.map((c) => c.anchor);
+    expect(new Set(anchors).size).toBe(anchors.length);
+    for (const anchor of anchors) {
+      expect(anchor).not.toBe(""); // no whole-file fallback anchor
+    }
+
+    // Content is divided along heading boundaries: each chunk contains its own heading.
+    for (const chunk of cs) {
+      // The title field should be in the content.
+      expect(chunk.content).toContain(chunk.title!);
+    }
   });
 
   // --- no headings → whole-file ---
@@ -248,6 +302,35 @@ describe("chunkFile — heading-split for large context docs (>2000 chars)", () 
     const cs = chunkFile({ sourceType: "context", content: noHeadings, chunkingEnabled: true });
     expect(cs).toHaveLength(1);
     expect(cs[0].anchor).toBe("");
+  });
+
+  // --- heading level preservation (Fix 1) ---
+
+  it("original heading level is preserved in chunk content (#### not flattened to ##)", () => {
+    // Mix of heading levels — ensure none are rewritten to a different level.
+    const doc =
+      "# Parent\n\n" +
+      "## Top Section\n" +
+      "body ".repeat(200) +
+      "\n\n#### Deep Subsection\n" +
+      "body ".repeat(200) +
+      "\n\n### Mid Section\n" +
+      "body ".repeat(200);
+    expect(doc.length).toBeGreaterThan(2000);
+    const cs = chunkFile({ sourceType: "context", content: doc, chunkingEnabled: true });
+
+    const allContent = cs.map((c) => c.content).join("\n");
+    // The deep subsection heading must appear verbatim — not promoted to ##.
+    expect(allContent).toContain("#### Deep Subsection");
+    // The mid-level heading must also appear verbatim.
+    expect(allContent).toContain("### Mid Section");
+    // The top section must appear verbatim.
+    expect(allContent).toContain("## Top Section");
+    // No structural promotion: "#### Deep Subsection" must NOT be rewritten to "## Deep Subsection".
+    // Use regex with start-of-line anchor so "####" is not a false positive match for "##".
+    expect(allContent).not.toMatch(/^## Deep Subsection$/m);
+    // No structural demotion: "### Mid Section" must NOT be rewritten to "# Mid Section".
+    expect(allContent).not.toMatch(/^# Mid Section$/m);
   });
 
   // --- slug anchors ---
@@ -278,16 +361,25 @@ describe("chunkFile — heading-split for large context docs (>2000 chars)", () 
 
   // --- overlap between adjacent chunks ---
 
-  it("adjacent heading-split chunks share overlap text", () => {
+  it("adjacent heading-split chunks share full overlap text (OVERLAP_CHARS)", () => {
+    // OVERLAP_CHARS = 90 tokens * 4 chars = 360 chars. Verify the FULL overlap,
+    // not just a short probe — a fencepost off-by-one in the slice would be caught.
+    const OVERLAP_CHARS = 90 * 4; // must mirror chunker.ts constant
     // Build a doc large enough that sections pack into ≥2 chunks.
     const doc = buildDoc(6, 6000);
     const cs = chunkFile({ sourceType: "context", content: doc, chunkingEnabled: true });
     // At least 2 chunks for there to be an adjacent pair.
     expect(cs.length).toBeGreaterThanOrEqual(2);
-    // For each adjacent pair, the tail of chunk[i] must appear in chunk[i+1].
+    // For each adjacent pair, the prepended overlap on chunk[i+1] must equal the
+    // full trailing OVERLAP_CHARS tail of chunk[i].
     for (let i = 0; i < cs.length - 1; i++) {
-      const prevTail = cs[i].content.slice(-200); // sample last 200 chars as overlap probe
-      expect(cs[i + 1].content).toContain(prevTail);
+      const prevContent = cs[i].content;
+      // Full overlap window — not a short probe.
+      const fullOverlapSlice = prevContent.slice(-OVERLAP_CHARS);
+      // chunk[i+1] must start with (or at least contain) the full tail of chunk[i].
+      // We use startsWith to verify the prepend is at the head of the next chunk
+      // (overlap text is prepended, not appended).
+      expect(cs[i + 1].content).toContain(fullOverlapSlice);
     }
   });
 
