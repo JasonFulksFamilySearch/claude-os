@@ -160,8 +160,11 @@ export function verifyV3(db: Database.Database): void {
   if (ic !== "ok") throw new Error("integrity_check failed: " + String(ic));
 
   // FTS probe: take a known row and confirm a distinctive token from its content
-  // is FTS-queryable AT that row's rowid. A rebuild that desynced the rowids
-  // would either return nothing or the wrong rowid.
+  // maps back to THAT SAME row's id in the FTS index. A rebuild that desynced
+  // rowids would either return no hit (zero-hit desync) or a hit whose rowid
+  // does not equal the probed row's id (partial/wrong-rowid desync). Both
+  // cases are fatal — PRAGMA integrity_check does NOT catch FTS external-content
+  // desync, so this probe is the only runtime guard.
   const row = db.prepare("SELECT id, content FROM observations LIMIT 1").get() as
     | { id: number; content: string }
     | undefined;
@@ -171,7 +174,8 @@ export function verifyV3(db: Database.Database): void {
       const m = db
         .prepare("SELECT rowid FROM observations_fts WHERE observations_fts MATCH ? LIMIT 1")
         .get(term) as { rowid: number } | undefined;
-      if (!m) throw new Error("FTS probe failed — rebuild desynced");
+      if (!m || m.rowid !== row.id)
+        throw new Error("FTS probe failed — rebuild desynced (term mapped to wrong/no rowid)");
     }
   }
 }
