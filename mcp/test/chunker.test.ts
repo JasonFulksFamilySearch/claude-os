@@ -161,28 +161,155 @@ describe("chunkFile — episode / agent always whole-file", () => {
 });
 
 // ---------------------------------------------------------------------------
-// topic / project source types → stub whole-file (Task 6 fills heading-split)
+// topic / project source types — threshold gate (≤2000 chars → whole-file)
 // ---------------------------------------------------------------------------
 
-describe("chunkFile — context / project stub (Task 6 heading-split not yet implemented)", () => {
+describe("chunkFile — context / project short-doc whole-file (≤2000 chars)", () => {
+  // This doc is ~51 chars — well under the 2000-char threshold.
   const md = "# Topic Doc\n\n## Section A\ntext\n\n## Section B\nmore";
 
-  it("context with flag on → single whole-file chunk (stub)", () => {
+  it("context short doc with flag on → single whole-file chunk", () => {
     const cs = chunkFile({ sourceType: "context", content: md, chunkingEnabled: true });
     expect(cs).toHaveLength(1);
     expect(cs[0].anchor).toBe("");
   });
 
-  it("project_claude_md with flag on → single whole-file chunk (stub)", () => {
+  it("project_claude_md short doc with flag on → single whole-file chunk", () => {
     const cs = chunkFile({ sourceType: "project_claude_md", content: md, chunkingEnabled: true });
     expect(cs).toHaveLength(1);
     expect(cs[0].anchor).toBe("");
   });
 
-  it("project_readme with flag on → single whole-file chunk (stub)", () => {
+  it("project_readme short doc with flag on → single whole-file chunk", () => {
     const cs = chunkFile({ sourceType: "project_readme", content: md, chunkingEnabled: true });
     expect(cs).toHaveLength(1);
     expect(cs[0].anchor).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// heading-split golden fixtures (Task 6)
+// ---------------------------------------------------------------------------
+
+// Build a deterministic markdown doc with `numSections` sections, padded so
+// the total character count equals exactly `totalChars`.  Each section gets an
+// equal slice of the pad budget; any rounding remainder is added to the last
+// section.  The header line "# Parent Title\n\n" is included in the budget.
+function buildDoc(numSections: number, totalChars: number): string {
+  const header = "# Parent Title\n\n";
+  const headings = Array.from(
+    { length: numSections },
+    (_, i) => `## Section ${String.fromCharCode(65 + i)}`
+  );
+  // Fixed cost: header + headings + "\n\n" separators between sections + "\n" after each heading.
+  const fixedChars =
+    header.length +
+    headings.reduce((s, h) => s + h.length + 1 /* \n after heading */, 0) +
+    (numSections - 1) * 2; /* "\n\n" between sections */
+
+  const bodyBudget = totalChars - fixedChars;
+  const basePerSection = Math.floor(bodyBudget / numSections);
+  const remainder = bodyBudget - basePerSection * numSections;
+
+  const sections = headings.map((h, i) => {
+    const bodyLen = basePerSection + (i === numSections - 1 ? remainder : 0);
+    // Fill with repeated "x" characters — simple and exact.
+    return `${h}\n${"x".repeat(Math.max(0, bodyLen))}`;
+  });
+
+  return header + sections.join("\n\n");
+}
+
+describe("chunkFile — heading-split for large context docs (>2000 chars)", () => {
+  // --- threshold boundary ---
+
+  it("file just under threshold (≤2000 chars) → whole-file chunk", () => {
+    // Build a 2-section doc that stays at 1999 chars.
+    const doc = buildDoc(2, 1999);
+    expect(doc.length).toBeLessThanOrEqual(2000);
+    const cs = chunkFile({ sourceType: "context", content: doc, chunkingEnabled: true });
+    expect(cs).toHaveLength(1);
+    expect(cs[0].anchor).toBe("");
+  });
+
+  it("file just over threshold (>2000 chars with headings) → ≥2 chunks", () => {
+    const doc = buildDoc(4, 2400);
+    expect(doc.length).toBeGreaterThan(2000);
+    const cs = chunkFile({ sourceType: "context", content: doc, chunkingEnabled: true });
+    expect(cs.length).toBeGreaterThanOrEqual(2);
+  });
+
+  // --- no headings → whole-file ---
+
+  it("file over threshold but no headings → single whole-file chunk", () => {
+    // A 2500-char file with no heading lines at all.
+    const noHeadings = "word ".repeat(500); // 2500 chars, no headings
+    expect(noHeadings.length).toBeGreaterThan(2000);
+    const cs = chunkFile({ sourceType: "context", content: noHeadings, chunkingEnabled: true });
+    expect(cs).toHaveLength(1);
+    expect(cs[0].anchor).toBe("");
+  });
+
+  // --- slug anchors ---
+
+  it("heading anchors are slugified (lowercase, spaces → hyphens)", () => {
+    const doc =
+      "# Parent\n\n" +
+      "word ".repeat(60) + // preamble padding
+      "\n\n## Hello World\n" +
+      "body ".repeat(600) +
+      "\n\n## Foo Bar Baz\n" +
+      "body ".repeat(600);
+    const cs = chunkFile({ sourceType: "context", content: doc, chunkingEnabled: true });
+    const anchors = cs.map((c) => c.anchor);
+    expect(anchors.some((a) => a === "hello-world")).toBe(true);
+    expect(anchors.some((a) => a === "foo-bar-baz")).toBe(true);
+  });
+
+  // --- parentTitle from H1 ---
+
+  it("parentTitle is the file H1 on every heading chunk", () => {
+    const doc = buildDoc(4, 2400);
+    const cs = chunkFile({ sourceType: "context", content: doc, chunkingEnabled: true });
+    for (const chunk of cs) {
+      expect(chunk.parentTitle).toBe("Parent Title");
+    }
+  });
+
+  // --- overlap between adjacent chunks ---
+
+  it("adjacent heading-split chunks share overlap text", () => {
+    // Build a doc large enough that sections pack into ≥2 chunks.
+    const doc = buildDoc(6, 6000);
+    const cs = chunkFile({ sourceType: "context", content: doc, chunkingEnabled: true });
+    // At least 2 chunks for there to be an adjacent pair.
+    expect(cs.length).toBeGreaterThanOrEqual(2);
+    // For each adjacent pair, the tail of chunk[i] must appear in chunk[i+1].
+    for (let i = 0; i < cs.length - 1; i++) {
+      const prevTail = cs[i].content.slice(-200); // sample last 200 chars as overlap probe
+      expect(cs[i + 1].content).toContain(prevTail);
+    }
+  });
+
+  // --- same heading collision → ordinal suffix ---
+
+  it("repeated heading text produces unique anchors with ordinal suffixes", () => {
+    const section = "body ".repeat(300);
+    const doc =
+      "# Root\n\n" +
+      `## Notes\n${section}\n\n` +
+      `## Notes\n${section}\n\n` +
+      `## Notes\n${section}`;
+    const cs = chunkFile({ sourceType: "context", content: doc, chunkingEnabled: true });
+    const anchors = cs.map((c) => c.anchor);
+    // All anchors must be unique.
+    expect(new Set(anchors).size).toBe(anchors.length);
+    // The repeated heading should appear with ordinal suffix on second+ occurrence.
+    const noteAnchors = anchors.filter((a) => a === "notes" || a.startsWith("notes-"));
+    expect(noteAnchors.length).toBeGreaterThanOrEqual(2);
+    const sorted = [...noteAnchors].sort();
+    expect(sorted[0]).toBe("notes");
+    expect(sorted[1]).toBe("notes-2");
   });
 });
 
