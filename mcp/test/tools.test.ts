@@ -273,6 +273,95 @@ describe("search_memory", () => {
     // The other file's row should still appear.
     expect(results.some((r) => r.source_path === otherPath)).toBe(true);
   });
+
+  it("backfill: per-file cap fills the result window from other files (flag-ON correctness)", async () => {
+    // Scenario: one "hot" file has many chunk rows that all match and would dominate
+    // the top of the ranked list. The per-file cap (maxPerFile=2) must DROP the excess
+    // chunks from the hot file and BACKFILL from other files — the final result window
+    // must reach `limit`, not shrink to 2.
+    //
+    // Pre-fix behaviour: rankCandidates was called with `limit`, pre-truncating the pool.
+    // If the hot file's chunks fill all `limit` ranked slots, shapeResults drops most of
+    // them but has nothing to backfill from, so the window shrinks to 2 instead of `limit`.
+    // Post-fix: rank the full pool → shape → slice(limit) → backfill is available.
+
+    const uniqueToken = "xorbackfillchunkfnord2026";
+    const hotPath = "/fake/hot-file-backfill.md";
+    const now = Math.floor(Date.now() / 1000);
+
+    const insert = db.prepare(
+      `INSERT INTO observations
+         (source_type, source_path, anchor, project, topic, title, content, content_hash, file_mtime, indexed_at)
+       VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)`
+    );
+
+    // Hot file: seed more chunks than the test limit (we'll use limit=5).
+    // Give them all a title that is the query token so they score high (W_EXACT_TITLE).
+    const hotChunkCount = 8; // well above limit=5 and maxPerFile=2
+    for (let i = 0; i < hotChunkCount; i++) {
+      insert.run(
+        "learning",
+        hotPath,
+        `section-${i}`,
+        uniqueToken,                               // title = query → top-rank
+        `${uniqueToken} body chunk ${i}`,
+        `hash-hot-${i}-${uniqueToken}`,
+        now,
+        now,
+      );
+    }
+
+    // Other files: seed enough distinct files so the backfill has material.
+    // Their content matches the token (W_EXACT_CONTENT) so they rank below the hot chunks.
+    const otherPaths: string[] = [];
+    for (let j = 0; j < 6; j++) {
+      const p = `/fake/other-backfill-${j}.md`;
+      otherPaths.push(p);
+      insert.run(
+        "learning",
+        p,
+        "",                                        // whole-file row, anchor=''
+        `Other file ${j}`,
+        `${uniqueToken} other body ${j}`,
+        `hash-other-${j}-${uniqueToken}`,
+        now,
+        now,
+      );
+    }
+
+    const limit = 5;
+    const results = await searchMemory(db, { query: uniqueToken, limit });
+
+    // (a) The result window must NOT shrink — it must fill up to `limit`.
+    expect(results.length).toBe(limit);
+
+    // (b) At most 2 results from the hot file (per-file cap enforced).
+    const fromHot = results.filter((r) => r.source_path === hotPath);
+    expect(fromHot.length).toBeLessThanOrEqual(2);
+
+    // (c) The remaining slots are backfilled from other files.
+    const fromOthers = results.filter((r) => r.source_path !== hotPath);
+    expect(fromOthers.length).toBeGreaterThanOrEqual(limit - 2);
+  });
+
+  it("flag-off no-op: whole-file rows return same top-limit in same order (regression guard)", async () => {
+    // All fixture rows are whole-file (anchor=''), so shapeResults is a no-op and ranking
+    // the full pool then slicing must yield the identical top-limit as the pre-fix path
+    // that passed `limit` to rankCandidates.
+    const q = "java OR jira OR lesson OR demo OR identity";
+    const limit = 3;
+    const results = await searchMemory(db, { query: q, limit });
+    // Must hit the limit (enough docs in the fixture to fill it).
+    expect(results.length).toBe(limit);
+    // Scores must be descending — rank order preserved.
+    for (let i = 1; i < results.length; i++) {
+      expect(results[i - 1].score).toBeGreaterThanOrEqual(results[i].score);
+    }
+    // All anchors must be '' for whole-file rows — confirms we are in the flag-off scenario.
+    for (const r of results) {
+      expect(r.anchor).toBe("");
+    }
+  });
 });
 
 describe("get_topic", () => {

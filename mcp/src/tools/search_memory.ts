@@ -189,12 +189,19 @@ export async function searchMemory(
   }
 
   const now = Math.floor(Date.now() / 1000);
-  const ranked = rankCandidates(candidates, args.query, now, limit);
+  // Rank the FULL candidate pool (no pre-truncation to `limit`). The pool is
+  // already bounded by CANDIDATE_CAP, so this is a bounded operation.
+  // We must rank first, then shape (per-file cap), then slice — otherwise the
+  // cap drops chunks from a hot file without backfilling from other files, and
+  // the result window shrinks (e.g. limit=10 but only 2 results returned).
+  const ranked = rankCandidates(candidates, args.query, now, candidates.length);
 
   // 4a. Apply result shaper: collapse same-(path,anchor) siblings, cap per-file.
   //     shapeResults requires descending-score input — rankCandidates guarantees this.
   //     With whole-file rows (all anchor=''), each path has exactly one row so
   //     this is a no-op, preserving today's behavior.
+  // After shaping, slice to `limit` so dropped chunks are backfilled from other
+  // files before the window is truncated.
   const shaped = shapeResults(
     ranked.map((rc) => { const m = meta.get(rc.id)!; return { ...rc, source_path: m.source_path, anchor: m.anchor }; }),
   ).slice(0, limit);
