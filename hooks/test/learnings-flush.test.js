@@ -6,7 +6,7 @@ const { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } = require('
 const { join } = require('node:path');
 const { tmpdir } = require('node:os');
 
-const { resolveTarget, appendEntry, flush } = require('../learnings-flush.js');
+const { resolveTarget, appendEntry, flush, markerFamily, flushFile, flushAll } = require('../learnings-flush.js');
 
 // Temporary working directory for each test run
 const TMP = join(tmpdir(), `learnings-flush-test-${process.pid}`);
@@ -81,13 +81,17 @@ test('flush processes single entry and deletes marker', () => {
   assert.ok(result.flushed >= 0);
 });
 
-test('flush handles malformed JSON by deleting marker', () => {
+test('flush handles malformed JSON by quarantining (not deleting) the marker', () => {
   const markerPath = join(TMP, 'malformed.json');
   writeFileSync(markerPath, '{ not valid json }', 'utf8');
   const result = flush(markerPath);
-  assert.ok(!existsSync(markerPath));
+  // Original marker must be gone (renamed away)
+  assert.ok(!existsSync(markerPath), 'original marker path removed');
   assert.equal(result.flushed, 0);
-  assert.ok(result.error);
+  // Contents must be preserved in a quarantine file
+  assert.ok(result.quarantined, 'quarantined path returned');
+  assert.ok(existsSync(result.quarantined), 'quarantine file exists');
+  assert.equal(readFileSync(result.quarantined, 'utf8'), '{ not valid json }');
 });
 
 test('flush skips entries missing scope or content', () => {
@@ -110,4 +114,64 @@ test('flush accepts single object (not array)', () => {
   assert.ok(!existsSync(markerPath));
   // Should not throw and flushed should be 0 or 1
   assert.ok(result.flushed >= 0);
+});
+
+// ── Task D: CaptureMarkers — new tests ────────────────────────────────────────
+
+test('markerFamily globs suffixed + legacy markers', () => {
+  const root = join(TMP, 'fam');
+  mkdirSync(root, { recursive: true });
+  writeFileSync(join(root, '_tmp_pending_learning.json'), '[]', 'utf8');
+  writeFileSync(join(root, '_tmp_pending_learning-abc123.json'), '[]', 'utf8');
+  writeFileSync(join(root, 'unrelated.json'), '[]', 'utf8');
+  const fam = markerFamily(root).map(p => p.split('/').pop()).sort();
+  assert.deepEqual(fam, ['_tmp_pending_learning-abc123.json', '_tmp_pending_learning.json']);
+});
+
+test('flushFile quarantines (does NOT discard) a malformed marker', () => {
+  const p = join(TMP, 'bad', '_tmp_pending_learning-x.json');
+  mkdirSync(join(TMP, 'bad'), { recursive: true });
+  writeFileSync(p, '{ not json', 'utf8');
+  const r = flushFile(p);
+  assert.ok(!existsSync(p), 'original removed');
+  assert.ok(r.quarantined && existsSync(r.quarantined), 'contents preserved in quarantine file');
+  assert.equal(readFileSync(r.quarantined, 'utf8'), '{ not json');
+});
+
+test('flushFile writes a residue file for an entry whose append throws (injected appendFn)', () => {
+  const p = join(TMP, 'res', '_tmp_pending_learning-y.json');
+  mkdirSync(join(TMP, 'res'), { recursive: true });
+  writeFileSync(p, JSON.stringify([
+    { scope: 'agent', content: 'will-throw', title: 'T1' },
+    { scope: 'agent', content: 'ok', title: 'T2' },
+  ]), 'utf8');
+  let calls = 0;
+  const throwingAppend = () => { calls++; if (calls === 1) throw new Error('simulated write failure'); };
+  const r = flushFile(p, { appendFn: throwingAppend });
+  assert.equal(r.flushed, 1, 'the second entry still flushed');
+  assert.ok(r.residue && existsSync(r.residue), 'failed entry preserved in a residue file');
+  const residue = JSON.parse(readFileSync(r.residue, 'utf8'));
+  assert.equal(residue.length, 1);
+  assert.equal(residue[0].content, 'will-throw');
+  assert.ok(!existsSync(p), 'original marker removed once entries are triaged to residue');
+});
+
+test('flushFile leaves NO residue and removes the marker when every entry flushes', () => {
+  const p = join(TMP, 'res2', '_tmp_pending_learning-z.json');
+  mkdirSync(join(TMP, 'res2'), { recursive: true });
+  writeFileSync(p, JSON.stringify([{ scope: 'agent', content: 'ok', title: 'T' }]), 'utf8');
+  const r = flushFile(p, { appendFn: () => {} });
+  assert.ok(!existsSync(p));
+  assert.ok(!r.residue, 'no residue when all entries flush');
+});
+
+test('flushAll processes every family member independently', () => {
+  const root = join(TMP, 'all');
+  mkdirSync(root, { recursive: true });
+  writeFileSync(join(root, '_tmp_pending_learning.json'), JSON.stringify([{ scope: 'agent', content: 'a' }]), 'utf8');
+  writeFileSync(join(root, '_tmp_pending_learning-s1.json'), '{ bad', 'utf8');
+  const agg = flushAll(root);
+  assert.ok(agg.filesProcessed >= 2);
+  assert.ok(!existsSync(join(root, '_tmp_pending_learning.json')), 'valid file consumed');
+  assert.ok(agg.quarantined >= 1, 'bad file quarantined, not lost');
 });

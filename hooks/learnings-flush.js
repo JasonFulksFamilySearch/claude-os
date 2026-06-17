@@ -2,7 +2,7 @@
 
 const {
   readFileSync, writeFileSync, appendFileSync,
-  existsSync, mkdirSync, unlinkSync,
+  existsSync, mkdirSync, unlinkSync, readdirSync, renameSync,
 } = require('node:fs');
 const { join, dirname } = require('node:path');
 const { homedir } = require('node:os');
@@ -38,38 +38,79 @@ function appendEntry(path, entry) {
   return block.length;
 }
 
-function flush(markerPath = MARKER_PATH) {
+// Returns absolute paths of all marker files in the family:
+// legacy un-suffixed + any per-session-suffixed variants.
+function markerFamily(dataRoot = DATA_ROOT) {
+  if (!existsSync(dataRoot)) return [];
+  return readdirSync(dataRoot)
+    .filter(f => f === '_tmp_pending_learning.json' || /^_tmp_pending_learning-.+\.json$/.test(f))
+    .map(f => join(dataRoot, f));
+}
+
+// Per-file flush with quarantine-on-parse-fail and residue-on-append-fail.
+// appendFn is injectable for testing; defaults to appendEntry.
+function flushFile(markerPath, { appendFn = appendEntry } = {}) {
   if (!existsSync(markerPath)) return { flushed: 0, skipped: 0 };
 
   let entries;
+  let raw;
   try {
-    const raw = readFileSync(markerPath, 'utf8');
+    raw = readFileSync(markerPath, 'utf8');
     const parsed = JSON.parse(raw);
     entries = Array.isArray(parsed) ? parsed : [parsed];
   } catch {
-    try { unlinkSync(markerPath); } catch {}
-    return { flushed: 0, skipped: 0, error: 'malformed marker file' };
+    // QUARANTINE — never unlink-and-discard; preserve contents under a quarantine name.
+    const quarantined = markerPath.replace(/\.json$/, '') + `.quarantine-${Date.now()}.json`;
+    try { renameSync(markerPath, quarantined); } catch { return { flushed: 0, skipped: 0, error: 'quarantine-failed' }; }
+    return { flushed: 0, skipped: 0, quarantined };
   }
 
   let flushed = 0;
   let skipped = 0;
+  const failed = [];
+
   for (const entry of entries) {
-    if (!entry.scope || !entry.content) { skipped++; continue; }
+    if (!entry || !entry.scope || !entry.content) { skipped++; continue; }
     const target = resolveTarget(entry);
     if (!target) { skipped++; continue; }
     try {
-      appendEntry(target, entry);
+      appendFn(target, entry);
       flushed++;
     } catch {
-      skipped++;
+      // Preserve for next flush — do NOT count as flushed or skipped.
+      failed.push(entry);
     }
+  }
+
+  if (failed.length > 0) {
+    const residue = markerPath.replace(/\.json$/, '') + '.residue.json';
+    writeFileSync(residue, JSON.stringify(failed), 'utf8');
+    try { unlinkSync(markerPath); } catch {}
+    return { flushed, skipped, residue };
   }
 
   try { unlinkSync(markerPath); } catch {}
   return { flushed, skipped };
 }
 
-module.exports = { todayLocal, resolveTarget, appendEntry, flush };
+// Process the entire marker family; each file is processed independently.
+function flushAll(dataRoot = DATA_ROOT) {
+  const files = markerFamily(dataRoot);
+  let flushed = 0, skipped = 0, quarantined = 0, residue = 0;
+  for (const f of files) {
+    const r = flushFile(f);
+    flushed += r.flushed || 0;
+    skipped += r.skipped || 0;
+    if (r.quarantined) quarantined++;
+    if (r.residue) residue++;
+  }
+  return { filesProcessed: files.length, flushed, skipped, quarantined, residue };
+}
+
+// Backward-compat: flush(markerPath) delegates to flushFile.
+function flush(markerPath = MARKER_PATH) { return flushFile(markerPath); }
+
+module.exports = { todayLocal, resolveTarget, appendEntry, flush, markerFamily, flushFile, flushAll };
 
 if (require.main === module) {
   // Recursion guard: skip if spawned inside a session-observer worker subprocess.
@@ -80,11 +121,11 @@ if (require.main === module) {
 
   // Safety net: flush anyway if stdin never closes (e.g. no hook context piped).
   const stdinTimer = setTimeout(() => {
-    flush();
+    flushAll(DATA_ROOT);
     process.exit(0);
   }, 5_000);
 
-  process.stdin.on('error', () => { clearTimeout(stdinTimer); flush(); process.exit(0); });
+  process.stdin.on('error', () => { clearTimeout(stdinTimer); flushAll(DATA_ROOT); process.exit(0); });
   process.stdin.on('data', d => { input += d; });
   process.stdin.on('end', () => {
     clearTimeout(stdinTimer);
@@ -96,6 +137,6 @@ if (require.main === module) {
       const bgTasks = Array.isArray(ctx.background_tasks) ? ctx.background_tasks : [];
       if (bgTasks.length > 0) process.exit(0);
     } catch { /* malformed or empty input — proceed with flush */ }
-    flush();
+    flushAll(DATA_ROOT);
   });
 }
