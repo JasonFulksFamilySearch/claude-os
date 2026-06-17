@@ -30,6 +30,7 @@ import {
   fileLevelReciprocalRank,
   mean,
   fileSetHash,
+  isCutoverBoundary,
   isFileSetShapeChange,
   absenceProbePass,
   aggregateAbsenceStage,
@@ -68,9 +69,11 @@ export interface Baseline {
   captured_at: string;
   captured_on_ref: string;
   // observation_count is human-readable provenance only; the SHAPE signal is file_set_hash
-  // (a stable hash of the distinct source_path set). Optional because baselines captured
-  // before the D-b fix lack it — the mandatory re-baseline at the version boundary recaptures it.
-  corpus: { db_path: string; observation_count: number; file_set_hash?: string };
+  // (a stable hash of the distinct source_path set). chunking_enabled records the cutover
+  // marker AT CAPTURE TIME, so the shape guard can fire on the cutover TRANSITION rather than
+  // the steady marker state (see isCutoverBoundary). Both are optional because baselines
+  // captured before the D-b fix lack them — a missing file_set_hash forces a re-baseline.
+  corpus: { db_path: string; observation_count: number; file_set_hash?: string; chunking_enabled?: boolean };
   presence: { mean_recall_at_k: number; mrr: number; k: number };
   absence: Record<string, { armed: boolean; pass_rate: number | null; n: number }>;
 }
@@ -104,11 +107,14 @@ function gitRef(): string {
 // Broken-labels probe (NOT the recall denominator any more — that is file-level now).
 // Returns every observation whose source_path contains any expected substring; the runner
 // only checks whether this is empty, which means the labels match nothing in the corpus.
+// Uses instr() (case-sensitive, literal substring) — the SAME matching semantics as the
+// file-level scorer's String.includes — so a label can never pass this probe yet be
+// unhittable under scoring (which would spuriously FAIL instead of flagging broken labels).
 function resolveRelevant(db: Database.Database, substrings: string[]): number[] {
   const ids = new Set<number>();
-  const stmt = db.prepare("SELECT id FROM observations WHERE source_path LIKE ?");
+  const stmt = db.prepare("SELECT id FROM observations WHERE instr(source_path, ?) > 0");
   for (const s of substrings) {
-    for (const row of stmt.all(`%${s}%`) as { id: number }[]) ids.add(row.id);
+    for (const row of stmt.all(s) as { id: number }[]) ids.add(row.id);
   }
   return [...ids];
 }
@@ -121,11 +127,12 @@ function distinctSourcePaths(db: Database.Database): string[] {
   }[]).map((r) => r.source_path);
 }
 
-// Whether the index is at the post-chunk-split cutover boundary, where the file-set guard
-// runs. Reads the same meta.c2_chunking_enabled marker the indexer's chunking chokepoint
-// uses — here purely to discriminate the boundary, never to drive chunking. Default '0' (off)
-// when the meta row is absent (a routine whole-file corpus).
-function atCutoverBoundary(db: Database.Database): boolean {
+// Whether chunking is enabled on this index (the meta.c2_chunking_enabled marker the indexer's
+// chunking chokepoint uses — read here purely to discriminate the cutover boundary, never to
+// drive chunking). This is the steady marker STATE; the boundary itself is the transition of
+// this value between the baseline and the current run (see isCutoverBoundary). Default '0'
+// (off) when the meta row is absent (a routine whole-file corpus).
+function chunkingEnabled(db: Database.Database): boolean {
   const row = db.prepare("SELECT value FROM meta WHERE key = 'c2_chunking_enabled'").get() as
     | { value: string }
     | undefined;
@@ -218,17 +225,23 @@ async function main(): Promise<void> {
 
     // --- Baseline: capture or compose ---
     const obsCount = (db.prepare("SELECT COUNT(*) AS c FROM observations").get() as { c: number }).c;
-    // Corpus-shape signal: the distinct file set (hash) and whether we are at the cutover
-    // boundary where the file-set guard runs.
+    // Corpus-shape signal: the distinct file set (hash) and the current chunking-marker state.
+    // The shape guard fires on the cutover TRANSITION (baseline whole-file → current chunked),
+    // computed in the compose branch from the baseline's recorded chunking_enabled.
     const filePaths = distinctSourcePaths(db);
     const currentFileSetHash = fileSetHash(filePaths);
-    const boundary = atCutoverBoundary(db);
+    const currentChunking = chunkingEnabled(db);
     const existing = readBaseline(BASELINE_PATH);
     if (isBaselineCapture(existing !== null, rebaseline)) {
       const baseline: Baseline = {
         captured_at: new Date().toISOString(),
         captured_on_ref: gitRef(),
-        corpus: { db_path: srcDb, observation_count: obsCount, file_set_hash: currentFileSetHash },
+        corpus: {
+          db_path: srcDb,
+          observation_count: obsCount,
+          file_set_hash: currentFileSetHash,
+          chunking_enabled: currentChunking,
+        },
         presence: { mean_recall_at_k: metrics.meanRecallAtK, mrr: metrics.mrr, k },
         absence: Object.fromEntries(
           Object.entries(stageResults).map(([n, r]) => [
@@ -250,15 +263,27 @@ async function main(): Promise<void> {
           `\nVERDICT: INCONCLUSIVE (baseline stale — captured at k=${base.presence.k}, current k=${k}; re-baseline with --rebaseline)`,
         );
         process.exitCode = 1;
+      } else if (base.corpus.file_set_hash === undefined) {
+        // A baseline with no file_set_hash predates the file-level scoring fix, so its
+        // presence metrics were computed on the old observation-row scale and are NOT
+        // comparable to today's file-level numbers. Composing against it would yield a
+        // misleading PASS/FAIL — force a re-baseline instead (mirrors the k-mismatch branch).
+        console.log(
+          `\nVERDICT: INCONCLUSIVE (baseline predates file-level scoring — no file_set_hash; its recall is on the old observation-row scale; re-baseline with --rebaseline)`,
+        );
+        process.exitCode = 1;
       } else {
         const presence = presenceVerdict(
           metrics,
           { meanRecallAtK: base.presence.mean_recall_at_k, mrr: base.presence.mrr },
           brokenLabels,
         );
-        // Corpus-shape guard (WARN W2): only at the cutover boundary, a change to the file set
-        // escalates to INCONCLUSIVE. A chunk-count jump (same files) does not trip it; off the
-        // boundary the guard does not run, so routine file churn never nags.
+        // Corpus-shape guard (WARN W2): only at the cutover boundary — the chunking marker
+        // flipped on since the baseline was captured — a change to the file set escalates to
+        // INCONCLUSIVE. A chunk-count jump (same files) does not trip it; off the boundary
+        // (e.g. a post-cutover memory-merger close, where baseline and current are both
+        // chunked) the guard does not run, so routine file churn never nags.
+        const boundary = isCutoverBoundary(base.corpus.chunking_enabled ?? false, currentChunking);
         const shapeChanged = isFileSetShapeChange(
           base.corpus.file_set_hash,
           currentFileSetHash,

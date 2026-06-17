@@ -6,6 +6,7 @@ import {
   fileLevelRecallAtK,
   fileLevelReciprocalRank,
   fileSetHash,
+  isCutoverBoundary,
   isFileSetShapeChange,
   absenceProbePass,
   aggregateAbsenceStage,
@@ -125,6 +126,24 @@ describe("fileSetHash", () => {
     const wholeFile = ["a.md", "b.md"];
     const chunked = ["a.md", "a.md", "a.md", "b.md", "b.md"]; // same files, many rows
     expect(fileSetHash(chunked)).toBe(fileSetHash(wholeFile));
+  });
+});
+
+describe("isCutoverBoundary (the boundary is the cutover TRANSITION, not the marker state)", () => {
+  it("pre-cutover routine run (whole-file baseline, whole-file current) is not the boundary", () => {
+    expect(isCutoverBoundary(false, false)).toBe(false);
+  });
+  it("the cutover validation run (whole-file baseline, chunked current) IS the boundary", () => {
+    expect(isCutoverBoundary(false, true)).toBe(true);
+  });
+  it("a post-cutover memory-merger close (chunked baseline, chunked current) is NOT the boundary", () => {
+    // The chunking flag stays on forever after cutover; keying on flag-state alone would
+    // re-run the guard on every close and nag on routine churn. Keying on the transition
+    // turns the guard off once the baseline is re-captured on the chunked index.
+    expect(isCutoverBoundary(true, true)).toBe(false);
+  });
+  it("a non-transition with chunking off is not the boundary", () => {
+    expect(isCutoverBoundary(true, false)).toBe(false);
   });
 });
 

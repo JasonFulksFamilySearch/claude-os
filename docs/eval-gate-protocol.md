@@ -74,10 +74,16 @@ The presence half is not meaningful until the placeholder queries are replaced:
 ## Baseline (machine-local, never committed)
 
 `~/.claude-data/eval-baseline.json` records `captured_at`, `captured_on_ref`,
-`corpus { db_path, observation_count, file_set_hash }`, `presence { mean_recall_at_k, mrr, k }`,
-and per-stage `absence` results. `file_set_hash` is a stable hash of the corpus's distinct
-`source_path` set — the granularity-invariant SHAPE signal (see the shape guard below);
+`corpus { db_path, observation_count, file_set_hash, chunking_enabled }`,
+`presence { mean_recall_at_k, mrr, k }`, and per-stage `absence` results. `file_set_hash` is a
+stable hash of the corpus's distinct `source_path` set — the granularity-invariant SHAPE
+signal (see the shape guard below); `chunking_enabled` records the cutover marker at capture
+time so the guard can fire on the cutover *transition* rather than the steady marker state;
 `observation_count` is retained as human-readable provenance only.
+
+A baseline that lacks `file_set_hash` predates the file-level scoring fix — its recall is on
+the old observation-row scale and is not comparable. The runner does not compose against it:
+it returns INCONCLUSIVE and instructs a re-baseline.
 
 - **First run** (baseline absent): the runner writes the baseline and prints
   `BASELINE CAPTURED` with no verdict. Capture on the **pre-change** index so
@@ -131,16 +137,21 @@ cutover. The guard keys on the distinct `source_path` set (a stable hash), NOT t
 a chunk-split multiplies rows but leaves the file set identical, so the guard does not trip on
 the cutover itself, only on a file genuinely added or removed.
 
-- **Runs ONLY at the cutover boundary** — discriminated by the `c2_chunking_enabled` marker on
-  the index. At a routine `/memory-merger` close (marker off) the guard does not run: file
-  churn is expected there and presence non-regression is the gate.
+- **Runs ONLY at the cutover boundary — the transition, not the marker state.** The boundary is
+  when `c2_chunking_enabled` flipped on *since the baseline was captured* (baseline
+  `chunking_enabled:false` → current chunked). The chunking flag stays on permanently after a
+  cutover, so keying on "flag on" alone would re-run the guard on every later run and nag on
+  routine churn. Once the operator re-baselines on the chunked index, baseline and current are
+  both chunked → no transition → the guard retires. So the cutover *validation* run sees the
+  guard; a subsequent `/memory-merger` close does not (Locked Decision #2, Story 6).
 - **Zero tolerance, INCONCLUSIVE (never FAIL).** At the boundary, any file added or removed vs.
   the baseline's file set ⇒ INCONCLUSIVE with a verdict-line reason naming the delta. This
   mirrors the k-mismatch branch: incomparable inputs produce INCONCLUSIVE, not a misleading
   pass/fail. A genuine presence/absence FAIL still dominates — a shape change never masks a
   real regression.
-- A baseline captured before this fix lacks `file_set_hash`, so it cannot be compared (no
-  spurious escalation); the mandatory re-baseline at the version boundary recaptures it.
+- A baseline captured before this fix lacks `file_set_hash`; rather than compose against its
+  stale (observation-row-scaled) recall, the runner returns INCONCLUSIVE and instructs a
+  re-baseline — the mandatory re-baseline at the version boundary recaptures it.
 
 ## When to run
 

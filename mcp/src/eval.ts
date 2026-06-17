@@ -35,8 +35,10 @@ export function mean(values: number[]): number {
 // when retrieval is unchanged. The presence path scores at FILE granularity instead: a
 // query is a "hit" for an expected file if ANY of its chunks surfaces in top-k, and the
 // denominator is the count of EXPECTED FILES — identical at whole-file and chunked
-// granularities by construction. An expected file is identified by substring containment of
-// its label in a result's source_path (mirroring resolveRelevant's LIKE and absenceProbePass).
+// granularities by construction. An expected file is identified by literal, case-sensitive
+// substring containment of its label in a result's source_path (String.includes — the same
+// semantics as absenceProbePass; note this is stricter than the broken-labels probe's SQL
+// LIKE, which is case-insensitive and treats %/_ as wildcards).
 
 // File-level recall@k: of the query's expected-file substrings, the fraction for which at
 // least one of the top-k ranked results' source_path contains that substring. 0 (not NaN)
@@ -142,12 +144,23 @@ export function fileSetHash(sourcePaths: string[]): string {
   return createHash("sha256").update(distinctSorted.join("\n")).digest("hex");
 }
 
-// Shape-guard decision (pure). The guard runs ONLY at the cutover / re-baseline boundary
-// (atCutoverBoundary, discriminated by the chunking marker on the index); off the boundary
-// — a routine memory-merger close — file churn is expected and the guard does not run. At the
-// boundary, any change to the file set (hashes differ) is a shape change. A baseline that
-// predates this field (undefined hash) cannot be compared, so it is NOT a shape change — the
-// mandatory re-baseline at the version boundary recaptures it.
+// Whether this run is at the cutover boundary: the chunking marker flipped ON since the
+// baseline was captured (whole-file baseline → chunked current). The boundary is a one-time
+// TRANSITION, not the steady marker state — the chunking flag stays on permanently after a
+// cutover, so keying on "flag === on" would re-run the guard on every subsequent run and nag
+// on routine memory-merger churn. Once the operator re-baselines on the chunked index, both
+// sides read chunking-on and this returns false, retiring the guard (Locked Decision #2,
+// Story 6).
+export function isCutoverBoundary(baselineChunking: boolean, currentChunking: boolean): boolean {
+  return currentChunking && !baselineChunking;
+}
+
+// Shape-guard decision (pure). The guard runs ONLY at the cutover boundary
+// (atCutoverBoundary — see isCutoverBoundary); off the boundary — a routine memory-merger
+// close — file churn is expected and the guard does not run. At the boundary, any change to
+// the file set (hashes differ) is a shape change. A baseline that predates this field
+// (undefined hash) cannot be compared, so it is NOT a shape change — the mandatory re-baseline
+// at the version boundary recaptures it.
 export function isFileSetShapeChange(
   baselineHash: string | null | undefined,
   currentHash: string,
