@@ -16,7 +16,7 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 const sample: Baseline = {
   captured_at: "2026-06-16T00:00:00.000Z",
   captured_on_ref: "abc1234",
-  corpus: { db_path: "/x/memory.db", observation_count: 242 },
+  corpus: { db_path: "/x/memory.db", observation_count: 242, file_set_hash: "deadbeef" },
   presence: { mean_recall_at_k: 0.8, mrr: 0.7, k: 5 },
   absence: { absence_stage_2: { armed: false, pass_rate: null, n: 0 } },
 };
@@ -25,7 +25,7 @@ describe("baseline round-trip", () => {
   it("readBaseline returns null when the file is absent", () => {
     expect(readBaseline(path)).toBeNull();
   });
-  it("writeBaseline then readBaseline returns an equal object", () => {
+  it("writeBaseline then readBaseline returns an equal object (incl. corpus.file_set_hash)", () => {
     writeBaseline(path, sample);
     expect(existsSync(path)).toBe(true);
     expect(readBaseline(path)).toEqual(sample);

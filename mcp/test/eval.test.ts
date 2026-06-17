@@ -3,6 +3,10 @@ import {
   recallAtK,
   reciprocalRank,
   mean,
+  fileLevelRecallAtK,
+  fileLevelReciprocalRank,
+  fileSetHash,
+  isFileSetShapeChange,
   absenceProbePass,
   aggregateAbsenceStage,
   presenceVerdict,
@@ -44,6 +48,98 @@ describe("mean", () => {
   });
   it("is 0 (not NaN) for an empty list", () => {
     expect(mean([])).toBe(0);
+  });
+});
+
+describe("fileLevelRecallAtK", () => {
+  it("hits when ANY chunk of an expected file is in the top-k", () => {
+    // learnings surfaces as 3 chunks; still exactly one file-level hit ⇒ 1/1.
+    expect(
+      fileLevelRecallAtK(["a/learnings.md", "a/learnings.md", "a/learnings.md"], ["learnings"], 5),
+    ).toBeCloseTo(1, 10);
+  });
+  it("misses when no top-k path contains the expected substring", () => {
+    expect(fileLevelRecallAtK(["a/jira.md", "b/github.md"], ["episode"], 5)).toBe(0);
+  });
+  it("denominator is the expected-file count, independent of chunk count", () => {
+    // jira surfaced (3 chunks), github not ⇒ 1 of 2 expected files = 0.5.
+    expect(
+      fileLevelRecallAtK(["a/jira.md", "a/jira.md", "c/misc.md"], ["jira", "github"], 5),
+    ).toBeCloseTo(0.5, 10);
+  });
+  it("is 0 (not NaN) when there are no expected files", () => {
+    expect(fileLevelRecallAtK(["a/x.md"], [], 5)).toBe(0);
+  });
+  it("counts a file surfaced at exactly rank k, not at rank k+1", () => {
+    const ranked = ["m1", "m2", "m3", "m4", "c/github.md", "c/jira.md"];
+    expect(fileLevelRecallAtK(ranked, ["github"], 5)).toBeCloseTo(1, 10); // rank 5 counts
+    expect(fileLevelRecallAtK(ranked, ["jira"], 5)).toBe(0); // rank 6 excluded
+  });
+});
+
+describe("fileLevelReciprocalRank", () => {
+  it("is 1/rank of the first ranked path matching any expected substring", () => {
+    expect(fileLevelReciprocalRank(["a/x.md", "b/jira.md", "c/y.md"], ["jira"])).toBeCloseTo(0.5, 10);
+  });
+  it("is 1 when the first result matches", () => {
+    expect(fileLevelReciprocalRank(["a/jira.md", "b/x.md"], ["jira", "github"])).toBe(1);
+  });
+  it("is 0 when no result matches", () => {
+    expect(fileLevelReciprocalRank(["a/x.md", "b/y.md"], ["jira"])).toBe(0);
+  });
+});
+
+describe("file-level metric is granularity-invariant (the cure for D-b)", () => {
+  // The same retrieval quality expressed at two granularities. Whole-file = one row per
+  // file; chunked = N rows sharing a source_path per file. jira surfaces (any chunk),
+  // github does not, in BOTH — so file-level recall must be identical (0.5), even though
+  // the chunked top-k is crowded with 3 jira chunks. This is the case the old
+  // observation-row denominator would have suppressed.
+  const expected = ["jira", "github"];
+  const wholeFile = ["a/jira.md", "b/other.md", "c/misc.md", "d/foo.md", "e/bar.md"];
+  const chunked = ["a/jira.md", "a/jira.md", "c/misc.md", "a/jira.md", "e/bar.md"];
+  it("yields identical file-level recall at both granularities", () => {
+    expect(fileLevelRecallAtK(chunked, expected, 5)).toBeCloseTo(
+      fileLevelRecallAtK(wholeFile, expected, 5),
+      10,
+    );
+    expect(fileLevelRecallAtK(wholeFile, expected, 5)).toBeCloseTo(0.5, 10);
+  });
+  it("yields identical file-level MRR at both granularities", () => {
+    expect(fileLevelReciprocalRank(chunked, expected)).toBeCloseTo(
+      fileLevelReciprocalRank(wholeFile, expected),
+      10,
+    );
+    expect(fileLevelReciprocalRank(wholeFile, expected)).toBe(1);
+  });
+});
+
+describe("fileSetHash", () => {
+  it("is stable regardless of input order or chunk-multiplicity duplicates", () => {
+    expect(fileSetHash(["b.md", "a.md", "b.md"])).toBe(fileSetHash(["a.md", "b.md"]));
+  });
+  it("differs when a file is added or removed", () => {
+    expect(fileSetHash(["a.md", "b.md"])).not.toBe(fileSetHash(["a.md", "b.md", "c.md"]));
+  });
+  it("a chunk-split (more rows, same file set) does not change the hash", () => {
+    const wholeFile = ["a.md", "b.md"];
+    const chunked = ["a.md", "a.md", "a.md", "b.md", "b.md"]; // same files, many rows
+    expect(fileSetHash(chunked)).toBe(fileSetHash(wholeFile));
+  });
+});
+
+describe("isFileSetShapeChange (boundary-gated, zero-tolerance)", () => {
+  it("off the cutover boundary, never a shape change even if the file set differs", () => {
+    expect(isFileSetShapeChange("h1", "h2", false)).toBe(false);
+  });
+  it("at the boundary with identical hashes (chunk-count jump only) is not a shape change", () => {
+    expect(isFileSetShapeChange("h1", "h1", true)).toBe(false);
+  });
+  it("at the boundary with differing hashes (file added/removed) is a shape change", () => {
+    expect(isFileSetShapeChange("h1", "h2", true)).toBe(true);
+  });
+  it("a pre-fix baseline lacking the hash cannot be compared ⇒ not a shape change", () => {
+    expect(isFileSetShapeChange(undefined, "h2", true)).toBe(false);
   });
 });
 
@@ -112,6 +208,24 @@ describe("composeVerdict (precedence CAPTURING > FAIL > INCONCLUSIVE > PASS)", (
   });
   it("presence FAIL fails the composed verdict", () => {
     expect(composeVerdict("FAIL", [skipped])).toBe("FAIL");
+  });
+});
+
+describe("composeVerdict shape-change escalation (WARN W2)", () => {
+  const skipped = { status: "SKIPPED" as const, n: 0, passes: 0 };
+  const fail = { status: "FAIL" as const, n: 1, passes: 0 };
+  it("back-compat: a two-arg call composes exactly as before (shapeChanged defaults false)", () => {
+    expect(composeVerdict("PASS", [skipped])).toBe("PASS");
+  });
+  it("a shape change over an otherwise-PASS yields INCONCLUSIVE", () => {
+    expect(composeVerdict("PASS", [skipped], true)).toBe("INCONCLUSIVE");
+  });
+  it("a genuine presence/absence FAIL dominates a shape change (never masks a regression)", () => {
+    expect(composeVerdict("PASS", [fail], true)).toBe("FAIL");
+    expect(composeVerdict("FAIL", [skipped], true)).toBe("FAIL");
+  });
+  it("CAPTURING short-circuits even with a shape change", () => {
+    expect(composeVerdict("CAPTURING", [skipped], true)).toBe("CAPTURING");
   });
 });
 
