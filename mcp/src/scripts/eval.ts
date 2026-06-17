@@ -26,9 +26,12 @@ import Database from "better-sqlite3";
 import { openDb, DEFAULT_DB_PATH } from "../db.js";
 import { searchMemory } from "../tools/search_memory.js";
 import {
-  recallAtK,
-  reciprocalRank,
+  fileLevelRecallAtK,
+  fileLevelReciprocalRank,
   mean,
+  fileSetHash,
+  isCutoverBoundary,
+  isFileSetShapeChange,
   absenceProbePass,
   aggregateAbsenceStage,
   presenceVerdict,
@@ -65,7 +68,12 @@ interface LabeledSetV2 {
 export interface Baseline {
   captured_at: string;
   captured_on_ref: string;
-  corpus: { db_path: string; observation_count: number };
+  // observation_count is human-readable provenance only; the SHAPE signal is file_set_hash
+  // (a stable hash of the distinct source_path set). chunking_enabled records the cutover
+  // marker AT CAPTURE TIME, so the shape guard can fire on the cutover TRANSITION rather than
+  // the steady marker state (see isCutoverBoundary). Both are optional because baselines
+  // captured before the D-b fix lack them — a missing file_set_hash forces a re-baseline.
+  corpus: { db_path: string; observation_count: number; file_set_hash?: string; chunking_enabled?: boolean };
   presence: { mean_recall_at_k: number; mrr: number; k: number };
   absence: Record<string, { armed: boolean; pass_rate: number | null; n: number }>;
 }
@@ -96,14 +104,39 @@ function gitRef(): string {
   }
 }
 
-// Ground-truth relevant ids: every observation whose source_path contains any expected substring.
+// Broken-labels probe (NOT the recall denominator any more — that is file-level now).
+// Returns every observation whose source_path contains any expected substring; the runner
+// only checks whether this is empty, which means the labels match nothing in the corpus.
+// Uses instr() (case-sensitive, literal substring) — the SAME matching semantics as the
+// file-level scorer's String.includes — so a label can never pass this probe yet be
+// unhittable under scoring (which would spuriously FAIL instead of flagging broken labels).
 function resolveRelevant(db: Database.Database, substrings: string[]): number[] {
   const ids = new Set<number>();
-  const stmt = db.prepare("SELECT id FROM observations WHERE source_path LIKE ?");
+  const stmt = db.prepare("SELECT id FROM observations WHERE instr(source_path, ?) > 0");
   for (const s of substrings) {
-    for (const row of stmt.all(`%${s}%`) as { id: number }[]) ids.add(row.id);
+    for (const row of stmt.all(s) as { id: number }[]) ids.add(row.id);
   }
   return [...ids];
+}
+
+// The corpus's distinct file set, used to compute the shape-guard hash. Granularity-invariant:
+// a chunk-split adds rows but not distinct source_paths.
+function distinctSourcePaths(db: Database.Database): string[] {
+  return (db.prepare("SELECT DISTINCT source_path FROM observations").all() as {
+    source_path: string;
+  }[]).map((r) => r.source_path);
+}
+
+// Whether chunking is enabled on this index (the meta.c2_chunking_enabled marker the indexer's
+// chunking chokepoint uses — read here purely to discriminate the cutover boundary, never to
+// drive chunking). This is the steady marker STATE; the boundary itself is the transition of
+// this value between the baseline and the current run (see isCutoverBoundary). Default '0'
+// (off) when the meta row is absent (a routine whole-file corpus).
+function chunkingEnabled(db: Database.Database): boolean {
+  const row = db.prepare("SELECT value FROM meta WHERE key = 'c2_chunking_enabled'").get() as
+    | { value: string }
+    | undefined;
+  return row?.value === "1";
 }
 
 async function main(): Promise<void> {
@@ -145,14 +178,19 @@ async function main(): Promise<void> {
     console.log(`DB (copy of): ${srcDb}\n`);
     for (const q of set.presence.queries) {
       const results = await searchMemory(db, { query: q.query, limit: Math.max(k, 10) });
-      const rankedIds = results.map((r) => r.id);
-      const relevantIds = resolveRelevant(db, q.expectedPathContains);
-      const recall = recallAtK(rankedIds, relevantIds, k);
-      const rr = reciprocalRank(rankedIds, relevantIds);
+      // File-level (granularity-aware) scoring: resolve each ranked result to its source_path
+      // and score recall/MRR over EXPECTED FILES, so a chunked index scores the same as a
+      // whole-file one for identical retrieval quality.
+      const rankedPaths = results.map((r) => r.source_path);
+      const recall = fileLevelRecallAtK(rankedPaths, q.expectedPathContains, k);
+      const rr = fileLevelReciprocalRank(rankedPaths, q.expectedPathContains);
       recalls.push(recall);
       rrs.push(rr);
-      if (relevantIds.length === 0) brokenLabels = true;
-      const flag = relevantIds.length === 0 ? "  [no ground-truth match — fix labels]" : "";
+      // resolveRelevant survives only as the broken-labels probe: labels that match no
+      // observation row at all drive presence INCONCLUSIVE (fix labels, not the ranker).
+      const labelsMatchNothing = resolveRelevant(db, q.expectedPathContains).length === 0;
+      if (labelsMatchNothing) brokenLabels = true;
+      const flag = labelsMatchNothing ? "  [no ground-truth match — fix labels]" : "";
       console.log(`  r@${k}=${recall.toFixed(2)}  rr=${rr.toFixed(2)}  "${q.query}"${flag}`);
     }
     const metrics: PresenceMetrics = { meanRecallAtK: mean(recalls), mrr: mean(rrs) };
@@ -187,12 +225,23 @@ async function main(): Promise<void> {
 
     // --- Baseline: capture or compose ---
     const obsCount = (db.prepare("SELECT COUNT(*) AS c FROM observations").get() as { c: number }).c;
+    // Corpus-shape signal: the distinct file set (hash) and the current chunking-marker state.
+    // The shape guard fires on the cutover TRANSITION (baseline whole-file → current chunked),
+    // computed in the compose branch from the baseline's recorded chunking_enabled.
+    const filePaths = distinctSourcePaths(db);
+    const currentFileSetHash = fileSetHash(filePaths);
+    const currentChunking = chunkingEnabled(db);
     const existing = readBaseline(BASELINE_PATH);
     if (isBaselineCapture(existing !== null, rebaseline)) {
       const baseline: Baseline = {
         captured_at: new Date().toISOString(),
         captured_on_ref: gitRef(),
-        corpus: { db_path: srcDb, observation_count: obsCount },
+        corpus: {
+          db_path: srcDb,
+          observation_count: obsCount,
+          file_set_hash: currentFileSetHash,
+          chunking_enabled: currentChunking,
+        },
         presence: { mean_recall_at_k: metrics.meanRecallAtK, mrr: metrics.mrr, k },
         absence: Object.fromEntries(
           Object.entries(stageResults).map(([n, r]) => [
@@ -214,18 +263,45 @@ async function main(): Promise<void> {
           `\nVERDICT: INCONCLUSIVE (baseline stale — captured at k=${base.presence.k}, current k=${k}; re-baseline with --rebaseline)`,
         );
         process.exitCode = 1;
+      } else if (base.corpus.file_set_hash === undefined) {
+        // A baseline with no file_set_hash predates the file-level scoring fix, so its
+        // presence metrics were computed on the old observation-row scale and are NOT
+        // comparable to today's file-level numbers. Composing against it would yield a
+        // misleading PASS/FAIL — force a re-baseline instead (mirrors the k-mismatch branch).
+        console.log(
+          `\nVERDICT: INCONCLUSIVE (baseline predates file-level scoring — no file_set_hash; its recall is on the old observation-row scale; re-baseline with --rebaseline)`,
+        );
+        process.exitCode = 1;
       } else {
         const presence = presenceVerdict(
           metrics,
           { meanRecallAtK: base.presence.mean_recall_at_k, mrr: base.presence.mrr },
           brokenLabels,
         );
-        const verdict = composeVerdict(presence, Object.values(stageResults));
+        // Corpus-shape guard (WARN W2): only at the cutover boundary — the chunking marker
+        // flipped on since the baseline was captured — a change to the file set escalates to
+        // INCONCLUSIVE. A chunk-count jump (same files) does not trip it; off the boundary
+        // (e.g. a post-cutover memory-merger close, where baseline and current are both
+        // chunked) the guard does not run, so routine file churn never nags.
+        const boundary = isCutoverBoundary(base.corpus.chunking_enabled ?? false, currentChunking);
+        const shapeChanged = isFileSetShapeChange(
+          base.corpus.file_set_hash,
+          currentFileSetHash,
+          boundary,
+        );
+        const verdict = composeVerdict(presence, Object.values(stageResults), shapeChanged);
         console.log(`\nPresence: ${presence}  (baseline r@${k}=${base.presence.mean_recall_at_k.toFixed(4)} mrr=${base.presence.mrr.toFixed(4)})`);
         // Echo the cause on the verdict line — this gate runs unattended at memory-merger
-        // close, where a bare INCONCLUSIVE costs an investigation round-trip.
+        // close, where a bare INCONCLUSIVE costs an investigation round-trip. The reason
+        // attaches only to an INCONCLUSIVE verdict; a shape change at the cutover boundary
+        // takes precedence in the message over broken labels (a dominating FAIL needs no note —
+        // the Presence line above already names the regression).
         const reason =
-          presence === "INCONCLUSIVE" ? " (presence labels broken — see the [fix labels] flags above)" : "";
+          verdict === "INCONCLUSIVE" && shapeChanged
+            ? ` (cutover changed the file set — current ${filePaths.length} distinct files, file-set hash differs from baseline; investigate before composing a verdict)`
+            : verdict === "INCONCLUSIVE" && presence === "INCONCLUSIVE"
+              ? " (presence labels broken — see the [fix labels] flags above)"
+              : "";
         console.log(`VERDICT: ${verdict}${reason}`);
         if (verdict === "FAIL" || verdict === "INCONCLUSIVE") process.exitCode = 1;
       }

@@ -43,8 +43,12 @@ orientation line only — it is enforced by `npm test`, not by this runner.
 seeded from the committed `mcp/eval/labeled-queries.template.json` by `update.sh`
 Step 2.6 (only-if-absent), then curated per-machine:
 
-- `presence.queries` — `{ query, expectedPathContains[] }`. Recall@k / MRR are
-  measured over the observations whose `source_path` contains any expected substring.
+- `presence.queries` — `{ query, expectedPathContains[] }`. Recall@k / MRR are scored at
+  **file granularity**: an expected file is a "hit" when ANY ranked top-k result's
+  `source_path` contains that substring, and the recall denominator is the count of expected
+  files (the `expectedPathContains` entries) — never an observation-row count. So whole-file
+  and chunked indexes score on the same scale for identical retrieval quality (see the
+  granularity-aware contract below).
 - `stages.absence_stage_2` — `armed` (the only arming control), `depends_on`,
   `granularity`, and `queries[].forbidden { sourcePathContains, entryDate, noveltyStatus }`.
 - `k` (top-level), `curation { date, approver, corpus_snapshot }`.
@@ -70,8 +74,16 @@ The presence half is not meaningful until the placeholder queries are replaced:
 ## Baseline (machine-local, never committed)
 
 `~/.claude-data/eval-baseline.json` records `captured_at`, `captured_on_ref`,
-`corpus { db_path, observation_count }`, `presence { mean_recall_at_k, mrr, k }`,
-and per-stage `absence` results.
+`corpus { db_path, observation_count, file_set_hash, chunking_enabled }`,
+`presence { mean_recall_at_k, mrr, k }`, and per-stage `absence` results. `file_set_hash` is a
+stable hash of the corpus's distinct `source_path` set — the granularity-invariant SHAPE
+signal (see the shape guard below); `chunking_enabled` records the cutover marker at capture
+time so the guard can fire on the cutover *transition* rather than the steady marker state;
+`observation_count` is retained as human-readable provenance only.
+
+A baseline that lacks `file_set_hash` predates the file-level scoring fix — its recall is on
+the old observation-row scale and is not comparable. The runner does not compose against it:
+it returns INCONCLUSIVE and instructs a re-baseline.
 
 - **First run** (baseline absent): the runner writes the baseline and prints
   `BASELINE CAPTURED` with no verdict. Capture on the **pre-change** index so
@@ -91,11 +103,55 @@ AND `MRR ≥ baseline` → PASS; either below baseline → FAIL; any presence qu
 resolves zero relevant ids → INCONCLUSIVE (broken labels — fix the labels, not the
 ranker).
 
-**Composed:** PASS only when presence PASS and every armed absence stage passes 100%.
-Any FAIL ⇒ FAIL. Else any INCONCLUSIVE ⇒ INCONCLUSIVE. INCONCLUSIVE halts like a
-FAIL, but the fix is "fix labels / resolve anchor," not "fix the ranker." The
-composed verdict covers presence + Stage 2 only; Stage 1 is enforced by the indexer
-unit suite (`npm test`).
+**Composed:** PASS only when presence PASS, every armed absence stage passes 100%, and no
+corpus-shape change at the cutover boundary. Any FAIL ⇒ FAIL. Else any INCONCLUSIVE (a stage,
+broken labels, or a shape change) ⇒ INCONCLUSIVE. INCONCLUSIVE halts like a FAIL, but the fix
+is "fix labels / resolve anchor / investigate the file set," not "fix the ranker." The
+composed verdict covers presence + Stage 2 + the shape guard; Stage 1 is enforced by the
+indexer unit suite (`npm test`).
+
+## Granularity-aware scoring (file-level) — the cutover precondition
+
+Presence recall@k / MRR are scored at **file granularity**, not over observation rows. This is
+what lets one labeled set score a whole-file index and a chunked index on the same scale:
+
+- A presence query is a **hit** for an expected file if ANY chunk of that file
+  (`source_path` containing the label substring) surfaces in top-k.
+- **File-level recall** = (expected files with at least one chunk in top-k) / (expected
+  files). The denominator is the `expectedPathContains` count — identical at both
+  granularities by construction, so a chunk-split (one file → N rows) cannot suppress it.
+- **File-level MRR** keys off the rank of the first ranked result whose `source_path` matches
+  any expected substring — comparable across granularities.
+
+Why it matters: scoring over observation-row ids made recall granularity-dependent — a file
+split into ~118 chunks capped recall@5 at ~5/118 even with perfect retrieval, so a chunked
+index spuriously FAILed non-regression against a whole-file baseline. File-level relevance
+separates retrieval quality from index granularity. The held-out doctrine is unaffected: the
+same labels are reinterpreted at file granularity; no `search_config.ts` weight changes, no
+labeled-set schema change.
+
+## File-set corpus-shape guard (WARN W2)
+
+The verdict also asserts that the corpus's **file set** did not silently change across the
+cutover. The guard keys on the distinct `source_path` set (a stable hash), NOT the row count —
+a chunk-split multiplies rows but leaves the file set identical, so the guard does not trip on
+the cutover itself, only on a file genuinely added or removed.
+
+- **Runs ONLY at the cutover boundary — the transition, not the marker state.** The boundary is
+  when `c2_chunking_enabled` flipped on *since the baseline was captured* (baseline
+  `chunking_enabled:false` → current chunked). The chunking flag stays on permanently after a
+  cutover, so keying on "flag on" alone would re-run the guard on every later run and nag on
+  routine churn. Once the operator re-baselines on the chunked index, baseline and current are
+  both chunked → no transition → the guard retires. So the cutover *validation* run sees the
+  guard; a subsequent `/memory-merger` close does not (Locked Decision #2, Story 6).
+- **Zero tolerance, INCONCLUSIVE (never FAIL).** At the boundary, any file added or removed vs.
+  the baseline's file set ⇒ INCONCLUSIVE with a verdict-line reason naming the delta. This
+  mirrors the k-mismatch branch: incomparable inputs produce INCONCLUSIVE, not a misleading
+  pass/fail. A genuine presence/absence FAIL still dominates — a shape change never masks a
+  real regression.
+- A baseline captured before this fix lacks `file_set_hash`; rather than compose against its
+  stale (observation-row-scaled) recall, the runner returns INCONCLUSIVE and instructs a
+  re-baseline — the mandatory re-baseline at the version boundary recaptures it.
 
 ## When to run
 
@@ -108,10 +164,15 @@ unit suite (`npm test`).
 
 The C2 chunk-split CUTOVER ships with `c2_chunking_enabled` **default off** — the
 index continues serving whole-file rows until an eval baseline confirms non-regression.
+With granularity-aware (file-level) scoring in place, this protocol is now executable as
+written: a whole-file baseline and a post-cutover chunked run score on the same scale, so a
+PASS means "the cutover did not regress retrieval."
 
 **Before** flipping the flag or running `npm run cutover`:
 
-1. Capture a baseline on the pre-chunk (whole-file) index:
+1. **Mandatory re-baseline** on the pre-chunk (whole-file) index. This is required at this
+   version boundary: a pre-fix baseline used observation-row-scaled recall and lacks
+   `file_set_hash`, so it is not comparable to file-level numbers. Re-capture it first:
    ```bash
    cd ~/.claude-os/mcp && npm run eval -- --rebaseline
    ```
@@ -125,8 +186,10 @@ index continues serving whole-file rows until an eval baseline confirms non-regr
    ```
 4. A PASS verdict is required before the cutover is considered safe. A FAIL or
    INCONCLUSIVE result means the migration must be investigated — do **not** leave
-   the index in the chunked state without a passing gate.
+   the index in the chunked state without a passing gate. At this boundary the file-set
+   shape guard is live: if the cutover quietly added or dropped a file, the verdict is
+   INCONCLUSIVE (file set changed), distinct from a FAIL (retrieval regressed).
 
 The cutover is a one-way migration (existing whole-file rows are replaced with
-anchored per-entry rows). The pre-cutover baseline is the comparison point; never
-overwrite it with `--rebaseline` until a PASS is in hand.
+anchored per-entry rows). The pre-cutover (file-level) baseline is the comparison point;
+never overwrite it with `--rebaseline` until a PASS is in hand.
