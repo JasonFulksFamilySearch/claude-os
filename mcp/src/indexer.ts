@@ -201,72 +201,81 @@ export function indexFile(
     chunkingEnabled: readFlag(db, "c2_chunking_enabled") === "1",
   });
 
-  // Existing rows for this path, keyed by anchor → content_hash, so we can hash-gate
-  // each chunk (skip byte-identical) and detect which anchors no longer exist.
-  const existingRows = db.prepare(selectExistingSql).all(absPath) as {
-    anchor: string;
-    content_hash: string;
-  }[];
-  const existingByAnchor = new Map(existingRows.map((r) => [r.anchor, r.content_hash]));
-
   const now = Math.floor(Date.now() / 1000);
   const fileMtime = Math.floor(stat.mtimeMs / 1000);
   const upsert = db.prepare(upsertSql);
 
-  const changedAnchors: string[] = [];
-  const newAnchors = new Set<string>();
-
-  for (const chunk of chunks) {
-    newAnchors.add(chunk.anchor);
-    const chunkHash = sha256(chunk.content);
-    if (existingByAnchor.get(chunk.anchor) === chunkHash) {
-      continue; // unchanged — hash-gate skip
-    }
-    upsert.run({
-      source_type: cls.source_type,
-      source_path: absPath,
-      anchor: chunk.anchor,
-      // Title fallback lives HERE (the chunker has no sourcePath): for files with no
-      // H1 the chunk title is null, and we fall back to the basename, preserving the
-      // flag-off title parity established before chunking.
-      title: chunk.title ?? basename(absPath, ".md"),
-      parent_title: chunk.parentTitle,
-      project: effectiveProject,
-      topic: cls.topic,
-      content: chunk.content,
-      content_hash: chunkHash,
-      file_mtime: fileMtime,
-      indexed_at: now,
-      frontmatter,
-    });
-    changedAnchors.push(chunk.anchor);
-  }
-
-  // Reconcile: remove rows for this path whose anchor is no longer present in the
-  // new chunk set (an entry was deleted or its anchor changed). Collect their ids
-  // FIRST so we can delete their vec_items by BigInt id before the row vanishes.
-  const staleIds = (
-    db.prepare("SELECT id, anchor FROM observations WHERE source_path = ?").all(absPath) as {
-      id: number;
+  // Wrap the full reconcile read-modify-write in a single transaction so a throw
+  // mid-reconcile rolls back atomically (no half-updated path, no orphaned vec_items).
+  // Embedding is intentionally excluded — it happens later via embedPathObservations.
+  const reconcile = db.transaction(() => {
+    // Existing rows for this path, keyed by anchor → content_hash, so we can hash-gate
+    // each chunk (skip byte-identical) and detect which anchors no longer exist.
+    const existingRows = db.prepare(selectExistingSql).all(absPath) as {
       anchor: string;
-    }[]
-  )
-    .filter((r) => !newAnchors.has(r.anchor))
-    .map((r) => r.id);
+      content_hash: string;
+    }[];
+    const existingByAnchor = new Map(existingRows.map((r) => [r.anchor, r.content_hash]));
 
-  if (staleIds.length > 0) {
-    const delVec = db.prepare("DELETE FROM vec_items WHERE observation_id = ?");
-    const delObs = db.prepare("DELETE FROM observations WHERE id = ?");
-    for (const id of staleIds) {
-      // BigInt: sqlite-vec vec0 PKs must bind as INTEGER; better-sqlite3 sends numbers as FLOAT.
-      delVec.run(BigInt(id));
-      delObs.run(id);
+    const changedAnchors: string[] = [];
+    const newAnchors = new Set<string>();
+
+    for (const chunk of chunks) {
+      newAnchors.add(chunk.anchor);
+      const chunkHash = sha256(chunk.content);
+      if (existingByAnchor.get(chunk.anchor) === chunkHash) {
+        continue; // unchanged — hash-gate skip
+      }
+      upsert.run({
+        source_type: cls.source_type,
+        source_path: absPath,
+        anchor: chunk.anchor,
+        // Title fallback lives HERE (the chunker has no sourcePath): for files with no
+        // H1 the chunk title is null, and we fall back to the basename, preserving the
+        // flag-off title parity established before chunking.
+        title: chunk.title ?? basename(absPath, ".md"),
+        parent_title: chunk.parentTitle,
+        project: effectiveProject,
+        topic: cls.topic,
+        content: chunk.content,
+        content_hash: chunkHash,
+        file_mtime: fileMtime,
+        indexed_at: now,
+        frontmatter,
+      });
+      changedAnchors.push(chunk.anchor);
     }
-  }
+
+    // Reconcile: remove rows for this path whose anchor is no longer present in the
+    // new chunk set (an entry was deleted or its anchor changed). Collect their ids
+    // FIRST so we can delete their vec_items by BigInt id before the row vanishes.
+    const staleIds = (
+      db.prepare("SELECT id, anchor FROM observations WHERE source_path = ?").all(absPath) as {
+        id: number;
+        anchor: string;
+      }[]
+    )
+      .filter((r) => !newAnchors.has(r.anchor))
+      .map((r) => r.id);
+
+    if (staleIds.length > 0) {
+      const delVec = db.prepare("DELETE FROM vec_items WHERE observation_id = ?");
+      const delObs = db.prepare("DELETE FROM observations WHERE id = ?");
+      for (const id of staleIds) {
+        // BigInt: sqlite-vec vec0 PKs must bind as INTEGER; better-sqlite3 sends numbers as FLOAT.
+        delVec.run(BigInt(id));
+        delObs.run(id);
+      }
+    }
+
+    return { changedAnchors, staleCount: staleIds.length };
+  });
+
+  const { changedAnchors, staleCount } = reconcile();
 
   // "indexed" when anything changed (a chunk upserted OR a stale row pruned);
   // otherwise the file is byte-for-byte the same set we already hold.
-  if (changedAnchors.length === 0 && staleIds.length === 0) {
+  if (changedAnchors.length === 0 && staleCount === 0) {
     return { status: "skipped_unchanged", source_path: absPath, changedAnchors: [] };
   }
 
@@ -329,7 +338,7 @@ export async function embedPathObservations(
   sourcePath: string,
   anchors?: string[],
 ): Promise<void> {
-  let rows: { id: number; content: string }[];
+  let rows: { id: number; content: string; title: string | null; parent_title: string | null; anchor: string }[];
   if (anchors && anchors.length > 0) {
     const placeholders = anchors.map(() => "?").join(", ");
     rows = db
@@ -337,16 +346,18 @@ export async function embedPathObservations(
         `SELECT id, content, title, parent_title, anchor FROM observations
          WHERE source_path = ? AND anchor IN (${placeholders})`,
       )
-      .all(sourcePath, ...anchors) as { id: number; content: string }[];
+      .all(sourcePath, ...anchors) as { id: number; content: string; title: string | null; parent_title: string | null; anchor: string }[];
   } else if (anchors && anchors.length === 0) {
-    // An explicit empty anchor list means "nothing changed" — embed nothing.
+    // anchors=[] → embed nothing: a stale-only prune yields status:"indexed" with empty
+    // changedAnchors, and the deleted rows' vec_items were already removed in indexFile.
     return;
   } else {
+    // anchors=undefined → embed all rows for the path (full path re-embed).
     rows = db
       .prepare(
         "SELECT id, content, title, parent_title, anchor FROM observations WHERE source_path = ?",
       )
-      .all(sourcePath) as { id: number; content: string }[];
+      .all(sourcePath) as { id: number; content: string; title: string | null; parent_title: string | null; anchor: string }[];
   }
 
   for (const row of rows) {
