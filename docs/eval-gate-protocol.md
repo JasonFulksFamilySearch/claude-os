@@ -101,3 +101,30 @@ unit suite (`npm test`).
   (capture the baseline on the pre-change index; compose the verdict after).
 - At the close of every `/memory-merger` session, so each supersession and prune is
   immediately checked for leakage (wired into the memory-merger skill's closing step).
+
+## C2 cutover (System Architect watch-item 3)
+
+The C2 chunk-split CUTOVER ships with `c2_chunking_enabled` **default off** — the
+index continues serving whole-file rows until an eval baseline confirms non-regression.
+
+**Before** flipping the flag or running `npm run cutover`:
+
+1. Capture a baseline on the pre-chunk (whole-file) index:
+   ```bash
+   cd ~/.claude-os/mcp && npm run eval -- --rebaseline
+   ```
+2. Run the cutover:
+   ```bash
+   cd ~/.claude-os/mcp && npm run cutover
+   ```
+3. Immediately run the gate to verify non-regression:
+   ```bash
+   cd ~/.claude-os/mcp && npm run eval
+   ```
+4. A PASS verdict is required before the cutover is considered safe. A FAIL or
+   INCONCLUSIVE result means the migration must be investigated — do **not** leave
+   the index in the chunked state without a passing gate.
+
+The cutover is a one-way migration (existing whole-file rows are replaced with
+anchored per-entry rows). The pre-cutover baseline is the comparison point; never
+overwrite it with `--rebaseline` until a PASS is in hand.

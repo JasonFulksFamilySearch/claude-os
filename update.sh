@@ -50,6 +50,32 @@ fi
 
 echo ""
 
+# ── Step 2.5: DB migration (v2 → v3, idempotent) ─────────────────────────────
+
+echo "--- Step 2.5: DB migration ---"
+
+MCP_DIR="$REPO_DIR/mcp"
+MEMORY_DB="$HOME/.claude-data/memory.db"
+
+if [ ! -f "$MEMORY_DB" ]; then
+    skip "No memory.db found — skipping migration (fresh machine)"
+else
+    echo "  memory.db found — running migrate script (no-op if already v3)..."
+    # A genuine migration failure (non-zero exit: backup failed or verify threw)
+    # means the MCP server cannot start. Treat it as a hard update failure so the
+    # operator knows the DB is in an unsafe state and does not see a false-success.
+    # The two safe cases both exit 0:
+    #   • already-v3 (idempotent no-op) → migrate exits 0 → update succeeds
+    #   • DB absent (fresh machine)     → skipped above, never reaches this branch
+    if (cd "$MCP_DIR" && npm run migrate); then
+        ok "DB migration complete (or already v3)"
+    else
+        fail "DB migration FAILED — MCP server cannot start. Restore from backup or run manually: (cd $MCP_DIR && npm run migrate)"
+    fi
+fi
+
+echo ""
+
 # ── Step 3: Hook registrations in settings.json ──────────────────────────────
 
 echo "--- Step 3: Hook registrations ---"

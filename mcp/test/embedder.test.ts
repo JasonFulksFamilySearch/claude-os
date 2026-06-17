@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { serializeVector, EMBEDDING_DIM, MODEL_ID, EMBEDDING_DTYPE } from "../src/embedder.js";
+import { serializeVector, EMBEDDING_DIM, MODEL_ID, EMBEDDING_DTYPE, composeEmbedText } from "../src/embedder.js";
 
 describe("constants", () => {
   it("EMBEDDING_DIM matches nomic-embed-text output size", () => {
@@ -35,5 +35,27 @@ describe("serializeVector", () => {
     const v = new Float32Array(0);
     const buf = serializeVector(v);
     expect(buf.byteLength).toBe(0);
+  });
+});
+
+describe("composeEmbedText", () => {
+  it("whole-file row (sectionTitle null) → returns content unchanged (flag-off byte-identical)", () => {
+    expect(composeEmbedText("File H1", null, "body")).toBe("body");
+  });
+
+  it("whole-file row (sectionTitle empty string) → returns content unchanged", () => {
+    expect(composeEmbedText("File H1", "", "body")).toBe("body");
+  });
+
+  it("chunk row → 'Parent > Section\\n\\ncontent'", () => {
+    expect(composeEmbedText("File H1", "Section A", "body")).toBe("File H1 > Section A\n\nbody");
+  });
+
+  it("chunk row with null parent → 'Section\\n\\ncontent'", () => {
+    expect(composeEmbedText(null, "Section A", "body")).toBe("Section A\n\nbody");
+  });
+
+  it("chunk row with empty-string parent → 'Section\\n\\ncontent' (empty parent filtered out)", () => {
+    expect(composeEmbedText("", "Section A", "body")).toBe("Section A\n\nbody");
   });
 });

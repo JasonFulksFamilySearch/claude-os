@@ -3,6 +3,7 @@ import * as sqliteVec from "sqlite-vec";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
+import { isV3Schema } from "./migrations.js";
 
 export const DEFAULT_DB_PATH = join(homedir(), ".claude-data", "memory.db");
 
@@ -12,16 +13,33 @@ export function openDb(dbPath: string = DEFAULT_DB_PATH): Database.Database {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   sqliteVec.load(db);
+
+  // Fail fast if observations already exists but is pre-C2 (no anchor column).
+  // This check must run before initSchema so that the v2 table's missing columns
+  // do not cause index-creation errors inside initSchema.
+  const tableExists = (db.prepare("PRAGMA table_info(observations)").all()).length > 0;
+  if (tableExists && !isV3Schema(db)) {
+    db.close();
+    throw new Error(
+      "memory.db schema is pre-C2 (no anchor column). Run `npm run migrate` to upgrade. " +
+      "The MCP server will not start against a v2 store."
+    );
+  }
+
   initSchema(db);
   return db;
 }
 
 export function initSchema(db: Database.Database): void {
+  const fresh = (db.prepare("PRAGMA table_info(observations)").all()).length === 0;
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS observations (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
       source_type   TEXT NOT NULL,
       source_path   TEXT NOT NULL,
+      anchor        TEXT NOT NULL DEFAULT '',
+      parent_title  TEXT,
       project       TEXT,
       topic         TEXT,
       title         TEXT,
@@ -31,7 +49,7 @@ export function initSchema(db: Database.Database): void {
       indexed_at    INTEGER NOT NULL,
       frontmatter   TEXT,
 
-      UNIQUE(source_path)
+      UNIQUE(source_path, anchor)
     );
 
     CREATE INDEX IF NOT EXISTS idx_obs_source_type ON observations(source_type);
@@ -106,6 +124,8 @@ export function initSchema(db: Database.Database): void {
     INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', '2');
     INSERT OR IGNORE INTO meta(key, value) VALUES ('phase', '4');
   `);
+
+  if (fresh) db.pragma("user_version = 3");
 }
 
 export type SourceType =
@@ -121,6 +141,8 @@ export interface ObservationRow {
   id: number;
   source_type: SourceType;
   source_path: string;
+  anchor: string;
+  parent_title: string | null;
   project: string | null;
   topic: string | null;
   title: string | null;

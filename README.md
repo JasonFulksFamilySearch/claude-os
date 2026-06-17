@@ -422,6 +422,17 @@ Install `envsubst` with: `brew install gettext`.
 | 6 | Pending | Walter deploy (personal machine full sync) |
 | 7 | Pending | Polish: scheduled curator, web UI, snapshots |
 
+### C-series: memory-quality milestones
+
+Parallel to the phase roadmap, C-series milestones target retrieval quality within the existing
+memory system:
+
+| Milestone | Status | Description |
+|---|---|---|
+| C1 — eval gate | ✓ Done | Offline retrieval eval gate (BM25+vec baseline + non-regression verdict) |
+| C2 — entry-granular indexing | ✓ Done | One DB row per dated learning entry (anchored rows); chunk-split CUTOVER **deferred** — flag `c2_chunking_enabled` default off, armed post-curation via `npm run cutover` |
+| C3 — entry-anchor resolution | Pending | Arm Stage-2 absence probes; superseded-entry leak detection |
+
 ## Maintainer
 
 [Jason](mailto:jason.fulks@familysearch.org) — sole author and maintainer. The system runs as two

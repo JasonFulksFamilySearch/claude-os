@@ -57,3 +57,27 @@ export async function embedQuery(text: string): Promise<Float32Array> {
 export function serializeVector(v: Float32Array): Buffer {
   return Buffer.from(v.buffer, v.byteOffset, v.byteLength);
 }
+
+// Compose the text to embed for a single observation row.
+//
+// Whole-file rows (flag off, anchor="") always have sectionTitle null/empty →
+// returns content UNCHANGED, keeping flag-off embeddings byte-identical to
+// what they were before chunking was introduced.
+//
+// Chunked rows (anchor != "") receive a context prefix built from the file's
+// H1 (parentTitle) and the entry's heading (sectionTitle), e.g.:
+//   "File H1 > Section A\n\nbody text"
+// When parentTitle is absent the prefix collapses to just the sectionTitle:
+//   "Section A\n\nbody text"
+export function composeEmbedText(
+  parentTitle: string | null,
+  sectionTitle: string | null,
+  content: string,
+): string {
+  if (!sectionTitle) {
+    // Whole-file / flag-off path — byte-identical to today's embedDocument(content) input.
+    return content;
+  }
+  const prefix = [parentTitle, sectionTitle].filter(Boolean).join(" > ");
+  return `${prefix}\n\n${content}`;
+}

@@ -18,6 +18,7 @@ function cand(over: Partial<RankCandidate> & { id: number }): RankCandidate {
     ftsPos: null,
     vecPos: null,
     title: "neutral title",
+    parent_title: null,
     content: "neutral body text",
     indexed_at: NOW,
     last_accessed: NOW - TEN_YEARS,
@@ -53,19 +54,38 @@ describe("reinforcementBonus", () => {
 
 describe("exactMatchBonus", () => {
   it("rewards a verbatim title substring most", () => {
-    expect(exactMatchBonus("foo", "a foo title", "body")).toBe(W_EXACT_TITLE);
+    expect(exactMatchBonus("foo", "a foo title", null, "body")).toBe(W_EXACT_TITLE);
   });
   it("rewards a body phrase match less", () => {
-    expect(exactMatchBonus("foo", "title", "a foo body")).toBe(W_EXACT_CONTENT);
+    expect(exactMatchBonus("foo", "title", null, "a foo body")).toBe(W_EXACT_CONTENT);
   });
   it("is case-insensitive", () => {
-    expect(exactMatchBonus("FOO", "the foo", "body")).toBe(W_EXACT_TITLE);
+    expect(exactMatchBonus("FOO", "the foo", null, "body")).toBe(W_EXACT_TITLE);
   });
   it("returns 0 when the query appears nowhere", () => {
-    expect(exactMatchBonus("foo", "title", "body")).toBe(0);
+    expect(exactMatchBonus("foo", "title", null, "body")).toBe(0);
   });
   it("returns 0 for an empty/whitespace query", () => {
-    expect(exactMatchBonus("   ", "foo title", "foo body")).toBe(0);
+    expect(exactMatchBonus("   ", "foo title", null, "foo body")).toBe(0);
+  });
+  it("chunk row: parent_title match earns the same exact-title bonus as a title match", () => {
+    // Chunk has a chunk-level title that does NOT match, but parent_title does match.
+    expect(exactMatchBonus("foo", "chunk heading", "foo parent file", "body")).toBe(W_EXACT_TITLE);
+  });
+  it("chunk row: parent_title match is case-insensitive", () => {
+    expect(exactMatchBonus("FOO", "chunk heading", "foo parent file", "body")).toBe(W_EXACT_TITLE);
+  });
+  it("whole-file row (parent_title null): title match still earns bonus as before", () => {
+    expect(exactMatchBonus("foo", "a foo title", null, "body")).toBe(W_EXACT_TITLE);
+  });
+  it("whole-file row (parent_title null): body match earns content bonus as before", () => {
+    expect(exactMatchBonus("foo", "no match title", null, "a foo body")).toBe(W_EXACT_CONTENT);
+  });
+  it("both title and parent_title match: bonus is W_EXACT_TITLE exactly (no double-count)", () => {
+    // title contains query AND parent_title contains query — the sequential return on title
+    // short-circuits before parent_title is evaluated, so the bonus must be W_EXACT_TITLE once.
+    expect(exactMatchBonus("foo", "a foo title", "foo parent", "body")).toBe(W_EXACT_TITLE);
+    expect(exactMatchBonus("foo", "a foo title", "foo parent", "body")).not.toBe(2 * W_EXACT_TITLE);
   });
 });
 

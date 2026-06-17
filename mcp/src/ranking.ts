@@ -18,6 +18,8 @@ export interface RankCandidate {
   ftsPos: number | null;
   vecPos: number | null;
   title: string | null;
+  // For chunk rows, the title of the parent file. Null for whole-file rows.
+  parent_title: string | null;
   content: string;
   indexed_at: number; // epoch seconds
   // From access_stats via LEFT JOIN: null/0 mean never accessed (lazy cold start).
@@ -53,17 +55,22 @@ export function reinforcementBonus(
   return (W_REINFORCE * (recency + frequency)) / 2;
 }
 
-// Rescaled exact-match boost: a verbatim (case-folded) query substring in the title is
-// the strongest signal; in the body, weaker. Deliberately relevance-strength, so it may
-// exceed W_REINFORCE — exact-match is relevance, not a tie-breaker.
+// Rescaled exact-match boost: a verbatim (case-folded) query substring in the title (or
+// the parent file's title for chunk rows) is the strongest signal; in the body, weaker.
+// Deliberately relevance-strength, so it may exceed W_REINFORCE — exact-match is
+// relevance, not a tie-breaker.
+// Priority: title is checked first; if it matches, W_EXACT_TITLE is returned immediately
+// and parent_title is never evaluated — so when BOTH match, the bonus is applied ONCE.
 export function exactMatchBonus(
   query: string,
   title: string | null,
+  parent_title: string | null,
   content: string,
 ): number {
   const q = query.trim().toLowerCase();
   if (q.length === 0) return 0;
   if (title && title.toLowerCase().includes(q)) return W_EXACT_TITLE;
+  if (parent_title && parent_title.toLowerCase().includes(q)) return W_EXACT_TITLE;
   if (content.toLowerCase().includes(q)) return W_EXACT_CONTENT;
   return 0;
 }
@@ -89,7 +96,7 @@ export function rankCandidates(
     const score =
       rrf +
       reinforcementBonus(c.last_accessed, c.access_count, c.indexed_at, nowSeconds) +
-      exactMatchBonus(query, c.title, c.content);
+      exactMatchBonus(query, c.title, c.parent_title, c.content);
     return { id: c.id, score, rrf, indexed_at: c.indexed_at };
   });
 

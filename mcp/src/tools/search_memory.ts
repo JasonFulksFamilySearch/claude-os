@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { z } from "zod";
 import { embedQuery, serializeVector } from "../embedder.js";
 import { rankCandidates, type RankCandidate } from "../ranking.js";
+import { shapeResults } from "../result_shaper.js";
 import { CANDIDATE_MULTIPLIER, CANDIDATE_CAP } from "../search_config.js";
 
 export const searchMemoryInput = z.object({
@@ -17,6 +18,7 @@ export interface SearchMemoryResult {
   id: number;
   source_type: string;
   source_path: string;
+  anchor: string;
   project: string | null;
   topic: string | null;
   title: string | null;
@@ -69,9 +71,11 @@ interface MetaRow {
   id: number;
   source_type: string;
   source_path: string;
+  anchor: string;
   project: string | null;
   topic: string | null;
   title: string | null;
+  parent_title: string | null;
   content: string;
   indexed_at: number;
   last_accessed: number | null;
@@ -152,8 +156,8 @@ export async function searchMemory(
   const meta = new Map<number, MetaRow>();
   const metaRows = db
     .prepare(
-      `SELECT o.id AS id, o.source_type, o.source_path, o.project, o.topic, o.title,
-              o.content, o.indexed_at, a.last_accessed, a.access_count
+      `SELECT o.id AS id, o.source_type, o.source_path, o.anchor, o.project, o.topic, o.title,
+              o.parent_title, o.content, o.indexed_at, a.last_accessed, a.access_count
        FROM observations o
        LEFT JOIN access_stats a ON a.observation_id = o.id
        WHERE o.id IN (${unionIds.map(() => "?").join(",")})${filterClause}`,
@@ -176,6 +180,7 @@ export async function searchMemory(
       ftsPos: ftsPos.get(m.id) ?? null,
       vecPos: vecPos.get(m.id) ?? null,
       title: m.title,
+      parent_title: m.parent_title,
       content: m.content,
       indexed_at: m.indexed_at,
       last_accessed: m.last_accessed,
@@ -184,15 +189,31 @@ export async function searchMemory(
   }
 
   const now = Math.floor(Date.now() / 1000);
-  const ranked = rankCandidates(candidates, args.query, now, limit);
+  // Rank the FULL candidate pool (no pre-truncation to `limit`). The pool is
+  // already bounded by CANDIDATE_CAP, so this is a bounded operation.
+  // We must rank first, then shape (per-file cap), then slice — otherwise the
+  // cap drops chunks from a hot file without backfilling from other files, and
+  // the result window shrinks (e.g. limit=10 but only 2 results returned).
+  const ranked = rankCandidates(candidates, args.query, now, candidates.length);
+
+  // 4a. Apply result shaper: collapse same-(path,anchor) siblings, cap per-file.
+  //     shapeResults requires descending-score input — rankCandidates guarantees this.
+  //     With whole-file rows (all anchor=''), each path has exactly one row so
+  //     this is a no-op, preserving today's behavior.
+  // After shaping, slice to `limit` so dropped chunks are backfilled from other
+  // files before the window is truncated.
+  const shaped = shapeResults(
+    ranked.map((rc) => { const m = meta.get(rc.id)!; return { ...rc, source_path: m.source_path, anchor: m.anchor }; }),
+  ).slice(0, limit);
 
   // 5. Materialize results in ranked order (FTS snippet when available, else a slice).
-  const results: SearchMemoryResult[] = ranked.map((rc) => {
+  const results: SearchMemoryResult[] = shaped.map((rc) => {
     const m = meta.get(rc.id) as MetaRow;
     return {
       id: m.id,
       source_type: m.source_type,
       source_path: m.source_path,
+      anchor: m.anchor,
       project: m.project,
       topic: m.topic,
       title: m.title,

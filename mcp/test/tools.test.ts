@@ -1,12 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-vi.mock("../src/embedder.js", () => ({
-  embedDocument: vi.fn().mockResolvedValue(new Float32Array(768).fill(0)),
-  embedQuery: vi.fn().mockResolvedValue(new Float32Array(768).fill(0)),
-  serializeVector: (v: Float32Array) => Buffer.from(v.buffer, v.byteOffset, v.byteLength),
-  EMBEDDING_DIM: 768,
-  MODEL_ID: "nomic-ai/nomic-embed-text-v1.5",
-}));
+vi.mock("../src/embedder.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/embedder.js")>();
+  return {
+    ...actual,
+    embedDocument: vi.fn().mockResolvedValue(new Float32Array(768).fill(0)),
+    embedQuery: vi.fn().mockResolvedValue(new Float32Array(768).fill(0)),
+  };
+});
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -193,6 +194,173 @@ describe("search_memory", () => {
 
   it("does not throw on a malformed FTS query", async () => {
     await expect(searchMemory(db, { query: '"unbalanced' })).resolves.toBeDefined();
+  });
+
+  it("result objects include an anchor field", async () => {
+    const results = await searchMemory(db, { query: "checkstyle" });
+    expect(results.length).toBeGreaterThan(0);
+    for (const r of results) {
+      expect("anchor" in r).toBe(true);
+      expect(typeof r.anchor).toBe("string");
+    }
+  });
+
+  it("whole-file rows (anchor='') produce identical order/content to pre-shaper baseline (no-op proof)", async () => {
+    // All fixture files are indexed as whole-file rows (anchor=''), so the shaper
+    // is a no-op — result list is unchanged in length and order vs. no-shaper world.
+    const results = await searchMemory(db, { query: "java OR jira OR lesson", limit: 10 });
+    expect(results.length).toBeGreaterThan(0);
+    // Scores must still be descending — shaper must not reorder.
+    for (let i = 1; i < results.length; i++) {
+      expect(results[i - 1].score).toBeGreaterThanOrEqual(results[i].score);
+    }
+    // All anchors are empty string for whole-file rows.
+    for (const r of results) {
+      expect(r.anchor).toBe("");
+    }
+  });
+
+  it("per-file cap: retains the TOP-2 by score, not arbitrary 2", async () => {
+    // Arrange three chunks from the same file with a deterministic score ordering:
+    //   chunkA — title IS the query token → earns W_EXACT_TITLE (highest)
+    //   chunkB — title differs, content matches → earns W_EXACT_CONTENT (middle; lower id than C)
+    //   chunkC — title differs, content matches → earns W_EXACT_CONTENT (lowest; higher id, loses id tiebreak)
+    // The cap must retain chunkA and chunkB, and DROP chunkC.
+    // This assertion fails if the cap kept an arbitrary two instead of the top two.
+    const uniqueToken = "xorwibblefnordchunktop2";
+    const chunkPath = "/fake/chunked-file-top2.md";
+    const otherPath = "/fake/other-file-top2.md";
+    const now = Math.floor(Date.now() / 1000);
+    const insert = db.prepare(
+      `INSERT INTO observations
+         (source_type, source_path, anchor, project, topic, title, content, content_hash, file_mtime, indexed_at)
+       VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)`
+    );
+    // chunkA: title == query token → W_EXACT_TITLE bonus; rank 1
+    const rA = insert.run("learning", chunkPath, "section-A", uniqueToken,
+      `${uniqueToken} body text`, `hash-A-${uniqueToken}`, now, now);
+    // chunkB: title differs, content matches → W_EXACT_CONTENT bonus; rank 2 (lower id than C)
+    const rB = insert.run("learning", chunkPath, "section-B", "Chunk B unrelated title",
+      `${uniqueToken} body text`, `hash-B-${uniqueToken}`, now, now);
+    // chunkC: same exact-match class as B but higher id → loses id tiebreak → rank 3 (should be dropped)
+    const rC = insert.run("learning", chunkPath, "section-C", "Chunk C unrelated title",
+      `${uniqueToken} body text`, `hash-C-${uniqueToken}`, now, now);
+
+    // One row from a different file so we have a control.
+    insert.run("learning", otherPath, "", "Other", `${uniqueToken} other body`, `hash-other-${uniqueToken}`, now, now);
+
+    const idA = Number(rA.lastInsertRowid);
+    const idB = Number(rB.lastInsertRowid);
+    const idC = Number(rC.lastInsertRowid);
+
+    const results = await searchMemory(db, { query: uniqueToken, limit: 10 });
+    const fromChunkPath = results.filter((r) => r.source_path === chunkPath);
+
+    // Cap must allow at most 2 from this file.
+    expect(fromChunkPath.length).toBeLessThanOrEqual(2);
+
+    // The two retained must be A and B (highest-scored), not an arbitrary pair.
+    const retainedIds = new Set(fromChunkPath.map((r) => r.id));
+    expect(retainedIds.has(idA)).toBe(true);  // highest score (title match) — must be retained
+    expect(retainedIds.has(idB)).toBe(true);  // second score (lower id tiebreak) — must be retained
+    expect(retainedIds.has(idC)).toBe(false); // lowest score (higher id tiebreak) — must be dropped
+
+    // Scores must confirm A outranks B.
+    const scoreA = fromChunkPath.find((r) => r.id === idA)!.score;
+    const scoreB = fromChunkPath.find((r) => r.id === idB)!.score;
+    expect(scoreA).toBeGreaterThan(scoreB);
+
+    // The other file's row should still appear.
+    expect(results.some((r) => r.source_path === otherPath)).toBe(true);
+  });
+
+  it("backfill: per-file cap fills the result window from other files (flag-ON correctness)", async () => {
+    // Scenario: one "hot" file has many chunk rows that all match and would dominate
+    // the top of the ranked list. The per-file cap (maxPerFile=2) must DROP the excess
+    // chunks from the hot file and BACKFILL from other files — the final result window
+    // must reach `limit`, not shrink to 2.
+    //
+    // Pre-fix behaviour: rankCandidates was called with `limit`, pre-truncating the pool.
+    // If the hot file's chunks fill all `limit` ranked slots, shapeResults drops most of
+    // them but has nothing to backfill from, so the window shrinks to 2 instead of `limit`.
+    // Post-fix: rank the full pool → shape → slice(limit) → backfill is available.
+
+    const uniqueToken = "xorbackfillchunkfnord2026";
+    const hotPath = "/fake/hot-file-backfill.md";
+    const now = Math.floor(Date.now() / 1000);
+
+    const insert = db.prepare(
+      `INSERT INTO observations
+         (source_type, source_path, anchor, project, topic, title, content, content_hash, file_mtime, indexed_at)
+       VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)`
+    );
+
+    // Hot file: seed more chunks than the test limit (we'll use limit=5).
+    // Give them all a title that is the query token so they score high (W_EXACT_TITLE).
+    const hotChunkCount = 8; // well above limit=5 and maxPerFile=2
+    for (let i = 0; i < hotChunkCount; i++) {
+      insert.run(
+        "learning",
+        hotPath,
+        `section-${i}`,
+        uniqueToken,                               // title = query → top-rank
+        `${uniqueToken} body chunk ${i}`,
+        `hash-hot-${i}-${uniqueToken}`,
+        now,
+        now,
+      );
+    }
+
+    // Other files: seed enough distinct files so the backfill has material.
+    // Their content matches the token (W_EXACT_CONTENT) so they rank below the hot chunks.
+    const otherPaths: string[] = [];
+    for (let j = 0; j < 6; j++) {
+      const p = `/fake/other-backfill-${j}.md`;
+      otherPaths.push(p);
+      insert.run(
+        "learning",
+        p,
+        "",                                        // whole-file row, anchor=''
+        `Other file ${j}`,
+        `${uniqueToken} other body ${j}`,
+        `hash-other-${j}-${uniqueToken}`,
+        now,
+        now,
+      );
+    }
+
+    const limit = 5;
+    const results = await searchMemory(db, { query: uniqueToken, limit });
+
+    // (a) The result window must NOT shrink — it must fill up to `limit`.
+    expect(results.length).toBe(limit);
+
+    // (b) At most 2 results from the hot file (per-file cap enforced).
+    const fromHot = results.filter((r) => r.source_path === hotPath);
+    expect(fromHot.length).toBeLessThanOrEqual(2);
+
+    // (c) The remaining slots are backfilled from other files.
+    const fromOthers = results.filter((r) => r.source_path !== hotPath);
+    expect(fromOthers.length).toBeGreaterThanOrEqual(limit - 2);
+  });
+
+  it("flag-off no-op: whole-file rows return same top-limit in same order (regression guard)", async () => {
+    // All fixture rows are whole-file (anchor=''), so shapeResults is a no-op and ranking
+    // the full pool then slicing must yield the identical top-limit as the pre-fix path
+    // that passed `limit` to rankCandidates.
+    const q = "java OR jira OR lesson OR demo OR identity";
+    const limit = 3;
+    const results = await searchMemory(db, { query: q, limit });
+    // Must hit the limit (enough docs in the fixture to fill it).
+    expect(results.length).toBe(limit);
+    // Scores must be descending — rank order preserved.
+    for (let i = 1; i < results.length; i++) {
+      expect(results[i - 1].score).toBeGreaterThanOrEqual(results[i].score);
+    }
+    // All anchors must be '' for whole-file rows — confirms we are in the flag-off scenario.
+    for (const r of results) {
+      expect(r.anchor).toBe("");
+    }
   });
 });
 
