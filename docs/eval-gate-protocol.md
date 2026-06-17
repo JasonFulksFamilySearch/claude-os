@@ -12,7 +12,7 @@ Source of the design: `docs/2026-06-16-c1-eval-gate-prd.md` (issue #29).
 | Layer | Invariant | Where it is enforced | Falsifiable? |
 |---|---|---|---|
 | **Stage 1 — archive exclusion** | Archived files never enter the corpus | `mcp/test/indexer.test.ts` unit assertions, gated by `npm test` | Yes — `isWatchIgnored(archive)===true` flips if the `/archive/` branch is removed; the post-`fullReindex` corpus assertion flips if reindex ever walks `archive/` |
-| **Stage 2 — superseded-entry leak** | A superseded entry must not surface in top-k once superseded | `mcp/eval/labeled-queries.json` `stages.absence_stage_2`, scored by `npm run eval` | Armed at C2 (entry granularity does not exist until then); authored `armed:false` at C1 |
+| **Stage 2 — superseded-entry leak** | A superseded entry must not surface in top-k once superseded | `~/.claude-data/eval/labeled-queries.json` `stages.absence_stage_2`, scored by `npm run eval` | Armed at C2 (entry granularity does not exist until then); authored `armed:false` at C1 |
 
 Stage 1 is **not** a labeled-absence probe at the retrieval layer — that would be
 vacuous (an archived file is never indexed, so a "is it absent from top-k?" probe
@@ -39,7 +39,9 @@ orientation line only — it is enforced by `npm test`, not by this runner.
 
 ## The labeled set (held-out — never a tuning target)
 
-`mcp/eval/labeled-queries.json` (LabeledSet v2):
+`~/.claude-data/eval/labeled-queries.json` (LabeledSet v2) — machine-local DATA,
+seeded from the committed `mcp/eval/labeled-queries.template.json` by `update.sh`
+Step 2.6 (only-if-absent), then curated per-machine:
 
 - `presence.queries` — `{ query, expectedPathContains[] }`. Recall@k / MRR are
   measured over the observations whose `source_path` contains any expected substring.

@@ -22,8 +22,9 @@ confirmation — the jobs.json is the authorization.
 Any change to a ranking, embedding, or indexing module in `mcp/` must be proven
 against the offline retrieval eval gate: capture a baseline on the pre-change index,
 then require `npm run eval` to compose a non-regressing verdict (PASS) afterward.
-The labeled set (`mcp/eval/labeled-queries.json`) is HELD-OUT — never tune
-`src/search_config.ts` weights against it (train/test leakage voids the gate).
+The labeled set (machine-local DATA at `~/.claude-data/eval/labeled-queries.json`,
+seeded from the committed `mcp/eval/labeled-queries.template.json`) is HELD-OUT —
+never tune `src/search_config.ts` weights against it (train/test leakage voids the gate).
 Stage 1 (archive exclusion) is enforced separately by `npm test`. Full protocol:
 `docs/eval-gate-protocol.md`.
 

@@ -81,19 +81,30 @@ echo ""
 echo "--- Step 2.6: Eval labeled-set ---"
 
 LABELS_TEMPLATE="$REPO_DIR/mcp/eval/labeled-queries.template.json"
-LABELS_LIVE="$REPO_DIR/mcp/eval/labeled-queries.json"
+LABELS_LIVE="$HOME/.claude-data/eval/labeled-queries.json"
 
-# The live labeled set is machine-local (gitignored) because each machine's corpus
-# differs — same rationale as eval-baseline.json. The eval runner reads LABELS_LIVE,
-# so a fresh checkout needs it provisioned from the committed template. Only-if-absent:
-# never clobber a machine's curated set.
+# The live labeled set is machine-local DATA (curated per-corpus), so it lives under
+# ~/.claude-data/ alongside eval-baseline.json — NOT in the repo, where a git reset/clean
+# could wipe it. The eval runner reads LABELS_LIVE, so a fresh machine needs it provisioned
+# from the committed template. Only-if-absent: never clobber a machine's curated set.
 if [ ! -f "$LABELS_TEMPLATE" ]; then
     skip "No labeled-queries template — skipping"
 elif [ -f "$LABELS_LIVE" ]; then
     skip "Eval labeled set already present (machine-local; curate via a curation session)"
 else
+    mkdir -p "$(dirname "$LABELS_LIVE")"
     cp "$LABELS_TEMPLATE" "$LABELS_LIVE"
-    ok "Provisioned eval labeled set from template (placeholders — curate before arming the gate)"
+    ok "Provisioned eval labeled set → ~/.claude-data/eval/ (placeholders — curate before arming)"
+fi
+
+# Transition cleanup: an earlier build provisioned the labeled set to the in-repo path
+# mcp/eval/labeled-queries.json (gitignored). The set is now machine-local under
+# ~/.claude-data/eval/, and that gitignore entry is gone — so a leftover in-repo file
+# would surface as untracked and could leak into a commit/transmit. Remove it if present.
+DEPRECATED_LABELS="$REPO_DIR/mcp/eval/labeled-queries.json"
+if [ -f "$DEPRECATED_LABELS" ]; then
+    rm -f "$DEPRECATED_LABELS"
+    ok "Removed deprecated in-repo labeled set (now machine-local at ~/.claude-data/eval/)"
 fi
 
 echo ""

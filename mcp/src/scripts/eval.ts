@@ -1,6 +1,6 @@
 // Offline retrieval-quality eval — run by hand (`npm run eval [dbPath] [--rebaseline]`), NOT in CI.
 //
-// Scores the live ranker against a HELD-OUT labeled set (eval/labeled-queries.json):
+// Scores the live ranker against a HELD-OUT labeled set (~/.claude-data/eval/labeled-queries.json):
 // presence (recall@k, MRR) and forgetting-absence (Stage 2; armed in C2). Runs against a
 // throwaway COPY of the DB so reinforcement writes never mutate the real store. Weights are
 // fixed defaults (search_config.ts) — this set must never tune them (train/test leakage).
@@ -71,7 +71,10 @@ export interface Baseline {
 }
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
-const LABELS_PATH = join(SCRIPT_DIR, "..", "..", "eval", "labeled-queries.json");
+// The labeled set is machine-local DATA (curated per-corpus), so it lives under
+// ~/.claude-data/ alongside eval-baseline.json and memory.db — NOT inside the repo.
+// update.sh Step 2.6 provisions it from the committed template on a fresh machine.
+const LABELS_PATH = join(homedir(), ".claude-data", "eval", "labeled-queries.json");
 const BASELINE_PATH = join(homedir(), ".claude-data", "eval-baseline.json");
 
 export function readBaseline(path: string): Baseline | null {
@@ -114,7 +117,10 @@ async function main(): Promise<void> {
     return;
   }
   if (!existsSync(LABELS_PATH)) {
-    console.error(`Labeled set not found: ${LABELS_PATH}`);
+    console.error(
+      `Labeled set not found: ${LABELS_PATH}\n` +
+        `Run ~/.claude-os/update.sh to provision it from the template, then curate it.`,
+    );
     process.exitCode = 1;
     return;
   }
