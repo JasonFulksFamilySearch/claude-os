@@ -241,6 +241,39 @@ describe("runMigrations v2 → v3", () => {
     expect(hit2?.rowid).toBe(2);
   });
 
+  it("migrates when the first row's content begins with FTS5 metacharacters (real learnings content)", () => {
+    // Realistic learnings content: a dated heading whose first token (2026-06-16)
+    // FTS5 would parse as a column expression ("no such column: 06"), plus a URL,
+    // a hyphen, `code`, and **bold** — every metacharacter class that breaks a
+    // raw-token MATCH probe. Build a SEPARATE v2 DB whose FIRST row carries this
+    // content so the ai trigger indexes it cleanly at insert time (no
+    // after-the-fact delete-all/rebuild that would corrupt the index).
+    const realContent =
+      "## 2026-06-16 — Migration probe insight\n\n" +
+      "See https://example.com, use `npm run migrate`, and **bold** text.";
+
+    const realDir = mkdtempSync(join(tmpdir(), "claude-os-v2-realcontent-"));
+    const realPath = join(realDir, "v2.db");
+    const realDb = makeV2(realPath);
+    try {
+      realDb.prepare("UPDATE observations SET content = ? WHERE id = 1").run(realContent);
+
+      // Against the OLD raw-token probe, verifyV3 fed `2026-06-16` straight into
+      // MATCH and threw a SqliteError (no such column / fts5 syntax error). With
+      // the quoted-literal-phrase + row-scoped fix, the migration completes cleanly.
+      expect(() => runMigrations(realDb)).not.toThrow();
+      expect(isV3Schema(realDb)).toBe(true);
+      // Row 1 survived with its id preserved and its realistic content intact.
+      const survived = realDb.prepare("SELECT content FROM observations WHERE id = 1").get() as
+        | { content: string }
+        | undefined;
+      expect(survived?.content).toBe(realContent);
+    } finally {
+      realDb.close();
+      rmSync(realDir, { recursive: true, force: true });
+    }
+  });
+
   it("is idempotent — second run is a no-op", () => {
     const r1 = runMigrations(v2);
     expect(r1.migrated).toBe(true);

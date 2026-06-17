@@ -159,23 +159,42 @@ export function verifyV3(db: Database.Database): void {
   const ic = db.pragma("integrity_check", { simple: true });
   if (ic !== "ok") throw new Error("integrity_check failed: " + String(ic));
 
-  // FTS probe: take a known row and confirm a distinctive token from its content
-  // maps back to THAT SAME row's id in the FTS index. A rebuild that desynced
-  // rowids would either return no hit (zero-hit desync) or a hit whose rowid
-  // does not equal the probed row's id (partial/wrong-rowid desync). Both
-  // cases are fatal — PRAGMA integrity_check does NOT catch FTS external-content
-  // desync, so this probe is the only runtime guard.
+  // FTS probe: take a known row and confirm a distinctive token from its own
+  // content is FTS-queryable AT THAT SAME row's rowid. A rebuild that desynced
+  // rowids would not index row N's content under rowid N, so a match scoped to
+  // `MATCH <N's term> AND rowid = N` returns nothing — caught here as fatal.
+  // PRAGMA integrity_check does NOT catch FTS external-content desync, so this
+  // probe is the only runtime guard.
+  //
+  // The term is fed to FTS5 as a quoted STRING-LITERAL PHRASE, not a raw token:
+  // real content begins with dated headings ("## 2026-06-16 — title"), URLs,
+  // hyphenated terms, `code`, [links], **bold** — all of which FTS5 parses as
+  // query operators (a leading `2026-06-16` becomes a column expression →
+  // "no such column: 06"). Wrapping in double quotes (internal `"` doubled)
+  // makes FTS5 treat the token literally, immune to query-syntax metacharacters.
+  // Scoping to the probed row's own rowid also means a token shared across rows
+  // (e.g. a year like 2026) cannot trip a false rowid mismatch while still
+  // catching genuine desync.
   const row = db.prepare("SELECT id, content FROM observations LIMIT 1").get() as
     | { id: number; content: string }
     | undefined;
   if (row) {
-    const term = String(row.content).split(/\s+/).find(w => w.length > 3);
+    // Pick the first whitespace token longer than 3 chars that contains at
+    // least one alphanumeric char. Punctuation-only/degenerate content (and the
+    // empty-store case) yields no term → skip the probe; the FK + integrity +
+    // id-preservation checks still cover correctness.
+    const term = String(row.content)
+      .split(/\s+/)
+      .find(w => w.length > 3 && /[A-Za-z0-9]/.test(w));
     if (term) {
+      const phrase = '"' + term.replace(/"/g, '""') + '"';
       const m = db
-        .prepare("SELECT rowid FROM observations_fts WHERE observations_fts MATCH ? LIMIT 1")
-        .get(term) as { rowid: number } | undefined;
-      if (!m || m.rowid !== row.id)
-        throw new Error("FTS probe failed — rebuild desynced (term mapped to wrong/no rowid)");
+        .prepare(
+          "SELECT 1 AS hit FROM observations_fts WHERE observations_fts MATCH ? AND rowid = ? LIMIT 1",
+        )
+        .get(phrase, row.id) as { hit: number } | undefined;
+      if (!m)
+        throw new Error("FTS probe failed — rebuild desynced (row's own content term not queryable at its rowid)");
     }
   }
 }
