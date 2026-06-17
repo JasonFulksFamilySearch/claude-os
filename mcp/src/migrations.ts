@@ -46,92 +46,100 @@ export function runMigrations(
   if (isV3Schema(db)) return { migrated: false };
 
   db.pragma("foreign_keys = OFF");
-  const tx = db.transaction(() => {
-    db.exec(`
-      DROP TRIGGER IF EXISTS observations_ai;
-      DROP TRIGGER IF EXISTS observations_ad;
-      DROP TRIGGER IF EXISTS observations_au;
-    `);
+  try {
+    const tx = db.transaction(() => {
+      db.exec(`
+        DROP TRIGGER IF EXISTS observations_ai;
+        DROP TRIGGER IF EXISTS observations_ad;
+        DROP TRIGGER IF EXISTS observations_au;
+      `);
 
-    db.exec(`
-      CREATE TABLE observations_v3 (
-        id            INTEGER PRIMARY KEY AUTOINCREMENT,
-        source_type   TEXT NOT NULL,
-        source_path   TEXT NOT NULL,
-        anchor        TEXT NOT NULL DEFAULT '',
-        parent_title  TEXT,
-        project       TEXT,
-        topic         TEXT,
-        title         TEXT,
-        content       TEXT NOT NULL,
-        content_hash  TEXT NOT NULL,
-        file_mtime    INTEGER NOT NULL,
-        indexed_at    INTEGER NOT NULL,
-        frontmatter   TEXT,
-        UNIQUE(source_path, anchor)
-      );
-    `);
+      db.exec(`
+        CREATE TABLE observations_v3 (
+          id            INTEGER PRIMARY KEY AUTOINCREMENT,
+          source_type   TEXT NOT NULL,
+          source_path   TEXT NOT NULL,
+          anchor        TEXT NOT NULL DEFAULT '',
+          parent_title  TEXT,
+          project       TEXT,
+          topic         TEXT,
+          title         TEXT,
+          content       TEXT NOT NULL,
+          content_hash  TEXT NOT NULL,
+          file_mtime    INTEGER NOT NULL,
+          indexed_at    INTEGER NOT NULL,
+          frontmatter   TEXT,
+          UNIQUE(source_path, anchor)
+        );
+      `);
 
-    // Explicit-id copy: every id preserved verbatim so the vec_items and
-    // access_stats side tables remain correctly keyed. anchor takes its ''
-    // default; parent_title is left NULL.
-    db.exec(`
-      INSERT INTO observations_v3
-        (id, source_type, source_path, project, topic, title, content, content_hash, file_mtime, indexed_at, frontmatter)
-      SELECT
-        id, source_type, source_path, project, topic, title, content, content_hash, file_mtime, indexed_at, frontmatter
-      FROM observations;
-    `);
+      // Explicit-id copy: every id preserved verbatim so the vec_items and
+      // access_stats side tables remain correctly keyed. anchor takes its ''
+      // default; parent_title is left NULL.
+      db.exec(`
+        INSERT INTO observations_v3
+          (id, source_type, source_path, project, topic, title, content, content_hash, file_mtime, indexed_at, frontmatter)
+        SELECT
+          id, source_type, source_path, project, topic, title, content, content_hash, file_mtime, indexed_at, frontmatter
+        FROM observations;
+      `);
 
-    db.exec(`
-      DROP TABLE observations;
-      ALTER TABLE observations_v3 RENAME TO observations;
-    `);
+      db.exec(`
+        DROP TABLE observations;
+        ALTER TABLE observations_v3 RENAME TO observations;
+      `);
 
-    db.exec(`
-      CREATE INDEX IF NOT EXISTS idx_obs_source_type ON observations(source_type);
-      CREATE INDEX IF NOT EXISTS idx_obs_project ON observations(project);
-      CREATE INDEX IF NOT EXISTS idx_obs_topic ON observations(topic);
-      CREATE INDEX IF NOT EXISTS idx_obs_indexed_at ON observations(indexed_at);
-    `);
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_obs_source_type ON observations(source_type);
+        CREATE INDEX IF NOT EXISTS idx_obs_project ON observations(project);
+        CREATE INDEX IF NOT EXISTS idx_obs_topic ON observations(topic);
+        CREATE INDEX IF NOT EXISTS idx_obs_indexed_at ON observations(indexed_at);
+      `);
 
-    db.exec(`
-      CREATE VIRTUAL TABLE IF NOT EXISTS observations_fts USING fts5(
-        title,
-        content,
-        topic,
-        content='observations',
-        content_rowid='id',
-        tokenize='porter unicode61'
-      );
+      db.exec(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS observations_fts USING fts5(
+          title,
+          content,
+          topic,
+          content='observations',
+          content_rowid='id',
+          tokenize='porter unicode61'
+        );
 
-      CREATE TRIGGER IF NOT EXISTS observations_ai AFTER INSERT ON observations BEGIN
-        INSERT INTO observations_fts(rowid, title, content, topic)
-        VALUES (new.id, new.title, new.content, new.topic);
-      END;
-      CREATE TRIGGER IF NOT EXISTS observations_ad AFTER DELETE ON observations BEGIN
-        INSERT INTO observations_fts(observations_fts, rowid, title, content, topic)
-        VALUES ('delete', old.id, old.title, old.content, old.topic);
-      END;
-      CREATE TRIGGER IF NOT EXISTS observations_au AFTER UPDATE ON observations BEGIN
-        INSERT INTO observations_fts(observations_fts, rowid, title, content, topic)
-        VALUES ('delete', old.id, old.title, old.content, old.topic);
-        INSERT INTO observations_fts(rowid, title, content, topic)
-        VALUES (new.id, new.title, new.content, new.topic);
-      END;
-    `);
+        CREATE TRIGGER IF NOT EXISTS observations_ai AFTER INSERT ON observations BEGIN
+          INSERT INTO observations_fts(rowid, title, content, topic)
+          VALUES (new.id, new.title, new.content, new.topic);
+        END;
+        CREATE TRIGGER IF NOT EXISTS observations_ad AFTER DELETE ON observations BEGIN
+          INSERT INTO observations_fts(observations_fts, rowid, title, content, topic)
+          VALUES ('delete', old.id, old.title, old.content, old.topic);
+        END;
+        CREATE TRIGGER IF NOT EXISTS observations_au AFTER UPDATE ON observations BEGIN
+          INSERT INTO observations_fts(observations_fts, rowid, title, content, topic)
+          VALUES ('delete', old.id, old.title, old.content, old.topic);
+          INSERT INTO observations_fts(rowid, title, content, topic)
+          VALUES (new.id, new.title, new.content, new.topic);
+        END;
+      `);
 
-    // Rebuild the external-content FTS index from the renamed observations
-    // table. Done INSIDE the transaction so the whole migration is atomic — a
-    // crash leaves the v2 DB intact.
-    db.exec(`INSERT INTO observations_fts(observations_fts) VALUES('rebuild');`);
+      // Rebuild the external-content FTS index from the renamed observations
+      // table. Done INSIDE the transaction so the whole migration is atomic — a
+      // crash leaves the v2 DB intact.
+      db.exec(`INSERT INTO observations_fts(observations_fts) VALUES('rebuild');`);
 
-    db.pragma("user_version = 3");
-  });
-  tx();
-  db.pragma("foreign_keys = ON");
+      db.pragma("user_version = 3");
+    });
+    tx();
 
-  verifyV3(db);
+    verifyV3(db);
+  } finally {
+    // Always restore foreign_keys to ON, even when tx() or verifyV3 throws.
+    // Without this, an error leaves the connection with foreign_keys OFF,
+    // which makes the connection unsafe to reuse (referential integrity silently
+    // disabled for all subsequent writes on the same connection).
+    db.pragma("foreign_keys = ON");
+  }
+
   return { migrated: true };
 }
 

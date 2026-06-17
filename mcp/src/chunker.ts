@@ -92,8 +92,12 @@ function slugify(text: string): string {
 // Return a deduplicated anchor for a raw heading string, given a running
 // collision-counter map (mutated in place). First occurrence: `slug`.
 // Subsequent: `slug-2`, `slug-3`, etc.
-function uniqueAnchor(text: string, seen: Map<string, number>): string {
-  const base = slugify(text);
+// When the slug is empty (e.g. heading "## ---" or "## !!!"), fall back to
+// `section-<ordinal>` (1-based ordinal of this section within the file,
+// supplied by the caller) so we never emit anchor='' for a heading-split chunk.
+function uniqueAnchor(text: string, seen: Map<string, number>, sectionOrdinal: number): string {
+  const raw = slugify(text);
+  const base = raw.length > 0 ? raw : `section-${sectionOrdinal}`;
   const count = (seen.get(base) ?? 0) + 1;
   seen.set(base, count);
   return count === 1 ? base : `${base}-${count}`;
@@ -106,9 +110,12 @@ interface Section {
   body: string; // content from this heading to the next (excludes leading heading line)
 }
 
-// Split content on heading boundaries (`^#{1,6} `).
-// Returns the preamble (text before the first heading) separately and the
-// ordered list of sections.
+// Split content on H2–H6 heading boundaries (`^#{2,6} `).
+// The H1 line (if present) is NOT treated as a section boundary — it is
+// extracted separately as the file's parentTitle (see chunkByHeadings).
+// Returns the preamble (all text before the first H2+, including any H1 line
+// and text between H1 and first H2) separately and the ordered list of
+// H2+-rooted sections.
 function parseSections(content: string): { preamble: string; sections: Section[] } {
   const lines = content.split("\n");
   const sections: Section[] = [];
@@ -118,9 +125,11 @@ function parseSections(content: string): { preamble: string; sections: Section[]
   const bodyLines: string[] = [];
 
   for (const line of lines) {
-    if (/^#{1,6} /.test(line)) {
+    // Only split on H2–H6; H1 is left in the preamble block (extractH1 reads it
+    // separately) so it does not generate its own section/chunk.
+    if (/^#{2,6} /.test(line)) {
       if (currentHeadingLine === null) {
-        // Everything before the first heading is preamble.
+        // Everything before the first H2+ heading is preamble (may include an H1 line).
         preamble = bodyLines.join("\n");
         bodyLines.length = 0;
       } else {
@@ -132,13 +141,13 @@ function parseSections(content: string): { preamble: string; sections: Section[]
         bodyLines.length = 0;
       }
       currentHeadingLine = line;
-      currentHeadingText = line.replace(/^#{1,6} /, "").trim();
+      currentHeadingText = line.replace(/^#{2,6} /, "").trim();
     } else {
       bodyLines.push(line);
     }
   }
 
-  // Flush last section (or preamble if there were no headings at all).
+  // Flush last section (or preamble if there were no H2+ headings at all).
   if (currentHeadingLine === null) {
     preamble = bodyLines.join("\n");
   } else {
@@ -202,7 +211,9 @@ function packSections(
     // When multiple sections pack into one chunk, the chunk's anchor is the FIRST
     // packed section's slug (per-chunk addressing); later-packed sections share
     // that anchor — they have no independent chunk to address.
-    const anchor = uniqueAnchor(sections[groupStart].headingText, seen);
+    // sectionOrdinal is 1-based index in the ORIGINAL sections array — used only
+    // when the slug of the heading is empty (fallback to "section-N").
+    const anchor = uniqueAnchor(sections[groupStart].headingText, seen, groupStart + 1);
     const title = sections[groupStart].headingText;
 
     chunks.push({ anchor, title, parentTitle, content: chunkContent });
@@ -218,26 +229,34 @@ function packSections(
 }
 
 // Entry point for the three topic/project source types.
-// Files ≤ SPLIT_THRESHOLD_CHARS or without any headings → whole-file chunk.
-// Files > SPLIT_THRESHOLD_CHARS with at least one heading → heading-split.
+// Files ≤ SPLIT_THRESHOLD_CHARS or without any H2+ headings → whole-file chunk.
+// Files > SPLIT_THRESHOLD_CHARS with at least one H2+ heading → heading-split.
+//
+// Special case: file has an H1 but NO H2–H6 headings. We cannot split at
+// heading boundaries (there are none below H1), so we emit ONE chunk whose
+// anchor is the slug of the H1 (not '' — that would collide with the whole-file
+// sentinel) and whose parentTitle and title are both the H1 text.
 function chunkByHeadings(content: string): Chunk[] {
   if (content.length <= SPLIT_THRESHOLD_CHARS) {
     return [wholeFileChunk(content)];
   }
 
   const { preamble, sections } = parseSections(content);
+  const parentTitle = extractH1(content);
 
   if (sections.length === 0) {
-    // No headings found — can't split on heading boundaries.
-    // The PRD splits at heading boundaries only; char-windowing a structureless
-    // doc is out of scope. Emit ONE anchored whole-file chunk.
+    // No H2+ headings found — can't split on heading boundaries.
+    // If there is an H1, emit one chunk addressed by the H1 slug so the anchor
+    // is non-empty and meaningful. If there is no H1 either, fall back to the
+    // whole-file chunk (anchor='').
+    if (parentTitle !== null) {
+      const seen = new Map<string, number>();
+      const anchor = uniqueAnchor(parentTitle, seen, 1);
+      return [{ anchor, title: parentTitle, parentTitle, content }];
+    }
     return [wholeFileChunk(content)];
   }
 
-  // When the file has only an H1 and a single body section (no sub-sections to
-  // divide on), packSections will also emit ONE anchored chunk — there are no
-  // heading boundaries to split on, and char-windowing is out of scope.
-  const parentTitle = extractH1(content);
   return packSections(sections, preamble, parentTitle, content);
 }
 

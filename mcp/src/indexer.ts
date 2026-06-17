@@ -230,10 +230,14 @@ export function indexFile(
         source_type: cls.source_type,
         source_path: absPath,
         anchor: chunk.anchor,
-        // Title fallback lives HERE (the chunker has no sourcePath): for files with no
-        // H1 the chunk title is null, and we fall back to the basename, preserving the
-        // flag-off title parity established before chunking.
-        title: chunk.title ?? basename(absPath, ".md"),
+        // Title fallback lives HERE (the chunker has no sourcePath):
+        // - Whole-file rows (anchor="") fall back to the file basename (preserves
+        //   flag-off parity: a file with no H1 got the basename before chunking).
+        // - Chunk rows (anchor!="") fall back to the anchor (the date/slug) so
+        //   each chunk has a distinct, meaningful label in composeEmbedText;
+        //   using basename here would collapse every chunk in the file to the
+        //   same label and strip the section identity from enrichment.
+        title: chunk.title ?? (chunk.anchor !== "" ? chunk.anchor : basename(absPath, ".md")),
         parent_title: chunk.parentTitle,
         project: effectiveProject,
         topic: cls.topic,

@@ -406,6 +406,128 @@ describe("chunkFile — heading-split for large context docs (>2000 chars)", () 
 });
 
 // ---------------------------------------------------------------------------
+// Fix 1: H1 is parent title; split only at H2+ boundaries
+// ---------------------------------------------------------------------------
+
+describe("chunkFile — Fix 1: H1 treated as parentTitle, H2+ as split boundaries", () => {
+  // The H1 must NOT produce its own section/chunk — it should only set parentTitle.
+  it("H1-only doc over threshold (no H2+): emits ONE chunk anchored to H1 slug, not whole-file ''", () => {
+    // A large doc with only an H1 — no H2+ at all.
+    const h1Text = "Parent Title";
+    const doc = `# ${h1Text}\n\n` + "body text ".repeat(250); // >2000 chars, H1 only
+    expect(doc.length).toBeGreaterThan(2000);
+    const cs = chunkFile({ sourceType: "context", content: doc, chunkingEnabled: true });
+    expect(cs).toHaveLength(1);
+    // anchor is the H1 slug, NOT '' (whole-file sentinel)
+    expect(cs[0].anchor).toBe("parent-title");
+    // parentTitle and title are both the H1 text
+    expect(cs[0].parentTitle).toBe(h1Text);
+    expect(cs[0].title).toBe(h1Text);
+  });
+
+  it("H1 + H2 doc: H1 becomes parentTitle on ALL chunks, H2 splits produce non-'' anchors", () => {
+    // A doc with H1 and H2 sections over the threshold.
+    const doc =
+      "# My Doc\n\n" +
+      "## Alpha Section\n" + "body ".repeat(300) + "\n\n" +
+      "## Beta Section\n" + "body ".repeat(300);
+    expect(doc.length).toBeGreaterThan(2000);
+    const cs = chunkFile({ sourceType: "context", content: doc, chunkingEnabled: true });
+    // Must have at least one chunk
+    expect(cs.length).toBeGreaterThanOrEqual(1);
+    // All chunks must have parentTitle = H1 text
+    for (const chunk of cs) {
+      expect(chunk.parentTitle).toBe("My Doc");
+      // No chunk anchor should be '' (H1 must not produce its own whole-file chunk)
+      expect(chunk.anchor).not.toBe("");
+    }
+    // The section anchors must be the H2 slugs
+    const anchors = cs.map((c) => c.anchor);
+    expect(anchors).toContain("alpha-section");
+    expect(anchors).toContain("beta-section");
+  });
+
+  it("H1 is NOT a section boundary: H1 line appears in preamble/content, not as its own section", () => {
+    // A doc with H1 and two H2 sections.
+    const doc =
+      "# Root Title\n\n" +
+      "Preamble paragraph.\n\n" +
+      "## Section One\n" + "body ".repeat(300) + "\n\n" +
+      "## Section Two\n" + "body ".repeat(300);
+    expect(doc.length).toBeGreaterThan(2000);
+    const cs = chunkFile({ sourceType: "context", content: doc, chunkingEnabled: true });
+    // The H1 must NOT appear as a chunk with anchor "root-title" UNLESS it is in
+    // the preamble-prefix of the first chunk. We verify no chunk is anchored to
+    // "root-title" (which would mean H1 was treated as a section boundary).
+    const anchors = cs.map((c) => c.anchor);
+    // "section-one" and "section-two" should be anchors; "root-title" should not be.
+    expect(anchors).not.toContain("root-title");
+    expect(anchors).toContain("section-one");
+  });
+
+  it("existing tests: H1-only doc under threshold still returns whole-file chunk (anchor='')", () => {
+    // Confirm the ≤2000-char gate is not affected.
+    const doc = "# Short Doc\n\nSmall content."; // well under 2000 chars
+    const cs = chunkFile({ sourceType: "context", content: doc, chunkingEnabled: true });
+    expect(cs).toHaveLength(1);
+    expect(cs[0].anchor).toBe(""); // whole-file path
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fix 2: empty-slug anchor fallback to section-<ordinal>
+// ---------------------------------------------------------------------------
+
+describe("chunkFile — Fix 2: non-empty anchor fallback for punctuation-only headings", () => {
+  it("heading with only punctuation (## ---) gets a non-empty anchor", () => {
+    // A doc with a punctuation-only H2 heading that slugifies to ''.
+    const doc =
+      "# Root\n\n" +
+      "## ---\n" + "body ".repeat(300) + "\n\n" +
+      "## Real Section\n" + "body ".repeat(300);
+    expect(doc.length).toBeGreaterThan(2000);
+    const cs = chunkFile({ sourceType: "context", content: doc, chunkingEnabled: true });
+    // No anchor must be empty string on a heading-split chunk.
+    for (const chunk of cs) {
+      expect(chunk.anchor).not.toBe("");
+    }
+    // The fallback is "section-1" (1-based ordinal for the first section "## ---").
+    const anchors = cs.map((c) => c.anchor);
+    expect(anchors.some((a) => a === "section-1" || a.startsWith("section-1"))).toBe(true);
+  });
+
+  it("heading with only punctuation (## !!!) gets a non-empty anchor", () => {
+    const doc =
+      "# Root\n\n" +
+      "## !!!\n" + "body ".repeat(300) + "\n\n" +
+      "## Second\n" + "body ".repeat(300);
+    expect(doc.length).toBeGreaterThan(2000);
+    const cs = chunkFile({ sourceType: "context", content: doc, chunkingEnabled: true });
+    for (const chunk of cs) {
+      expect(chunk.anchor).not.toBe("");
+    }
+  });
+
+  it("all anchors are unique when punctuation headings repeat (collision ordinal still applies)", () => {
+    // Two punctuation-only headings → both get fallback "section-N", which could collide.
+    const doc =
+      "# Root\n\n" +
+      "## ---\n" + "body ".repeat(200) + "\n\n" +
+      "## ---\n" + "body ".repeat(200) + "\n\n" +
+      "## Normal\n" + "body ".repeat(200);
+    expect(doc.length).toBeGreaterThan(2000);
+    const cs = chunkFile({ sourceType: "context", content: doc, chunkingEnabled: true });
+    const anchors = cs.map((c) => c.anchor);
+    // All must be non-empty
+    for (const a of anchors) {
+      expect(a).not.toBe("");
+    }
+    // All must be unique
+    expect(new Set(anchors).size).toBe(anchors.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Parity test: chunker entry set == novelty parseEntries (required by brief)
 // ---------------------------------------------------------------------------
 

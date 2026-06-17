@@ -701,6 +701,74 @@ describe("embedPathObservations — composeEmbedText applied per row (C2/T8)", (
   });
 });
 
+// ---------------------------------------------------------------------------
+// Fix 3: chunk title fallback to anchor (not basename) for chunk rows
+// ---------------------------------------------------------------------------
+
+describe("indexFile — Fix 3: chunk title falls back to anchor (not basename) for chunk rows", () => {
+  it("date-only-heading entry: title stored in DB equals the anchor (not the file basename)", () => {
+    // A learnings file with a date-only heading: parseEntries returns entry.title = null.
+    // The indexer must fall back to the anchor string, not the file basename.
+    enableChunking();
+    const p = join(dataRoot, "agent", "learnings.md");
+    const dateOnlyContent = [
+      "# Agent Learnings",
+      "",
+      "## 2026-05-01",
+      "",
+      "Some learning body text here.",
+      "",
+    ].join("\n");
+    writeFileSync(p, dateOnlyContent, "utf8");
+    indexFile(db, p, config);
+
+    const row = db
+      .prepare("SELECT title, anchor FROM observations WHERE source_path = ? AND anchor != ''")
+      .get(p) as { title: string; anchor: string } | undefined;
+    expect(row).toBeDefined();
+    // title must be the anchor ("2026-05-01"), not the basename ("learnings")
+    expect(row!.title).toBe(row!.anchor);
+    expect(row!.title).toBe("2026-05-01");
+    expect(row!.title).not.toBe("learnings");
+  });
+
+  it("whole-file row (anchor='') still falls back to basename when title is null", () => {
+    // Flag OFF → single whole-file row. A file with no H1 → chunk.title = null.
+    // The fallback must remain the basename (flag-off parity).
+    const p = join(dataRoot, "context", "no-h1-context.md");
+    const noH1Content = "This file has no H1 heading.\n\nJust some body text.\n";
+    writeFileSync(p, noH1Content, "utf8");
+    indexFile(db, p, config); // chunking is OFF by default
+
+    const row = db
+      .prepare("SELECT title, anchor FROM observations WHERE source_path = ?")
+      .get(p) as { title: string; anchor: string } | undefined;
+    expect(row).toBeDefined();
+    expect(row!.anchor).toBe(""); // whole-file row
+    // Basename without extension is "no-h1-context"
+    expect(row!.title).toBe("no-h1-context");
+  });
+
+  it("chunk rows with non-null title keep their real title (not overwritten by anchor)", () => {
+    // A normal learnings file where entries have titles.
+    enableChunking();
+    const p = join(dataRoot, "agent", "learnings.md");
+    writeFileSync(p, TWO_ENTRY_LEARNINGS, "utf8");
+    indexFile(db, p, config);
+
+    const rows = db
+      .prepare("SELECT title, anchor FROM observations WHERE source_path = ? AND anchor != '' ORDER BY anchor")
+      .all(p) as { title: string; anchor: string }[];
+    expect(rows).toHaveLength(2);
+    // "## 2026-01-01 — first" → title = "first", anchor = "2026-01-01"
+    expect(rows[0].title).toBe("first");
+    expect(rows[0].anchor).toBe("2026-01-01");
+    // "## 2026-01-02 — second" → title = "second", anchor = "2026-01-02"
+    expect(rows[1].title).toBe("second");
+    expect(rows[1].anchor).toBe("2026-01-02");
+  });
+});
+
 describe("fullReindex — reconciles stale (path, anchor) pairs (C2)", () => {
   it("removes a (path, anchor) row + vec when its entry is dropped from the file", async () => {
     enableChunking();
