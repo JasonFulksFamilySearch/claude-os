@@ -39,11 +39,15 @@ function appendEntry(path, entry) {
 }
 
 // Returns absolute paths of all marker files in the family:
-// legacy un-suffixed + any per-session-suffixed variants.
+// legacy un-suffixed + any per-session-suffixed variants (including residue).
+// Quarantine files (.quarantine-*.json) are explicitly excluded — they are
+// terminal and must never be reprocessed.
 function markerFamily(dataRoot = DATA_ROOT) {
   if (!existsSync(dataRoot)) return [];
   return readdirSync(dataRoot)
-    .filter(f => f === '_tmp_pending_learning.json' || /^_tmp_pending_learning-.+\.json$/.test(f))
+    .filter(f =>
+      (f === '_tmp_pending_learning.json' || /^_tmp_pending_learning-.+\.json$/.test(f))
+      && !f.includes('.quarantine-'))
     .map(f => join(dataRoot, f));
 }
 
@@ -84,7 +88,9 @@ function flushFile(markerPath, { appendFn = appendEntry } = {}) {
 
   if (failed.length > 0) {
     const residue = markerPath.replace(/\.json$/, '') + '.residue.json';
-    writeFileSync(residue, JSON.stringify(failed), 'utf8');
+    const residueTmp = residue + '.tmp';
+    writeFileSync(residueTmp, JSON.stringify(failed), 'utf8');
+    renameSync(residueTmp, residue);
     try { unlinkSync(markerPath); } catch {}
     return { flushed, skipped, residue };
   }

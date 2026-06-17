@@ -175,3 +175,38 @@ test('flushAll processes every family member independently', () => {
   assert.ok(!existsSync(join(root, '_tmp_pending_learning.json')), 'valid file consumed');
   assert.ok(agg.quarantined >= 1, 'bad file quarantined, not lost');
 });
+
+test('quarantine is terminal — a quarantine file is never reprocessed by flushAll', () => {
+  const { readdirSync: readdirSyncNode } = require('node:fs');
+  const root = join(TMP, 'quarantine-terminal');
+  mkdirSync(root, { recursive: true });
+
+  // Write a malformed marker and flush once — this quarantines it.
+  const marker = join(root, '_tmp_pending_learning-qterm.json');
+  writeFileSync(marker, '{ not valid json at all }', 'utf8');
+  const firstRun = flushAll(root);
+  assert.ok(firstRun.quarantined >= 1, 'first run should quarantine the bad file');
+
+  // Capture the quarantine filename and its contents.
+  const afterFirst = readdirSyncNode(root);
+  const quarantineFiles = afterFirst.filter(f => f.includes('.quarantine-'));
+  assert.equal(quarantineFiles.length, 1, 'exactly one quarantine file should exist after first run');
+  const quarantineFile = quarantineFiles[0];
+  const quarantineContents = require('node:fs').readFileSync(join(root, quarantineFile), 'utf8');
+
+  // Run flushAll a second time — quarantine file must NOT be re-ingested.
+  const secondRun = flushAll(root);
+  assert.equal(secondRun.filesProcessed, 0, 'second run should find no files to process');
+  assert.equal(secondRun.quarantined, 0, 'second run must not create another quarantine file');
+
+  // The original quarantine file must be untouched — same name, same contents.
+  const afterSecond = readdirSyncNode(root);
+  const quarantineFilesAfter = afterSecond.filter(f => f.includes('.quarantine-'));
+  assert.equal(quarantineFilesAfter.length, 1, 'still exactly one quarantine file after second run');
+  assert.equal(quarantineFilesAfter[0], quarantineFile, 'quarantine filename must not have changed');
+  assert.equal(
+    require('node:fs').readFileSync(join(root, quarantineFilesAfter[0]), 'utf8'),
+    quarantineContents,
+    'quarantine file contents must be unchanged',
+  );
+});
