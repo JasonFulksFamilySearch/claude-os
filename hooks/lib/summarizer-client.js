@@ -78,7 +78,16 @@ function extractObservation(stdout) {
 function summarize(transcriptText, { spawn = spawnSync, model = VALUE_MODEL, timeoutMs = DEFAULT_TIMEOUT_MS, systemPrompt } = {}) {
   const sp = systemPrompt || require('./summarizer-prompt.js').SYSTEM_PROMPT;
   const args = buildArgs({ model, systemPrompt: sp, schemaJson: JSON.stringify(OBSERVATION_SCHEMA) });
-  const result = spawn('claude', [...args, transcriptText], {
+  // Wrap transcript in a data-fence so Claude treats it as untrusted content.
+  // Use bracketed sentinels for the replacement — `<<<TRANSCRIPT` replaced with
+  // `[FENCE-OPEN]` cannot reconstruct a fence on re-pass, so this is idempotent.
+  // A naive `<TRANSCRIPT` replacement is NOT safe: `<<<<<TRANSCRIPT` →
+  // `<<<TRANSCRIPT` (regenerates the marker) — an attacker writing 5+ `<`s
+  // would forge a fence and inject instructions past the boundary.
+  const safeTranscript = '<<<TRANSCRIPT\n'
+    + transcriptText.replace(/<<<TRANSCRIPT/g, '[FENCE-OPEN]').replace(/TRANSCRIPT>>>/g, '[FENCE-CLOSE]')
+    + '\nTRANSCRIPT>>>';
+  const result = spawn('claude', [...args, safeTranscript], {
     env: { ...process.env, CLAUDE_OS_SKIP_EPISODE: '1' },
     encoding: 'utf8',
     timeout: timeoutMs,
