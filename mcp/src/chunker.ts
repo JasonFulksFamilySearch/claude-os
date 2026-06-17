@@ -109,7 +109,6 @@ interface Section {
 // Returns the preamble (text before the first heading) separately and the
 // ordered list of sections.
 function parseSections(content: string): { preamble: string; sections: Section[] } {
-  const headingRe = /^#{1,6} .+$/m;
   const lines = content.split("\n");
   const sections: Section[] = [];
   let preamble = "";
@@ -138,9 +137,6 @@ function parseSections(content: string): { preamble: string; sections: Section[]
   } else {
     sections.push({ headingText: currentHeading, body: bodyLines.join("\n") });
   }
-
-  // Suppress the unused import warning.
-  void headingRe;
 
   return { preamble, sections };
 }
