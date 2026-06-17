@@ -6,6 +6,7 @@ import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
 import { openDb } from "../src/db.js";
 import { isV3Schema, runMigrations, backupDb, verifyV3 } from "../src/migrations.js";
+import { main as migrateMain } from "../src/scripts/migrate.js";
 
 let workDir: string;
 let dbPath: string;
@@ -261,5 +262,60 @@ describe("runMigrations v2 → v3", () => {
     // resolves to any rowid — a silent desync verifyV3 must catch.
     v2.exec("INSERT INTO observations_fts(observations_fts) VALUES('delete-all')");
     expect(() => verifyV3(v2)).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 4: migrate.ts operator script smoke test
+// ---------------------------------------------------------------------------
+
+describe("migrate script main()", () => {
+  let smokeDir: string;
+  let smokeDbPath: string;
+  let smokeBackupPath: string;
+
+  beforeEach(() => {
+    smokeDir = mkdtempSync(join(tmpdir(), "claude-os-migrate-smoke-"));
+    smokeDbPath = join(smokeDir, "smoke.db");
+    smokeBackupPath = join(smokeDir, "smoke.db.pre-c2.bak");
+
+    // Build a v2 DB to drive the script against
+    const raw = makeV2(smokeDbPath);
+    raw.close();
+  });
+
+  afterEach(() => {
+    rmSync(smokeDir, { recursive: true, force: true });
+  });
+
+  it("creates a backup and upgrades the DB to v3", async () => {
+    await migrateMain(smokeDbPath, smokeBackupPath);
+
+    // Backup must exist and be a readable SQLite file
+    expect(existsSync(smokeBackupPath)).toBe(true);
+    const bak = new Database(smokeBackupPath);
+    try {
+      // Backup was taken before migration — it should still be a v2 snapshot
+      // (no anchor column). Confirm it has the observations table at all.
+      const rows = bak.prepare("SELECT COUNT(*) AS c FROM observations").get() as { c: number };
+      expect(rows.c).toBeGreaterThanOrEqual(0);
+    } finally {
+      bak.close();
+    }
+
+    // The live DB must now be v3
+    const upgraded = new Database(smokeDbPath);
+    sqliteVec.load(upgraded);
+    try {
+      expect(isV3Schema(upgraded)).toBe(true);
+    } finally {
+      upgraded.close();
+    }
+  });
+
+  it("is idempotent — running twice on a v3 DB does not throw", async () => {
+    await migrateMain(smokeDbPath, smokeBackupPath);
+    // Second run: backup already exists, script should still succeed (no-op migration)
+    await migrateMain(smokeDbPath, smokeBackupPath + ".2");
   });
 });

@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "reembed": "tsx src/scripts/reembed.ts",
-    "eval": "tsx src/scripts/eval.ts"
+    "eval": "tsx src/scripts/eval.ts",
+    "migrate": "tsx src/scripts/migrate.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.0.0",

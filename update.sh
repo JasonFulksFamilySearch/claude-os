@@ -50,6 +50,26 @@ fi
 
 echo ""
 
+# ── Step 2.5: DB migration (v2 → v3, idempotent) ─────────────────────────────
+
+echo "--- Step 2.5: DB migration ---"
+
+MCP_DIR="$REPO_DIR/mcp"
+MEMORY_DB="$HOME/.claude-data/memory.db"
+
+if [ ! -f "$MEMORY_DB" ]; then
+    skip "No memory.db found — skipping migration (fresh machine)"
+else
+    echo "  memory.db found — running migrate script (no-op if already v3)..."
+    if (cd "$MCP_DIR" && npm run migrate --silent 2>/dev/null || npm run migrate); then
+        ok "DB migration complete (or already v3)"
+    else
+        warn "DB migration failed — run manually: (cd $MCP_DIR && npm run migrate)"
+    fi
+fi
+
+echo ""
+
 # ── Step 3: Hook registrations in settings.json ──────────────────────────────
 
 echo "--- Step 3: Hook registrations ---"
