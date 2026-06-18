@@ -617,6 +617,33 @@ describe("vectorCoverageSweep", () => {
     // Direct regression guard: a revert to embedding raw content would make these equal.
     expect(calls[0][0]).not.toBe(content);
   });
+
+  it("reports vecMissingAfter from the post-removal state, not the pre-removal sweep count", async () => {
+    // Index a file so it has an observation + vector.
+    vi.mocked(embedDocument).mockResolvedValue(new Float32Array(768).fill(0));
+    const file = join(dataRoot, "context", "doomed.md");
+    writeFileSync(file, "# doomed\n\nthis file is about to be deleted\n", "utf8");
+    await fullReindex(db, config);
+    const obs = db
+      .prepare("SELECT id FROM observations WHERE source_path = ?")
+      .get(file) as { id: number };
+
+    // Orphan it AND make re-embedding fail (sweep can't heal it), then delete the file so the
+    // removal pass prunes the orphan row within the same reindex.
+    db.prepare("DELETE FROM vec_items WHERE observation_id = ?").run(BigInt(obs.id));
+    expect(countMissingVectors(db)).toBe(1);
+    vi.mocked(embedDocument).mockRejectedValueOnce(new Error("poison"));
+    rmSync(file);
+
+    const summary = await fullReindex(db, config);
+
+    // The un-healable orphan was removed (its file is gone), so the FINAL state has zero holes.
+    // vecMissingAfter must reflect that — coverage.after (measured before removal) reports 1.
+    expect(summary.vecMissingBefore).toBe(1);
+    expect(summary.vecMissingAfter).toBe(0);
+    expect(summary.removed).toBeGreaterThanOrEqual(1);
+    expect(countMissingVectors(db)).toBe(0);
+  });
 });
 
 describe("indexFile — per-(path,anchor) reconcile (C2)", () => {

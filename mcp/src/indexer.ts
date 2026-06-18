@@ -21,8 +21,11 @@ function readFlag(db: Database.Database, key: string): string {
 
 const MAX_FILE_BYTES = 1024 * 1024;
 
-// Max orphan re-embeds attempted per sweep. A poisoned row costs one bounded attempt
-// per cycle (named in the log), never a hot-loop; rows beyond the cap are next sweep's work.
+// Max orphan re-embeds attempted per sweep. A poisoned (permanently-failing) orphan costs
+// one bounded attempt per sweep (named in the log), never a hot-loop; rows beyond the cap
+// are the next sweep's work. (Within a single fullReindex a row that just failed the
+// change-driven embed pass is also picked up here — that case sees two attempts in the run,
+// not one — but each sweep itself attempts any given orphan at most once.)
 export const MAX_VECTOR_SWEEP = 50;
 
 export interface WatchedProject {
@@ -602,6 +605,12 @@ export async function fullReindex(
     }
   }
 
+  // vecMissingAfter reflects the FINAL DB state — recomputed after the removal pass. Removals
+  // can delete orphaned observations the sweep could not heal (e.g. a poisoned row whose file
+  // is now gone), so coverage.after — measured before removals — would overstate the holes
+  // remaining in the reported summary.
+  const vecMissingAfter = countMissingVectors(db);
+
   const summary: ReindexSummary = {
     total: candidates.size,
     indexed,
@@ -611,7 +620,7 @@ export async function fullReindex(
     removed,
     durationMs: Date.now() - start,
     vecMissingBefore: coverage.before,
-    vecMissingAfter: coverage.after,
+    vecMissingAfter,
     erroredPaths,
   };
   log("info", "fullReindex complete", { ...summary });
