@@ -76,14 +76,13 @@ test('coerceObservation: plain in-vocab slug passes through unchanged', () => {
 });
 
 test('coerceObservation: over-64-char project truncated on hyphen boundary', () => {
-  // Build a slug-able string that will exceed 64 chars after slugification
+  // 'alpha-bravo-charlie-delta-echo-foxtrot-golf-hotel-india-juliet-kilo' slugifies
+  // to 67 chars; truncateOnHyphenBoundary(s, 64) cuts at char 64, finds the last '-'
+  // before that at index 62, and returns the 62-char prefix ending on '-juliet'.
   const long = 'alpha-bravo-charlie-delta-echo-foxtrot-golf-hotel-india-juliet-kilo';
   const obs = coerceObservation({ project: long, summary: 'x' });
-  assert.ok(obs.project.length <= 64, `expected length <= 64, got ${obs.project.length}`);
-  assert.ok(!obs.project.endsWith('-'), 'result must not end with a hyphen');
-  // The truncation must land on a hyphen boundary — no partial token
-  const full = slugify(long);
-  assert.ok(full.startsWith(obs.project), 'truncated value must be a prefix of the full slug');
+  assert.ok(obs.project.length > 0, 'truncation must never return an empty string');
+  assert.strictEqual(obs.project, 'alpha-bravo-charlie-delta-echo-foxtrot-golf-hotel-india-juliet');
 });
 
 test('coerceObservation: legit parenthetical not stripped', () => {

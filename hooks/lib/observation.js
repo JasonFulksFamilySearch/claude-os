@@ -36,6 +36,8 @@ function slugify(s) {
 }
 
 // Truncate at/under max on a hyphen boundary (never mid-token).
+// When no hyphen exists in the first `max` chars (i <= 0), falls back to the
+// raw `max`-char cut, which may end mid-token.
 function truncateOnHyphenBoundary(s, max) {
   if (s.length <= max) return s;
   const cut = s.slice(0, max);
