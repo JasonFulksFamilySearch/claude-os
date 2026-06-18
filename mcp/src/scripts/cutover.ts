@@ -20,7 +20,10 @@
  *      `<db>.pre-cutover.<UTC-timestamp>.bak` (default), then VERIFY the snapshot
  *      (size floor, observation-count parity, integrity_check) — throwing before
  *      any mutation if it is incomplete. The timestamped path means a stale stub
- *      cannot suppress the backup and never collides with migrate.ts's `.pre-c2.bak`.
+ *      cannot suppress the backup, and the distinct `.pre-cutover.` infix avoids
+ *      colliding with migrate.ts's `.pre-c2.bak`. (Two cutover runs within the same
+ *      second resolve to the same default path; VACUUM INTO then throws before any
+ *      mutation — a safe abort, not the silent suppression this fix removes.)
  *   2. Set meta.c2_chunking_enabled = '1'.
  *   3. fullReindex: with the flag ON, indexFile routes learning/decision files
  *      through chunkByEntries and large context/project docs through chunkByHeadings.
@@ -52,9 +55,10 @@ export async function runCutover(
 ): Promise<{ rechunked: number; backupPath: string }> {
   // Default the backup destination to a per-run TIMESTAMPED path derived from the
   // live DB's own filename. A stale file at the old fixed `<db>.pre-cutover.bak`
-  // path can no longer suppress the backup (the destination is unique per run),
-  // and the timestamp guarantees VACUUM INTO never collides. Tests inject an
-  // explicit path; only the default resolution is timestamped.
+  // path can no longer suppress the backup (the default destination is now distinct).
+  // The timestamp is second-granularity: two runs within the same second resolve to
+  // the same path and VACUUM INTO then throws before the flag flip — a safe abort,
+  // not silent suppression. Tests inject an explicit path; only the default is timestamped.
   const ts = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
   const resolvedBackupPath = backupPath ?? `${db.name}.pre-cutover.${ts}.bak`;
 

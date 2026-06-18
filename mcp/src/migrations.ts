@@ -156,8 +156,9 @@ export function backupDb(db: Database.Database, destPath: string): void {
 }
 
 /**
- * Verify a freshly-written backup is a complete, openable, populated SQLite
- * database BEFORE the caller relies on it for rollback. Throws on any of:
+ * Verify a freshly-written backup is a complete, openable SQLite database whose
+ * observation count matches the live store BEFORE the caller relies on it for
+ * rollback (an empty store with expectedCount 0 is valid). Throws on any of:
  *   - file below the 4096-byte (one SQLite page) size floor — cheap reject for
  *     zero-byte / truncated writes;
  *   - observation-row count != the live count captured just before the backup
