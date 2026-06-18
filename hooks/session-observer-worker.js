@@ -6,7 +6,7 @@ const {
 const { join, dirname, resolve, sep } = require('node:path');
 const { homedir } = require('node:os');
 const { todayLocal } = require('./lib/episode-utils.js');
-const { safeString, coerceObservation } = require('./lib/observation.js');
+const { safeString, yamlScalar, coerceObservation } = require('./lib/observation.js');
 const { summarize } = require('./lib/summarizer-client.js');
 const { tailHash, shouldSummarize, createCaptureQueue } = require('./lib/capture-queue.js');
 
@@ -113,7 +113,8 @@ function buildEpisodeContent(obs, sessionId, turnCount) {
     'date: ' + todayLocal(),
     'session_id: ' + safeSessionId,
   ];
-  if (obs.project) fmLines.push('project: ' + obs.project);
+  // Contract: every future freeform-string frontmatter key MUST go through yamlScalar.
+  if (obs.project) fmLines.push('project: ' + yamlScalar(obs.project));
   if (Number.isInteger(obs.value_score) && obs.value_score >= 0 && obs.value_score <= 4) {
     fmLines.push('value_score: ' + obs.value_score);
     fmLines.push('value_source: llm-judge');
