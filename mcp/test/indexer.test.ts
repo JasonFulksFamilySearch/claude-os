@@ -769,6 +769,63 @@ describe("indexFile — Fix 3: chunk title falls back to anchor (not basename) f
   });
 });
 
+describe("fullReindex — per-file error isolation", () => {
+  it("isolates a malformed file: completes over good files, reports the bad one", async () => {
+    writeFileSync(join(dataRoot, "context", "good.md"), "# Good\n\nsome content\n", "utf8");
+    writeFileSync(join(dataRoot, "projects", "demo", "learnings.md"), TWO_ENTRY_LEARNINGS, "utf8");
+    // Unterminated double-quoted scalar → gray-matter (js-yaml) throws a YAMLException.
+    const badPath = join(dataRoot, "context", "bad.md");
+    writeFileSync(badPath, '---\ntitle: "unterminated alpha\n---\n# Bad alpha\n', "utf8");
+
+    const summary = await fullReindex(db, config);
+
+    expect(summary.errored).toBe(1);
+    expect(summary.erroredPaths).toContain(badPath);
+    expect(summary.indexed).toBeGreaterThanOrEqual(2);
+    const bad = db
+      .prepare("SELECT COUNT(*) AS n FROM observations WHERE source_path = ?")
+      .get(badPath) as { n: number };
+    expect(bad.n).toBe(0);
+  });
+
+  it("malformed-file isolation holds with the chunking flag ON (the cutover path)", async () => {
+    enableChunking();
+    writeFileSync(join(dataRoot, "agent", "learnings.md"), TWO_ENTRY_LEARNINGS, "utf8");
+    const badPath = join(dataRoot, "context", "bad.md");
+    writeFileSync(badPath, '---\ntitle: "unterminated bravo\n---\n# Bad bravo\n', "utf8");
+
+    const summary = await fullReindex(db, config);
+
+    expect(summary.errored).toBe(1);
+    expect(summary.erroredPaths).toContain(badPath);
+    expect(summary.indexed).toBeGreaterThanOrEqual(1);
+  });
+
+  it("a clean corpus reports zero errors", async () => {
+    writeFileSync(join(dataRoot, "context", "good.md"), "# Good\n\nsome content\n", "utf8");
+    writeFileSync(join(dataRoot, "agent", "learnings.md"), TWO_ENTRY_LEARNINGS, "utf8");
+
+    const summary = await fullReindex(db, config);
+
+    expect(summary.errored).toBe(0);
+    expect(summary.erroredPaths).toEqual([]);
+  });
+
+  it("counts error-skips and benign skips in separate buckets", async () => {
+    writeFileSync(join(dataRoot, "context", "good.md"), "# Good\n\nsome content\n", "utf8");
+    // Oversized file → skipped_too_large → counted in `skipped`, NOT `errored`.
+    writeFileSync(join(dataRoot, "context", "big.md"), "x".repeat(1024 * 1024 + 100), "utf8");
+    const badPath = join(dataRoot, "context", "bad.md");
+    writeFileSync(badPath, '---\ntitle: "unterminated charlie\n---\n# Bad charlie\n', "utf8");
+
+    const summary = await fullReindex(db, config);
+
+    expect(summary.errored).toBe(1);
+    expect(summary.erroredPaths).toContain(badPath);
+    expect(summary.skipped).toBe(1);
+  });
+});
+
 describe("fullReindex — reconciles stale (path, anchor) pairs (C2)", () => {
   it("removes a (path, anchor) row + vec when its entry is dropped from the file", async () => {
     enableChunking();
