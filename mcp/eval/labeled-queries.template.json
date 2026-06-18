@@ -1,0 +1,34 @@
+{
+  "_note": "TEMPLATE — update.sh (Step 2.6) copies this to mcp/eval/labeled-queries.json only if that file is absent. The live labeled-queries.json is MACHINE-LOCAL (gitignored), like eval-baseline.json, because each machine's corpus differs: curate it against THIS machine's corpus and it never enters the shared repo. HELD-OUT ground truth for the retrieval regression gate (recall@k / MRR + forgetting-absence). NEVER a tuning target — tuning and scoring on the same queries is train/test leakage and voids the gate (src/search_config.ts weights are FIXED defaults). Presence entries below are ILLUSTRATIVE PLACEHOLDERS; replace with 15-25 representative real queries in a curation session (the agent drafts from the live corpus, Jason approves), then record curation.date/approver/corpus_snapshot. 'expectedPathContains' lists case-sensitive source_path substrings a correct result must surface. To capture a baseline: run npm run eval on the pre-change index. Acceptance is manual, not CI.",
+  "k": 5,
+  "curation": {
+    "date": null,
+    "approver": null,
+    "corpus_snapshot": null
+  },
+  "presence": {
+    "queries": [
+      { "query": "jira ticket transitions", "expectedPathContains": ["jira"] },
+      { "query": "github pull request review", "expectedPathContains": ["github"] },
+      { "query": "arc record exchange download", "expectedPathContains": ["arc"] }
+    ]
+  },
+  "stages": {
+    "absence_stage_2": {
+      "armed": false,
+      "depends_on": "C2",
+      "granularity": "entry",
+      "description": "Superseded entries must not surface in top-k once superseded. Entry-granular; unresolvable to an index anchor until C2's entry-granular rows exist. Authored unarmed at C1; C2 flips armed:true and adds anchor resolution. Live superseded count at authoring: 3 superseded + 1 dismissed (per AI-Scientist verification 2026-06-16; corpus_snapshot recaptures at curation).",
+      "queries": [
+        {
+          "query": "<query that would surface the stale entry>",
+          "forbidden": {
+            "sourcePathContains": "<source_path substring>",
+            "entryDate": "YYYY-MM-DD",
+            "noveltyStatus": "superseded"
+          }
+        }
+      ]
+    }
+  }
+}

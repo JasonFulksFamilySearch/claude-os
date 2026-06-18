@@ -7,7 +7,7 @@ description: >
   "merge my memories", "clean up memory", "graduate memories", or "memory maintenance".
   Run monthly or when MEMORY.md starts to feel noisy.
 argument-hint: "(no arguments)"
-allowed-tools: Read Glob Grep Write Edit mcp__claude-os-mcp__append_learning mcp__claude-os-mcp__list_topics mcp__claude-os-mcp__search_memory mcp__claude-os-mcp__scan_novelty mcp__claude-os-mcp__resolve_novelty_flag
+allowed-tools: Read Glob Grep Write Edit Bash(cd *) Bash(npm *) mcp__claude-os-mcp__append_learning mcp__claude-os-mcp__list_topics mcp__claude-os-mcp__search_memory mcp__claude-os-mcp__scan_novelty mcp__claude-os-mcp__resolve_novelty_flag
 ---
 
 <role>
@@ -112,6 +112,18 @@ Then read all of the following:
   Layer-2 learning entries (write-time flags + a fresh semantic scan), each with a `flag_id`
   and both entries' text. These feed Phase 3 below. (v1 surfaces near-duplicates; you still
   judge each pair duplicate/contradiction/distinct.)
+- **Capture health (D1):** read the durable capture-queue state and surface it as an evidence
+  line beside the existing proposals — this is read-only reporting, no writes.
+  Use `createCaptureQueue({ queueDir, deadLetterDir }).depth()` /
+  `.deadLetterStats()` from `hooks/lib/capture-queue.js` (or count files directly):
+  - Queue depth: count of `.json` records in `~/.claude-data/capture-queue/`
+  - Dead-letter: count of `.json` records in `~/.claude-data/capture-queue/dead-letter/`
+    plus the oldest entry's timestamp (from `deadLetterStats().oldest`)
+  Report as a single evidence line, e.g.:
+  > "Capture health: queue depth 2; dead-letter 1 (oldest 2026-06-16T14:03:00.000Z)."
+  A non-zero dead-letter count or a persistently growing queue is a signal to **surface to Sir**,
+  not to auto-fix. Surface it in the Step 4 proposals as an informational note; do not take
+  any remediation action without explicit approval.
 
 ---
 
@@ -334,6 +346,27 @@ approval gate before writing via `append_learning` and promoting the cited sourc
 memory-merger delegates the entire pass: it does not synthesize, gate, or write these learnings
 itself. Run Phase 4 last so synthesis clusters over an already cleaned, deduplicated corpus.
 
+**Closing step — run the retrieval eval gate.**
+Once all approved phases are applied (supersessions, prunes, graduations, and any Phase 4
+writes), run the offline retrieval eval gate so every supersession and prune is immediately
+checked for leakage:
+
+```
+cd ~/.claude-os/mcp && npm run eval
+```
+
+Read the `VERDICT` line and record it in the Step 9 report:
+- **PASS** — presence non-regressing and every armed absence stage 100%; done.
+- **FAIL / INCONCLUSIVE** — halt and report which signal moved: a presence regression points at
+  ranking/index, an armed-absence FAIL means a superseded entry leaked into top-k, INCONCLUSIVE
+  means fix the labels / resolve the anchor (not the ranker).
+- **BASELINE CAPTURED** — first run on this machine; no verdict this run (the baseline was just
+  recorded). Re-run to get a verdict, or accept the capture if this was the baseline run.
+
+Stage 1 (archive exclusion) is covered separately by the indexer unit suite (`npm test`), not by
+this runner. If the labeled set is still placeholder-only (uncurated), note that the presence
+half is not yet meaningful and only the absence/structural checks are informative.
+
 ---
 
 ## Step 9 — Report
@@ -359,6 +392,9 @@ itself. Run Phase 4 last so synthesis clusters over an already cleaned, deduplic
 ### Phase 4 — Experience synthesis (delegated)
 - /experience-synthesis: [ran | skipped]; learnings appended: [N]; source episodes promoted: [E]
 
+### Retrieval eval gate
+- VERDICT: [PASS | FAIL | INCONCLUSIVE | BASELINE CAPTURED] — [one-line note if not PASS]
+
 ### Unchanged
 - Entries kept: [N]
 
@@ -381,6 +417,7 @@ The skill is complete when:
   edit, archived before retiring, and their flags resolved via resolve_novelty_flag.
 - Phase 4 ran as a delegated pass via /experience-synthesis (or was explicitly skipped), with its
   own human-gated approval before any synthesized learning was written.
+- The retrieval eval gate (`npm run eval`) was run at session close and its VERDICT recorded in the report.
 - Final report showed counts for each category.
 </success_criteria>
 

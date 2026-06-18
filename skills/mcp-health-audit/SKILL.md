@@ -229,12 +229,12 @@ The tool prefix changed; 6 skill files were never updated.
 
 Phase 0:
 - Live: `mcp__atlassian__` (visible in session deferred tools, registered in settings.json)
-- Dead: `mcp__claude_ai_Atlassian__` (in permissions.allow but absent from session deferred tools)
+- Dead: `mcp__atlassian__` (in permissions.allow but absent from session deferred tools)
 
 Phase 1 finds 47 occurrences across 6 files.
 
 Audit table:
-| DEAD | mcp__claude_ai_Atlassian__ | 6 files, 47 refs | mcp__atlassian__ |
+| DEAD | mcp__atlassian__ | 6 files, 47 refs | mcp__atlassian__ |
 
 Phase 2: Removes 12 dead permissions entries. Adds 0 (mcp__atlassian__ already allowed).
 Phase 3: Updates all 47 occurrences across 6 skill files.

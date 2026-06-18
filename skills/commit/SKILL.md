@@ -7,7 +7,7 @@ description: >
   Also trigger when staged or unstaged changes are present and the user asks
   to wrap up a task.
 allowed-tools: Bash(git *)
-argument-hint: [optional: custom message]
+argument-hint: [optional: custom message] [optional: --worktree <path>]
 ---
 
 <role>
@@ -86,6 +86,17 @@ git branch --show-current
 Read all output before proceeding. Never describe the diff without having
 read it in this session.
 
+## Step 0: Resolve the target repo
+
+If invoked with `--worktree <path>` (the path MUST be under `../worktrees/`),
+set `GIT_WORKTREE="$path"` and prefix EVERY git command in this skill with
+`git -C "$GIT_WORKTREE"` — including the Step 1 gather commands above, re-run
+against the worktree. This is the ONLY place a `git -C` write is licensed: the
+global prohibition stands everywhere else, but a worktree commit is the one
+local operation with no `gh` equivalent, and the harness resets cwd between
+Bash calls so a plain `cd` cannot reach it. Without `--worktree`, operate on
+the cwd repo exactly as before (`GIT_WORKTREE` defaults to `.`).
+
 ## Step 2: Analyze Changes
 
 - Identify primary change type (feat/fix/chore/etc.)
@@ -155,17 +166,32 @@ so pre-commit hooks run as normal.
 ## Step 5: Execute Commit
 
 Show the generated commit message in a code block for review. Stage relevant
-files using specific file names, then execute:
+files using specific file names. Then — BEFORE committing — run the staged-code
+ticket-ref guard, because the external `no-ticket-refs.sh` hook runs
+`git diff --cached` with no `-C` and is therefore BLIND to a `git -C` worktree
+index. This in-skill guard restores that protection where `git -C` displaces it.
+(The `grep`s below run inside the skill's own bash subprocess, NOT as Claude's
+Bash tool, so the shell-level `grep` deny does not apply.)
+
+```bash
+# Guard: refuse to commit if staged src/** or tests/** ADDED lines carry a
+# SCRIP-###/ARC-### ref (ticket refs belong in the message, never in code).
+LEAK="$(git -C "${GIT_WORKTREE:-.}" diff --cached --no-color -U0 -- 'src/**' 'tests/**' \
+  | grep -E '^\+' | grep -vE '^\+\+\+' | grep -E '(SCRIP|ARC)-[0-9]+' || true)"
+[ -n "$LEAK" ] && { echo "Ticket ref in staged code — remove before commit:"; echo "$LEAK"; exit 1; }
+```
+
+Then execute the commit:
 
 ```bash
 # When tests already passed in this session:
-git commit --no-verify -m "$(cat <<'EOF'
+git -C "${GIT_WORKTREE:-.}" commit --no-verify -m "$(cat <<'EOF'
 <Your generated commit message here>
 EOF
 )"
 
 # Default — hooks run normally:
-git commit -m "$(cat <<'EOF'
+git -C "${GIT_WORKTREE:-.}" commit -m "$(cat <<'EOF'
 <Your generated commit message here>
 EOF
 )"

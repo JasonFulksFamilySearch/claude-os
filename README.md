@@ -205,7 +205,7 @@ session lifecycle:
 |---|---|---|
 | `session-start-check.js` | SessionStart | Injects CLAUDE.md staleness alerts and recent episode digests into context |
 | `topic-preload.js` | UserPromptSubmit | Keyword-matches the prompt against `_index.md`; auto-injects matching topic files |
-| `learnings-flush.js` | Stop | Flushes `_tmp_pending_learning.json` entries to the appropriate `learnings.md` |
+| `learnings-flush.js` | Stop | Flushes `_tmp_pending_learning-<suffix>.json` marker family (plus legacy un-suffixed) entries to the appropriate `learnings.md` |
 | `session-observer.js` | Stop | Spawns the detached `session-observer-worker.js` (Haiku) to summarize the session and write an episode |
 
 > Hooks are wired automatically by `install.sh` (fresh installs) and reconciled by `update.sh` (existing machines) via `hooks/hooks-install.js`. Re-running either is safe — registration is idempotent at the command level.
@@ -421,6 +421,17 @@ Install `envsubst` with: `brew install gettext`.
 | 5 | Pending | Cross-Claude bridge (claude.ai access via SSE) |
 | 6 | Pending | Walter deploy (personal machine full sync) |
 | 7 | Pending | Polish: scheduled curator, web UI, snapshots |
+
+### C-series: memory-quality milestones
+
+Parallel to the phase roadmap, C-series milestones target retrieval quality within the existing
+memory system:
+
+| Milestone | Status | Description |
+|---|---|---|
+| C1 — eval gate | ✓ Done | Offline retrieval eval gate (BM25+vec baseline + non-regression verdict) |
+| C2 — entry-granular indexing | ✓ Done | One DB row per dated learning entry (anchored rows); chunk-split CUTOVER **deferred** — flag `c2_chunking_enabled` default off, armed post-curation via `npm run cutover` |
+| C3 — entry-anchor resolution | Pending | Arm Stage-2 absence probes; superseded-entry leak detection |
 
 ## Maintainer
 

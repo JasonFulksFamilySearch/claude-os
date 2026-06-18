@@ -494,7 +494,7 @@ settings.local.json in parallel. Permission profile built:
 
 Phase 2 E-scores (pre):
   E1=1/2 (allowed-tools declares Bash(find:*) — not in allow list, not in deny list; gap)
-  E2=0/2 (skill body contains mcp__claude_ai_Atlassian__getJiraIssue — dead prefix, auto-fail)
+  E2=0/2 (skill body contains mcp__atlassian__getJiraIssue — dead prefix, auto-fail)
   E3=0/2 (instructions say "run find . -name '*.json'" — find is denied)
   E4=2/2 (no plugin references)
   E5=0/2 (Bash(find:*) gap undocumented)
@@ -502,7 +502,7 @@ Phase 2 E-scores (pre):
 
 Phase 3 fixes applied:
   E1: Removed Bash(find:*) from allowed-tools; added permission-required comment
-  E2: Replaced mcp__claude_ai_Atlassian__getJiraIssue → mcp__atlassian__getJiraIssue
+  E2: Replaced mcp__atlassian__getJiraIssue → mcp__atlassian__getJiraIssue
   E3: Replaced "run find . -name '*.json'" with "use Glob pattern **/*.json"
   E5: Added <!-- permission-required: Bash(find:*) — add to project .claude/settings.json
       if this skill must search the filesystem directly -->

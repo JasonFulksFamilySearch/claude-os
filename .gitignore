@@ -21,6 +21,11 @@ credentials/
 # Claude Code scratch files (plans, tasks — not portable system code)
 .claude/
 
+# Transient scratch files (the _tmp_ prefix convention) — never portable system
+# code; ignored so a stray scratch file can't leak into a commit or transmit.
+_tmp_*
+**/_tmp_*
+
 # OS / editor cruft
 .DS_Store
 .vscode/
@@ -39,7 +44,8 @@ venv/
 # Node (in case any tooling shows up)
 node_modules/
 package-lock.json
-mcp/package-lock.json
+# mcp/package-lock.json is committed on purpose: it is the reproducible-install
+# source for the CI gate (npm ci in .github/workflows/ci.yml). Keep it tracked.
 
 # Logs
 *.log
@@ -50,6 +56,10 @@ skills/daily-action/plans/
 # Machine-local config (generated from *.template.json by install.sh)
 config/watched-projects.json
 config/episodes.json
+
+# Note: the live eval labeled set is NOT here — it is machine-local DATA stored
+# outside the repo at ~/.claude-data/eval/labeled-queries.json (provisioned from
+# mcp/eval/labeled-queries.template.json by update.sh Step 2.6), so no ignore is needed.
 
 # Override user-global ignore that masks the tracked docs/ directory
 !docs/

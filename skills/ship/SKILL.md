@@ -6,7 +6,7 @@ description: >
   Use when the user says
   "ship", "push and ship", "deploy this branch", "send it", or invokes /ship.
   Also trigger when the user wants to push a PR and notify the team in one step.
-argument-hint: "[--no-slack] [--no-watch] [--draft] [--skip-sync] [--skip-lint] [--skip-tests] [--skip-patterns] [--skip-security]"
+argument-hint: "[--no-slack] [--no-watch] [--draft] [--skip-sync] [--skip-lint] [--skip-tests] [--skip-patterns] [--skip-security] [--skip-review]"
 allowed-tools: Bash(git *) Bash(gh *) Bash(npm *) Bash(mvn *) Bash(npx *) Bash(timeout *) Bash(date *) Bash(rm -f ~/.claude-data/_tmp_ship_state/*)
 ---
 <!-- permission-required: Bash(timeout:*) — used by Phase 3 and Phase 4c to wrap
@@ -72,6 +72,7 @@ Supported flags (any order, all optional):
 - `--skip-tests` — skip test execution phase
 - `--skip-patterns` — skip JavaScript/TypeScript pattern review
 - `--skip-security` — skip security scan phase
+- `--skip-review` — skip the Phase 1e pre-push review gate. Use for a trivial or low-stakes ship where the warn-loud review would add no signal; the gate is advisory, so skipping it never bypasses a hard quality check.
 
 ---
 
@@ -229,6 +230,30 @@ MEDIUM/LOW issues are reported as advisories and do not block shipping.
 
 ---
 
+## Phase 1e: Pre-push Review Gate (skip if `--skip-review` passed)
+
+Surfaces dead-wiring / test-honesty / convention findings BEFORE the push, so Copilot is not the first reviewer. **Warn-loud, not hard-block** — a false hard-block would train reflexive `--skip-review` and defeat the gate.
+
+### Trigger (multi-layer changes only)
+
+Run only when the change spans ≥2 layers — a trivial ship is not taxed. Detect by path-glob over `git diff --name-only HEAD` (NOT read-and-judge):
+- worker: `src/plugins/`, `src/webworkers/`
+- redux: `*Slice.js`, `src/features/`
+- dialog: `*Dialog.jsx`
+- component/eventBus: `src/components/`, `eventBus`
+
+If fewer than 2 of these layers are touched: emit `Phase 1e: ⏭ skipped — not a multi-layer change` and proceed to the Phase 1 Gate.
+
+### Action
+
+Invoke the `/review-pr skip` skill. (No positional argument: review-pr then self-reviews the CURRENT branch — the right grounding here, since at this point the branch is not yet pushed and has no PR. The `skip` token suppresses the post-review handoff. review-pr runs the dead-wiring + test-honesty checks in one pass; invoking it — rather than calling red-blue-judge directly — avoids the pre-push ground-truth mismatch.)
+
+### Severity — warn-loud, never halt
+
+Read the review-pr verdict. If it is REVISE or ESCALATE, or surfaces a BLOCKING finding, print the findings prominently under a `⚠ Pre-push review` heading in the Phase 1 Gate output — but **do NOT stop the ship**. The author sees the findings and decides. Unlike the hard-stop pre-flight checks 1a–1d above, this gate is advisory by design.
+
+---
+
 ## Phase 1 Gate
 
 After all enabled pre-flight checks pass, print:
@@ -239,7 +264,10 @@ After all enabled pre-flight checks pass, print:
    Tests:    PASSED (or SKIPPED / already verified)
    Patterns: PASSED (or SKIPPED / no JS/TS files)
    Security: PASSED (or SKIPPED)
+   Review:   PASSED (or ⚠ findings surfaced / SKIPPED)
 ```
+
+When the Review line reads `⚠ findings surfaced`, print the `⚠ Pre-push review` findings block (from Phase 1e) immediately beneath this gate output. The findings are advisory — the ship proceeds to Phase 2 regardless.
 
 Then proceed directly to Phase 2. Do NOT prompt the user — `/ship` is a fire-and-forget command. Reaching this gate means every enabled pre-flight check passed; any failure above would have already hard-stopped the skill.
 
@@ -637,6 +665,7 @@ re-invoke /ship to resume the watch.
 <success_criteria>
 - Phase 0 reported branch, ticket, and changed-file count before any action was taken
 - Pre-flight checks (lint, tests, patterns, security) each passed or were explicitly skipped via a flag
+- The Phase 1e pre-push review gate ran on multi-layer changes and surfaced any findings warn-loud without halting the ship, or was skipped (single-layer change or `--skip-review`)
 - Commit was created by invoking the `/commit` skill — not written directly
 - Push used the 5-minute timeout helper with exit-124 reconciliation
 - A PR existed before Phase 4 — either pre-existing or opened by Phase 3.5 via `gh pr create`
@@ -659,6 +688,7 @@ Commit:    <short SHA> <subject>
 
 Phase 0.5 Sync:        ✅ / ⏭ SKIPPED / ❌ <reason>  (behind: <n>, merged: yes/no)
 Phase 1 Pre-flight:    ✅ / ❌ <reason>
+Phase 1e Review:       ✅ / ⚠ findings surfaced / ⏭ SKIPPED  (advisory — never ❌)
 Phase 2 Commit:        ✅ / ❌ <reason>
 Phase 3 Push:          ✅ / ❌ <reason> (<elapsed>s)
 Phase 3.5 PR:          ✅ created <url> / ✅ existing #<n> / ❌ <reason>

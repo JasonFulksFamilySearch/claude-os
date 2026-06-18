@@ -17,6 +17,24 @@ When session start injects a `[Background jobs]` block, silently call CronCreate
 for each listed job before responding to the user's first message. Do not ask for
 confirmation — the jobs.json is the authorization.
 
+## Memory-engine changes must pass the retrieval eval gate
+
+Any change to a ranking, embedding, or indexing module in `mcp/` must be proven
+against the offline retrieval eval gate: capture a baseline on the pre-change index,
+then require `npm run eval` to compose a non-regressing verdict (PASS) afterward.
+The labeled set (machine-local DATA at `~/.claude-data/eval/labeled-queries.json`,
+seeded from the committed `mcp/eval/labeled-queries.template.json`) is HELD-OUT —
+never tune `src/search_config.ts` weights against it (train/test leakage voids the gate).
+Stage 1 (archive exclusion) is enforced separately by `npm test`. Full protocol:
+`docs/eval-gate-protocol.md`.
+
+As of C2 (entry-granular indexing), the index supports **anchored rows** — one DB
+row per dated learning entry rather than one row per file. The schema carries new
+`anchor` and `parent_title` columns. Schema migrations run via **`npm run migrate`**
+(wired into `update.sh`) — never on server boot. The chunk-split CUTOVER (flag
+`c2_chunking_enabled`) ships default-off; arm it post-curation via `npm run cutover`
+after capturing an eval baseline (see `docs/eval-gate-protocol.md` C2 cutover note).
+
 ## Every PR MUST request Copilot as a reviewer
 
 Every pull request opened against this repo MUST have GitHub Copilot requested as a

@@ -50,6 +50,79 @@ fi
 
 echo ""
 
+# ── Step 2.5: DB migration (v2 → v3, idempotent) ─────────────────────────────
+
+echo "--- Step 2.5: DB migration ---"
+
+MCP_DIR="$REPO_DIR/mcp"
+MEMORY_DB="$HOME/.claude-data/memory.db"
+
+if [ ! -f "$MEMORY_DB" ]; then
+    skip "No memory.db found — skipping migration (fresh machine)"
+else
+    echo "  memory.db found — running migrate script (no-op if already v3)..."
+    # A genuine migration failure (non-zero exit: backup failed or verify threw)
+    # means the MCP server cannot start. Treat it as a hard update failure so the
+    # operator knows the DB is in an unsafe state and does not see a false-success.
+    # The two safe cases both exit 0:
+    #   • already-v3 (idempotent no-op) → migrate exits 0 → update succeeds
+    #   • DB absent (fresh machine)     → skipped above, never reaches this branch
+    if (cd "$MCP_DIR" && npm run migrate); then
+        ok "DB migration complete (or already v3)"
+    else
+        fail "DB migration FAILED — MCP server cannot start. Restore from backup or run manually: (cd $MCP_DIR && npm run migrate)"
+    fi
+fi
+
+echo ""
+
+# ── Step 2.6: Eval labeled-set provisioning (machine-local) ──────────────────
+
+echo "--- Step 2.6: Eval labeled-set ---"
+
+LABELS_TEMPLATE="$REPO_DIR/mcp/eval/labeled-queries.template.json"
+LABELS_LIVE="$HOME/.claude-data/eval/labeled-queries.json"
+
+# The live labeled set is machine-local DATA (curated per-corpus), so it lives under
+# ~/.claude-data/ alongside eval-baseline.json — NOT in the repo, where a git reset/clean
+# could wipe it. The eval runner reads LABELS_LIVE, so a fresh machine needs it provisioned
+# from the committed template. Only-if-absent: never clobber a machine's curated set.
+if [ ! -f "$LABELS_TEMPLATE" ]; then
+    skip "No labeled-queries template — skipping"
+elif [ -f "$LABELS_LIVE" ]; then
+    skip "Eval labeled set already present (machine-local; curate via a curation session)"
+else
+    mkdir -p "$(dirname "$LABELS_LIVE")"
+    cp "$LABELS_TEMPLATE" "$LABELS_LIVE"
+    ok "Provisioned eval labeled set → ~/.claude-data/eval/ (placeholders — curate before arming)"
+fi
+
+# Transition cleanup: an earlier build provisioned the labeled set to the in-repo path
+# mcp/eval/labeled-queries.json (gitignored). The set is now machine-local under
+# ~/.claude-data/eval/, and that gitignore entry is gone — so a leftover in-repo file
+# would surface as untracked and could leak into a commit/transmit. Remove it if present.
+DEPRECATED_LABELS="$REPO_DIR/mcp/eval/labeled-queries.json"
+if [ -f "$DEPRECATED_LABELS" ]; then
+    rm -f "$DEPRECATED_LABELS"
+    ok "Removed deprecated in-repo labeled set (now machine-local at ~/.claude-data/eval/)"
+fi
+
+# Arming the eval gate is a one-time, human-gated, PER-MACHINE step that cannot be
+# scripted — the labeled set must be curated against THIS machine's corpus, and the
+# baseline captured on THIS machine's index. Surface the reminder only while the gate
+# is unarmed (no baseline captured yet) so it stops nagging once done.
+EVAL_BASELINE="$HOME/.claude-data/eval-baseline.json"
+if [ ! -f "$EVAL_BASELINE" ]; then
+    warn "Eval gate not yet armed on this machine — OPTIONAL follow-up:"
+    echo "      1. Curate: draft ~20-30 candidate queries from THIS machine's corpus,"
+    echo "         approve 15-25, write them into $LABELS_LIVE"
+    echo "         (do NOT copy another machine's set — queries are corpus-specific)."
+    echo "      2. Baseline: (cd $REPO_DIR/mcp && npm run eval -- --rebaseline)"
+    echo "      Do NOT run 'npm run cutover' — the C2 chunk-split is deferred pending hardening."
+fi
+
+echo ""
+
 # ── Step 3: Hook registrations in settings.json ──────────────────────────────
 
 echo "--- Step 3: Hook registrations ---"
@@ -87,8 +160,11 @@ elif grep -qF "Read the index file at" "$CLAUDE_MD"; then
     echo "      \`mcp__claude-os-mcp__get_topic\`. The hook handles detection; the agent handles"
     echo "      the relevance judgment. Reading \`_index.md\` manually is no longer needed."
     echo "    - When a session produces a non-obvious lesson, correction, or decision: write"
-    echo "      it to \`~/.claude-data/_tmp_pending_learning.json\` as a JSON array entry"
-    echo "      { \"scope\": \"agent\"|\"project\", \"title\": \"...\", \"content\": \"...\", \"project\"?: \"...\" }."
+    echo "      it to \`~/.claude-data/_tmp_pending_learning-<session-suffix>.json\` (choose"
+    echo "      one stable suffix per session — prevents concurrent sessions clobbering each"
+    echo "      other's markers). The flush hook globs the whole family plus the legacy"
+    echo "      un-suffixed name, so all variants are consumed at Stop time."
+    echo "      JSON entry shape: { \"scope\": \"agent\"|\"project\", \"title\": \"...\", \"content\": \"...\", \"project\"?: \"...\" }."
     echo "      Do this during the session when the insight occurs — not only at the end."
     echo "      The Stop hook delivers all pending entries at session close. For immediate"
     echo "      or manual capture, \`mcp__claude-os-mcp__append_learning\` still works directly."
@@ -106,8 +182,11 @@ With these two rules:
     `mcp__claude-os-mcp__get_topic`. The hook handles detection; the agent handles
     the relevance judgment. Reading `_index.md` manually is no longer needed.
   - When a session produces a non-obvious lesson, correction, or decision: write
-    it to `~/.claude-data/_tmp_pending_learning.json` as a JSON array entry
-    { "scope": "agent"|"project", "title": "...", "content": "...", "project"?: "..." }.
+    it to `~/.claude-data/_tmp_pending_learning-<session-suffix>.json` (choose one
+    stable suffix per session — prevents concurrent sessions clobbering each other's
+    markers). The flush hook globs the whole family plus the legacy un-suffixed name,
+    so all variants are consumed at Stop time.
+    JSON entry shape: { "scope": "agent"|"project", "title": "...", "content": "...", "project"?: "..." }.
     Do this during the session when the insight occurs — not only at the end.
     The Stop hook delivers all pending entries at session close. For immediate
     or manual capture, `mcp__claude-os-mcp__append_learning` still works directly.
@@ -423,6 +502,15 @@ else
         skip "resource-samples.jsonl within size cap"
     fi
 fi
+
+echo ""
+
+# ── Step 11: Capture-queue directories (D1 durable capture) ─────────────────
+
+echo "--- Step 11: Capture-queue directories ---"
+
+mkdir -p "$HOME/.claude-data/capture-queue/dead-letter"
+ok "capture-queue directories ready"
 
 echo ""
 

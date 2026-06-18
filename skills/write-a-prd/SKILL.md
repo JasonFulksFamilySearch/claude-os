@@ -31,7 +31,7 @@ test scope confirmed.
   writing before these steps produces a PRD based on assumptions rather than
   verified design decisions.
 - Confirm the output file path with Sir before writing (default: `./<feature-slug>.prd.md`).
-- All five PRD sections are required — do not omit any.
+- All seven PRD sections are required — do not omit any.
 - Limit module identification to modules needed for this feature; exclude speculative
   refactors or improvements that were not requested.
 
@@ -66,6 +66,13 @@ session — do not omit steps for convenience.
 If this session is interrupted between steps, summarize resolved decisions and open
 questions in a conversation message before ending — this gives a fresh context window
 enough state to resume without repeating the full interview.
+
+**Step 0 — Clarify scope (optional)**
+*Tool: AskUserQuestion (skip if scope is clear)*
+
+If the scope is already clear (e.g., "write a PRD for feature X"), proceed directly
+to Step 1. If scope is uncertain, ask Sir to clarify what they're trying to accomplish
+and what the intended use of the PRD is.
 
 **Step 1 — Gather the problem description**
 *Tool: AskUserQuestion*
@@ -117,35 +124,53 @@ tests. Record which modules are excluded from test scope and why.
 
 Once you have verified codebase state, resolved every design branch, and confirmed
 module scope, confirm the output path with Sir, then write the PRD using the template
-below. All five sections are required.
+in `references/prd-template.md`. All seven sections are required.
 
 If this session has been long or the interview involved many topics, briefly review
 your notes before writing: the PRD must reflect the final agreed decisions, not
 earlier drafts.
 
-<prd-template>
+For user story guidance (INVEST criteria, Gherkin acceptance criteria format, DoR/DoD
+checklists), refer to `references/user-stories-guide.md`.
 
-## Problem Statement
+## PRD Template Structure
+
+### Problem Statement
 
 The problem that the user is facing, from the user's perspective.
 
-## Solution
+### Solution
 
 The solution to the problem, from the user's perspective.
 
-## User Stories
+### User Stories
 
-A LONG, numbered list of user stories. Each user story should be in the format of:
+A LONG, numbered list of user stories using the format below (full guidance in
+`references/user-stories-guide.md`):
 
-1. As an <actor>, I want a <feature>, so that <benefit>
+**Standard format:**
+```
+As a [user type], I want [goal], so that [benefit]
+```
 
-<user-story-example>
-1. As a mobile bank customer, I want to see balance on my accounts, so that I can make better informed decisions about my spending
-</user-story-example>
+**Each story MUST include acceptance criteria in Gherkin format:**
+```
+Given [context]
+When [action]
+Then [expected outcome]
+```
 
-This list of user stories should be extremely extensive and cover all aspects of the feature.
+**INVEST quality check:**
+- Independent: Can be completed without other stories?
+- Negotiable: Details open to discussion?
+- Valuable: Delivers clear value?
+- Estimable: Can effort be estimated?
+- Small: Fits in a sprint (1–5 days)?
+- Testable: Acceptance criteria are verifiable?
 
-## Implementation Decisions
+This list should be extremely extensive and cover all aspects of the feature.
+
+### Implementation Decisions
 
 A list of implementation decisions that were made. This can include:
 
@@ -161,23 +186,36 @@ Write each decision as a concrete statement. Omit file paths and code snippets;
 use module names and interface descriptions instead, since paths and snippets
 become stale as the codebase evolves.
 
-## Testing Decisions
+### Testing Decisions
 
 A list of testing decisions that were made. Include:
 
-- A description of what makes a good test (only test external behavior, not implementation details)
+- A description of what makes a good test (only test external behavior, not
+  implementation details)
 - Which modules will be tested
 - Prior art for the tests (i.e. similar types of tests in the codebase)
 
-## Out of Scope
+**Definition of Ready (before development):**
+- Story meets INVEST criteria
+- Acceptance criteria written in Gherkin format
+- Dependent stories documented
+- Effort estimated by team
+- Stakeholders agree on goal
+
+**Definition of Done (after development):**
+- All acceptance criteria pass
+- Code review approved
+- Test coverage meets team standards
+- Documentation updated
+- Change deployed to target environment
+
+### Out of Scope
 
 A description of the things that are out of scope for this PRD.
 
-## Further Notes
+### Further Notes
 
 Any further notes about the feature.
-
-</prd-template>
 
 </instructions>
 
@@ -186,7 +224,7 @@ The skill is complete when:
 - Sir's codebase assertions were verified by reading actual files.
 - The interview (Step 3) resolved every branch of the design tree.
 - Module design (Step 4) was confirmed with Sir including which modules get tests.
-- The PRD file was saved to the confirmed path with all five sections present.
+- The PRD file was saved to the confirmed path with all seven sections present.
 - No open decisions remain that would block an implementer.
 </success_criteria>
 

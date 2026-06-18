@@ -184,6 +184,34 @@ server process and loads the model lazily).
 
 ---
 
+## Retrieval eval gate
+
+`npm run eval` scores the live ranker against a HELD-OUT labeled set
+(`eval/labeled-queries.json`) so every change to ranking/embedding/indexing must
+prove non-regression, and so **forgetting** is a tested property. Run by hand, not
+in CI; acceptance is manual.
+
+```bash
+cd ~/.claude-os/mcp && npm run eval                  # compose a verdict vs the baseline
+cd ~/.claude-os/mcp && npm run eval -- --rebaseline  # force re-capture the baseline
+```
+
+- **Presence** — recall@k / MRR over curated queries, regressed against a
+  machine-local baseline at `~/.claude-data/eval-baseline.json` (captured on the
+  pre-change index; never committed).
+- **Absence (Stage 2)** — superseded entries must stay out of top-k. Authored
+  `armed:false` at C1; arms in C2 when entry-granular rows exist.
+- **Stage 1 (archive exclusion)** is enforced by the indexer unit suite (`npm test`),
+  not by this runner — the runner prints one orientation line noting that.
+- **Verdict** precedence: CAPTURING > FAIL > INCONCLUSIVE > PASS. PASS only when
+  presence is non-regressing AND every armed absence stage passes 100%.
+
+The presence half is not meaningful until the placeholder queries are curated (a
+one-time human session). Full protocol — curation, baseline capture, verdict rule —
+is in `docs/eval-gate-protocol.md`.
+
+---
+
 ## Schema overview
 
 `~/.claude-data/memory.db`:
@@ -306,12 +334,14 @@ WAL lock. Kill any stray `node …/dist/index.js` processes and restart.
 npm test
 ```
 
-Ten suites:
+Eleven suites:
 - `db.test.ts` — schema idempotency, FTS5 trigger correctness
 - `embedder.test.ts` — vector serialization + constants (incl. `EMBEDDING_DTYPE`);
   never loads the real model
 - `indexer.test.ts` — `classify`, `indexFile` (upsert/no-op), `fullReindex`,
-  archive/oversize skip behavior, and `vec_items` population
+  archive/oversize skip behavior, `vec_items` population, the extracted
+  `isWatchIgnored` watcher predicate, and the control-backed archive-exclusion
+  invariant (Stage 1 of the eval gate)
 - `reembed.test.ts` — `reembedAll`: full re-embed + count reporting, idempotency,
   losslessness (observations & FTS untouched), and atomic rollback when an insert
   fails inside the swap transaction
@@ -324,7 +354,10 @@ Ten suites:
   near-duplicate detection
 - `experience.test.ts` — `clusterByEmbedding` (union-find), proposal-shape
   validation, and citation verification
-- `eval.test.ts` — ranking metrics: `recallAtK`, `reciprocalRank`, `mean`
+- `eval.test.ts` — ranking metrics (`recallAtK`, `reciprocalRank`, `mean`) and the
+  eval-gate verdict logic (`absenceProbePass`, `aggregateAbsenceStage`,
+  `presenceVerdict`, `composeVerdict`, `isBaselineCapture`)
+- `eval-runner.test.ts` — the eval runner's baseline read/write round-trip
 
 Tests mock the embedder module (the real model is never loaded) and use a tmpdir
 database + logger, so they never touch `~/.claude-data/`.

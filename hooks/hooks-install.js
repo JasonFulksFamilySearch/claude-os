@@ -49,10 +49,15 @@ const CANONICAL_HOOKS = [
  */
 const CANONICAL_GUARD_HOOKS = [
   {
-    // Rule 11 guard: denies `cd … && git`. A permissionDecision:"deny" hook.
+    // Rule 11 guard: denies `cd … && git`, EXCEPT when the cd target is under a
+    // /worktrees/ path — worktree commits must work, and the standalone-cd cwd
+    // reset makes "cd first, then git separately" impossible for sibling worktrees.
+    // The second grep matches the cd ARGUMENT only (`[^&]*`, up to the `&&`), so a
+    // /worktrees/ mention in the git portion does not grant the exemption.
+    // A permissionDecision:"deny" hook.
     event: 'PreToolUse',
     matcher: 'Bash',
-    command: 'jq -r \'.tool_input.command\' | grep -qE \'^cd\\s+.*&&\\s*git\\s\' && echo \'{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Rule 11: cd and git must be separate commands. Run cd first, then git separately."}}\'',
+    command: 'c=$(jq -r \'.tool_input.command\'); printf \'%s\' "$c" | grep -qE \'^cd[[:space:]]+.*&&[[:space:]]*git[[:space:]]\' && ! printf \'%s\' "$c" | grep -qE \'^cd[[:space:]]+[^&]*/worktrees/\' && echo \'{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Rule 11: cd && git must be separate commands (run cd first, then git). Worktree paths under /worktrees/ are exempt."}}\'',
     statusMessage: 'Checking cd && git...',
   },
   {

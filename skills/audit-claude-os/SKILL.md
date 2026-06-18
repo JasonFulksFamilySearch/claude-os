@@ -307,6 +307,25 @@ The `session-start-check.js` and `topic-preload.js` hooks inject content into
 the model context. Is there a trust boundary on the injected content? Could
 injected data from episodes or topic files contain prompt injection vectors?
 
+**H8 — Rule documentation ↔ enforcement parity (drift catcher)**
+Rule docs (`~/.claude/rules/*.md`, `~/.claude/CLAUDE.md`) describe what is
+enforced; `settings.json` (`permissions.deny`, inline PreToolUse hooks),
+`rule-enforcement.sh`, and `hooks-install.js` actually enforce it. Nothing keeps
+these in sync, so they drift. Cross-check both directions and the numbering:
+- **Doc claims an enforcement that does not exist.** For every command or pattern
+  a rule file calls "denied", "prohibited", "will fail", or "blocked", confirm a
+  matching `permissions.deny` entry or hook rule exists. Grep the rule files for
+  those keywords; verify each against the live enforcement. Flag any claim with no
+  backing as MAJOR — a rule that claims a guard it lacks is worse than no rule,
+  because it gets trusted. (Observed class: docs listing `cat`/`grep`/`find` as
+  "denied" while `settings.json` allows them.)
+- **Enforcement with no doc.** For every `permissions.deny` entry and hook rule,
+  confirm a rule file documents it. Flag undocumented enforcement as MINOR.
+- **Rule-number uniqueness.** Collect every `Rule <N>` label across `settings.json`,
+  `rule-enforcement.sh`, `hooks-install.js`, and `rules/*.md`. Flag any number that
+  labels two different rules (collision) as MAJOR, quoting both definitions with
+  file:line; flag sequence gaps as INFO.
+
 ---
 
 ## Phase 5: Cross-Cutting Audit

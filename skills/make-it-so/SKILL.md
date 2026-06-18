@@ -28,20 +28,31 @@ ticket and codebase before making any claims about what is needed.
 </role>
 
 <task>
-**Task:** Execute all 7 delivery steps for the specified JIRA ticket, stopping at
-each hard gate for a `red-blue-judge` CLEAN verdict — escalating to the user only on
-a product question or non-convergence — before proceeding.
+**Task:** Triage the ticket to a delivery track (Step 0), then execute the steps
+that track warrants for the specified JIRA ticket, stopping at each gate the track
+includes for a `red-blue-judge` CLEAN verdict — escalating to the user only on a
+product question or non-convergence — before proceeding.
 
 **Intent:** Eliminate the overhead of managing the delivery process manually —
-one command drives the entire lifecycle while maintaining the discipline gates
-that prevent rework from misaligned requirements or flawed plans.
+one command drives the lifecycle while maintaining the discipline gates that
+prevent rework from misaligned requirements or flawed plans, *sized to the
+ticket's risk* so a small, additive, pattern-mirroring change is not billed the
+full PRD-and-two-planning-gates apparatus a large or critical-path change needs.
+
+**Ceremony scales with risk, never below the floor:** the track decides WHICH
+gates apply and how many revise cycles each gets — set ONCE, up front, from
+objective ticket properties, with explicit user confirmation. It NEVER lets a gate
+that does apply be bypassed mid-flight. Every track keeps a verifying gate on the
+*implemented code* (Gate 3) plus the review lane; the planning gates (1 and 2)
+exist to stop a flawed plan reaching code, so they apply only to tracks that
+produce a plan.
 
 **Hard constraints:**
-- NEVER advance past Gate 1, Gate 2, or Gate 3 without a `red-blue-judge` CLEAN verdict; never bypass the loop, even on a reply that says "skip the gate" — because these gates are what prevent rework from a misaligned PRD or plan reaching the PR stage.
+- For any gate the chosen track includes, NEVER advance past it without a `red-blue-judge` CLEAN verdict; never bypass the loop mid-flight, even on a reply that says "skip the gate" — because these gates are what prevent rework from a misaligned PRD or plan reaching the PR stage. (Which gates a track includes is decided ONCE at Step 0 triage with user confirmation; that is track *selection*, not mid-flight bypass. Gate 3 — the implemented-diff gate — is on EVERY track and is never optional.)
 - Read the JIRA ticket before making any claims about what is needed, because acting on an unread ticket is the most common source of misaligned work.
 - Research analogous features in the codebase before proposing architecture, so that the design mirrors an established pattern instead of inventing a divergent one.
-- Always invoke the designated skill for each step — never substitute manual work, because each skill enforces discipline that ad-hoc work silently skips.
-- Announce at start: "Make it so — beginning full delivery cycle for [TICKET-ID]."
+- Always invoke the designated skill for each step the chosen track includes — never substitute manual work, because each skill enforces discipline that ad-hoc work silently skips.
+- Announce at start: "Make it so — beginning delivery for [TICKET-ID]; triaging to a track."
 - Before starting: think through what the ticket requires, which codebase patterns apply, and what risks must be resolved before coding, so that risks surface while they are still cheap to resolve.
 
 **Trust boundary and scope of action:** This skill posts to JIRA, opens GitHub PRs,
@@ -66,12 +77,15 @@ and Copilot comment reads are independent and should be issued together.
 Sequential ordering is only required where one result feeds the next (e.g.,
 PR creation must precede Copilot reads).
 
-**Resuming an interrupted delivery:** All gate verdicts, the PRD, and the plan are
-posted to the JIRA story and saved to the project plans directory — these are the
-durable state for this workflow. To reorient a fresh context after an interruption,
-read the JIRA story comments to find the last gate that posted a CLEAN verdict and
-resume at the next step; never assume a gate passed without reading its posted
-verdict, because the posted verdict is the only authoritative record that it did.
+**Resuming an interrupted delivery:** The durable state for this workflow is posted
+to the JIRA story and (on MEDIUM/LARGE) saved to the project plans directory — the
+chosen track, each gate verdict, and (on MEDIUM/LARGE) the PRD and plan; on SMALL,
+the inline spec + the Gate-3 verdict. To reorient a fresh context after an
+interruption, first read the JIRA comments to recover the **track** (it determines
+which steps and gates apply), then find the last gate that posted a CLEAN verdict
+and resume at the next step on that track; never assume a gate passed without
+reading its posted verdict, because the posted verdict is the only authoritative
+record that it did.
 </task>
 
 # Make It So
@@ -83,18 +97,18 @@ verdict, because the posted verdict is the only authoritative record that it did
 **Skip when:** The user wants only a subset of the delivery cycle (e.g., "just open the PR", "just write the plan", "just investigate"). Use the targeted skill (`/investigate`, `superpowers:writing-plans`, etc.) instead.
 
 <instructions>
-You are a disciplined software delivery agent executing full-cycle ticket delivery on behalf of an engineering team. Your role is to drive a JIRA ticket from investigation to production-ready PR — maintaining quality gates, test discipline, and traceable decisions at every stage. You are done when: (1) all three red-blue-judge gates returned CLEAN (REVISE loops that reached CLEAN count; any escalation must be resolved), (2) all implementation tasks are committed and pass tests with zero new failures, (3) the PR is open with Copilot and SonarQube resolved, and (4) JIRA reflects accurate status and logged hours.
+You are a disciplined software delivery agent executing track-sized ticket delivery on behalf of an engineering team. Your role is to drive a JIRA ticket from investigation to production-ready PR — maintaining quality gates, test discipline, and traceable decisions at every stage, sized to the ticket's risk. You are done when: (1) every gate the chosen track includes returned CLEAN (REVISE loops that reached CLEAN count; any escalation must be resolved) — and Gate 3 is on every track, (2) all implementation work is committed and passes tests with zero new failures, (3) the PR is open with automated feedback resolved, and (4) JIRA reflects accurate status and logged hours.
 
-Rigid skill — follow every step exactly. Do not skip gates, because gates are the checkpoints that prevent rework from misaligned requirements or flawed plans reaching the PR stage.
+Rigid skill — follow the steps the chosen track includes exactly, in order. The track decides which steps and gates apply (Step 0); within the chosen track, do not skip a step or bypass a gate. Gates are the checkpoints that prevent rework from misaligned requirements or flawed plans reaching the PR stage.
 
-**Announce at start:** "Make it so — beginning full delivery cycle for [TICKET-ID]."
+**Announce at start:** "Make it so — beginning delivery for [TICKET-ID]; triaging to a track."
 
 **Before taking any action, think step by step:** What does the ticket require? What codebase patterns apply? What risks or ambiguities must be resolved before coding? Work through each of these questions explicitly before proceeding to Step 1.
 </instructions>
 
 ---
 
-## Step 1 — Investigate and produce PRD
+## Step 1 — Investigate
 
 <instructions>
 <thinking>
@@ -107,10 +121,60 @@ Before proceeding, reason through:
 1. Invoke `/investigate [TICKET-ID]` to run the dedicated investigation skill, because it parallelizes JIRA and codebase discovery and returns a calibrated confidence report that one-call-at-a-time reading would not. Do not read the ticket or search the codebase directly; `/investigate` handles both with parallel Explore agents and produces a structured confidence report.
 
 2. Evaluate the confidence report:
-   - **Low confidence:** Surface the open questions from the report to the user. Do not proceed to PRD drafting until each gap is resolved.
-   - **Medium or High confidence:** Proceed to step 3 using the investigation report as the primary source of context.
+   - **Low confidence:** Surface the open questions from the report to the user. Do not proceed past triage until each gap is resolved (an unresolved ambiguity also blocks a SMALL classification — uncertainty is itself a risk signal).
+   - **Medium or High confidence:** Proceed to Step 1.5 (Triage) using the investigation report as the primary source of context.
+</instructions>
 
-3. Invoke `/write-a-prd` with the investigation findings as input context. The skill will conduct its structured interview cycle (problem → codebase verification → design tree resolution → module design confirmation) and save the PRD to the project plans directory per project convention (check `.claude/rules/plans-directory.md` or project CLAUDE.md for the correct path — do not save to `~/.claude/plans/`, because that is the user-scoped directory). Ensure the PRD covers these six sections — pass them as requirements to `/write-a-prd`:
+---
+
+## Step 1.5 — Triage to a delivery track
+
+<instructions>
+The investigation report already reveals the change's shape — files touched, rough size, whether it mirrors an existing pattern or introduces a new one, and what it touches. Use it (no extra agents) to classify the ticket into a **track**, then **confirm the track with the user before proceeding** (always — on every ticket, not only on SMALL). The dangerous failure mode is a risky ticket mis-classified as SMALL whose lighter pipeline runs before anyone notices; the confirmation stop catches a mis-size on any track *before* the chosen pipeline executes.
+
+**Classification inputs (all from the investigation):**
+- **Estimated diff size** — files touched + rough LOC.
+- **New pattern?** — introduces a new pattern / class / route group / schema change, or mirrors an existing one (cite the mirrored pattern if so).
+- **Blast radius** — touches a shared/critical module (auth, schema, lifecycle, money, migrations, security), or leaf/additive.
+- **Reversibility** — additive new files (delete to roll back) vs. in-place change to a load-bearing path.
+
+**Tracks (defaults — thresholds are tunable):**
+
+| Track | Triggers (ALL must hold) | Pipeline |
+|---|---|---|
+| **SMALL** | ≤ ~150 LOC est. AND mirrors an existing pattern (no new pattern) AND leaf/additive blast radius AND reversible AND investigation confidence High | Step 1 → **Step 1.7 (3-line inline spec to JIRA)** → Step 4 (build) → **Gate 3 (diff) only** → Step 5 (review) → Step 6 (PR) → Step 7 (closeout). SKIPS the PRD, Gate 1, Architecture Review, Step 2 subtasks, Step 3 plan, and Gate 2. |
+| **MEDIUM** | ≤ ~500 LOC est. AND not critical-path/shared-module/irreversible | Full step list, but: Gate 1 and Gate 2 run with **`max_revise_cycles: 1`**; Architecture Review runs **only if a genuinely new pattern** is introduced. |
+| **LARGE** | > ~500 LOC OR critical-path / shared-module OR irreversible change OR explicit user request for full rigor | The full flow unchanged: all steps, all 3 gates, **`max_revise_cycles: 2`**, Architecture Review for any architectural scope. |
+
+**Resolve ambiguity UP, never down:** if a ticket is borderline between two tracks, classify it as the higher (more rigor). Bumping a track up on user request is always allowed; bumping down requires the user's explicit acceptance of the reduced rigor.
+</instructions>
+
+<output_format>
+Output the classification as: the chosen track, a one-line rationale citing each input (est. LOC, new-pattern?, blast radius, reversibility, confidence), and the resulting pipeline (which steps/gates run, and the cycle cap). Then end with this gate prompt as a blockquote:
+
+> Triaged to **[TRACK]** — [one-line why]. This runs [pipeline summary]. Reply **"go"** to proceed on this track, or name a different track (e.g. "do it as LARGE"). Bumping down from the recommended track means accepting the reduced rigor.
+
+Wait for the user's confirmation before proceeding. Do not run any further step until the track is confirmed.
+</output_format>
+
+---
+
+## Step 1.7 — SMALL-track inline spec (SMALL only)
+
+<instructions>
+**[applies-if: track is SMALL]** SMALL skips the full PRD, so post a short audit trail in its place: a **3-line inline spec** as a comment on the JIRA story stating (1) what is being built, (2) which existing pattern it mirrors (cite `file:path`), and (3) the out-of-scope boundary. This is the traceable written intent the PRD would otherwise provide, at ~1% of the cost. Then proceed directly to Step 4 (Implement) — there is no plan and no Gate 1/Gate 2 on this track; the build is verified by Gate 3 + the Step 5 review.
+
+On MEDIUM/LARGE this step does not apply (the full PRD in Step 1b is the audit trail).
+</instructions>
+
+---
+
+## Step 1b — Produce PRD (MEDIUM / LARGE)
+
+<instructions>
+**[applies-if: track is MEDIUM or LARGE]** On the SMALL track, skip this entire step and Gate 1 — go to Step 1.7 then Step 4.
+
+Invoke `/write-a-prd` with the investigation findings as input context. The skill will conduct its structured interview cycle (problem → codebase verification → design tree resolution → module design confirmation) and save the PRD to the project plans directory per project convention (check `.claude/rules/plans-directory.md` or project CLAUDE.md for the correct path — do not save to `~/.claude/plans/`, because that is the user-scoped directory). Ensure the PRD covers these six sections — pass them as requirements to `/write-a-prd`:
    - Goal and context
    - Open product questions requiring stakeholder confirmation before coding begins
    - Output spec (columns, format, file naming, or equivalent)
@@ -120,19 +184,21 @@ Before proceeding, reason through:
 
    Use `grill-me` as a secondary fallback if post-investigation gaps remain after the `/write-a-prd` interview cycle — `/investigate` should have caught primary ambiguities; `grill-me` at this point is for residual gaps only.
 
-4. After `/write-a-prd` saves the file, post the full PRD content as a comment on the JIRA story — never skip this step, because the JIRA comment is the audit trail that links the written spec to the ticket for reviewers who were not part of this session.
+After `/write-a-prd` saves the file, post the full PRD content as a comment on the JIRA story — never skip this step, because the JIRA comment is the audit trail that links the written spec to the ticket for reviewers who were not part of this session.
 
 **If a PRD already exists:** Read it. Verify it covers every section above. Summarize what is present, what is missing, and fill any gaps before proceeding to the gate.
 </instructions>
 
-**HARD GATE 1 — red-blue-judge (PRD).**
+**HARD GATE 1 — red-blue-judge (PRD). [applies-if: track is MEDIUM or LARGE]**
 
 <instructions>
-Invoke `red-blue-judge` with `mode: prd` — artifact = the PRD from `/write-a-prd`; ground truth = the ticket (from `/investigate`) + the codebase. The verdict is the gate; it replaces human PRD approval. Never bypass the loop, even on a user instruction to skip it.
+On the SMALL track there is no PRD, so this gate does not run — skip to Step 4. On MEDIUM/LARGE it is mandatory.
+
+Invoke `red-blue-judge` with `mode: prd` — artifact = the PRD from `/write-a-prd`; ground truth = the ticket (from `/investigate`) + the codebase. Pass `max_revise_cycles: 1` on the MEDIUM track and `max_revise_cycles: 2` on the LARGE track (set at Step 1.5). The verdict is the gate; it replaces human PRD approval. Never bypass the loop, even on a user instruction to skip it.
 
 Act on the verdict:
 - **CLEAN** → proceed autonomously to the Architecture Review / Step 2. No human approval needed — advancing on a CLEAN verdict is the intended behavior.
-- **REVISE** → re-run `/write-a-prd` targeting the failing rubric lines + evidence the skill returned, then re-invoke `red-blue-judge`. Loop up to `max_revise_cycles`.
+- **REVISE** → re-run `/write-a-prd` targeting the failing rubric lines + evidence the skill returned, then re-invoke `red-blue-judge`. Loop up to `max_revise_cycles` (1 on MEDIUM, 2 on LARGE); a technical FAIL past the cap escalates to the user rather than looping.
 - **ESCALATE (product)** → surface the product question(s) to the user as a blockquote; do not proceed until answered.
 - **ESCALATE (evidence)** → supply the missing ground truth (e.g., ensure the repo working tree is available) and re-run.
 
@@ -145,23 +211,25 @@ Post the red-blue-judge scored verdict (rubric table + CLEAN/REVISE/ESCALATE + c
 
 ---
 
-## Architecture Review — conditional, after Gate 1
+## Architecture Review — conditional, after Gate 1 [applies-if: track is MEDIUM or LARGE]
 
 <instructions>
-After Gate 1 (red-blue-judge CLEAN), assess the ticket type, because the review depth a ticket needs depends on whether it introduces new architecture:
+SMALL skips this entirely (no PRD to review; mirrors an existing pattern by definition of the track). On MEDIUM/LARGE, after Gate 1 (red-blue-judge CLEAN), assess whether the ticket needs a design review:
 
-- **Feature tickets and any ticket with architectural scope** (new classes, new patterns, significant modification of existing components): invoke `/design-review` with the approved PRD as input context. If design-review surfaces significant architectural concerns, revise the PRD and re-run the Gate 1 red-blue-judge (prd) loop before proceeding. Post the design-review outcome as a comment on the JIRA story.
-- **Pure bug fixes and trivial chore tickets** (no new patterns, no new classes, isolated change): skip this step — state explicitly that it was skipped and why, then proceed to Step 2.
+- **LARGE with architectural scope** (new classes, new patterns, significant modification of existing components): invoke `/design-review` with the approved PRD as input context.
+- **MEDIUM:** invoke `/design-review` **only if the ticket introduces a genuinely new pattern** (per the Step 1.5 classification). A MEDIUM ticket that mirrors an existing pattern skips it.
+- If design-review surfaces significant architectural concerns, revise the PRD and re-run the Gate 1 loop before proceeding. Post the design-review outcome as a comment on the JIRA story.
+- **When skipped** (MEDIUM mirroring an existing pattern, or a pure bug/chore): state explicitly that it was skipped and why, then proceed to Step 2.
 
 Do not create subtasks until the architecture is either reviewed and confirmed, or the skip rationale is stated, because subtasks scoped before the design is settled risk planning work the review would invalidate.
 </instructions>
 
 ---
 
-## Step 2 — Create JIRA subtasks
+## Step 2 — Create JIRA subtasks [applies-if: track is MEDIUM or LARGE]
 
 <instructions>
-Before drafting subtasks, think step by step: What are the logical units of work? Which tasks have dependencies on others? What is the correct sequencing? Then produce the table.
+SMALL skips subtasks — the change is one logical unit; the inline spec (Step 1.7) and the PR are its record. On MEDIUM/LARGE, before drafting subtasks, think step by step: What are the logical units of work? Which tasks have dependencies on others? What is the correct sequencing? Then produce the table.
 </instructions>
 
 <output_format>
@@ -217,10 +285,14 @@ Once approved, create the subtasks with these requirements:
 
 ---
 
-## Step 3 — Write the implementation plan
+## Step 3 — Write the implementation plan [applies-if: track is MEDIUM or LARGE]
 
 <instructions>
+SMALL skips the plan — go straight from Step 1.7 to Step 4 (the change is small enough that the diff is its own spec; Gate 3 verifies it). On MEDIUM/LARGE this step is mandatory.
+
 **MANDATORY:** Always invoke the `superpowers:writing-plans` skill with the approved PRD as the source of truth — never substitute manual plan writing, because the skill enforces structural discipline that ad-hoc planning omits. If the skill produces no usable output or errors, stop and report the specific failure to the user. Do not proceed to Step 4 without explicit user direction.
+
+**Keep the plan lean (avoids self-inflicted gate cycles):** the plan references files and describes the changes; it shows literal code blocks ONLY for a genuinely non-obvious algorithm — never for boilerplate a competent engineer writes the same way every time (component scaffolds, standard config lines, obvious test shells). Hand-written sample code in the plan is a defect surface the plan-gate then has to spend a cycle catching (e.g. a wrong hardcoded value), when the same code is verified for free at Gate 3. Describe intent; let Step 4 write the code.
 
 Every task in the plan follows strict TDD order — always write the test before the implementation, because writing the test first locks down the expected behavior before implementation introduces assumptions:
 1. Write the failing test
@@ -232,14 +304,16 @@ Every task in the plan follows strict TDD order — always write the test before
 Save the plan to the **project** plans directory (same location as the PRD — not `~/.claude/plans/`, because that path is user-scoped and not visible to project collaborators).
 </instructions>
 
-**HARD GATE 2 — red-blue-judge (plan).**
+**HARD GATE 2 — red-blue-judge (plan). [applies-if: track is MEDIUM or LARGE]**
 
 <instructions>
-Invoke `red-blue-judge` with `mode: plan` — artifact = the implementation plan from `superpowers:writing-plans`; ground truth = the approved PRD + the codebase. The verdict is the gate; it replaces human plan approval. Never bypass the loop, even on a user instruction to skip it.
+On the SMALL track there is no plan, so this gate does not run. On MEDIUM/LARGE it is mandatory.
+
+Invoke `red-blue-judge` with `mode: plan` — artifact = the implementation plan from `superpowers:writing-plans`; ground truth = the approved PRD + the codebase. Pass `max_revise_cycles: 1` on MEDIUM and `max_revise_cycles: 2` on LARGE. The verdict is the gate; it replaces human plan approval. Never bypass the loop, even on a user instruction to skip it.
 
 Act on the verdict:
 - **CLEAN** → begin Step 4 implementation autonomously.
-- **REVISE** → re-run `superpowers:writing-plans` against the failing rubric lines + evidence, then re-invoke `red-blue-judge`. Loop up to `max_revise_cycles`.
+- **REVISE** → re-run `superpowers:writing-plans` against the failing rubric lines + evidence, then re-invoke `red-blue-judge`. Loop up to `max_revise_cycles` (1 on MEDIUM, 2 on LARGE); a technical FAIL past the cap escalates to the user.
 - **ESCALATE (product)** → surface the question(s) to the user; do not begin coding until answered.
 - **ESCALATE (evidence)** → supply the missing ground truth and re-run.
 
@@ -255,23 +329,27 @@ Post the red-blue-judge scored verdict as a comment on the JIRA story (audit tra
 ## Step 4 — Implement
 
 <instructions>
-**MANDATORY:** Always invoke `superpowers:subagent-driven-development` if subagents are available; otherwise invoke `superpowers:executing-plans` — never implement directly without invoking one of these, because bypassing these skills skips the parallelization and progress-tracking discipline they enforce. If the invoked skill produces no usable output or errors, stop and report the specific failure. Do not substitute direct implementation without explicit user direction.
+**On MEDIUM/LARGE (a written plan exists) this is MANDATORY:** always invoke `superpowers:subagent-driven-development` if subagents are available, otherwise `superpowers:executing-plans` — never hand-execute a plan without one of these, because bypassing them skips the parallelization and progress-tracking discipline they enforce. If the invoked skill produces no usable output or errors, stop and report the specific failure. Do not substitute direct implementation without explicit user direction.
 
-Implement only what was spec'd in the approved PRD — do not add unrequested abstractions, extra error paths, or future-proofing beyond the plan's scope, because each unplanned addition is a risk surface that was not reviewed at Gate 2.
+**On SMALL (no plan exists)** those plan-executor skills do not apply — there is nothing to execute. Implement the single unit of work directly under the same TDD discipline (failing test → confirm red → implement → confirm green → `/commit`), and use `superpowers:test-driven-development` to hold that discipline. Keep it to the one logical change the inline spec described; anything larger is a sign the ticket was mis-triaged and should have been MEDIUM — stop and re-triage with the user.
 
-Execute all tasks in order following TDD discipline as specified in the plan. Before calling `/commit` for each task, run `npx prettier --write` on all changed non-Java files (JS, TS, JSON, YAML, HTML, CSS) and resolve any remaining lint warnings — `npx prettier` is covered by the global `Bash(npx:*)` allow entry, whereas a bare `prettier` invocation would prompt for permission. Never commit a formatter violation planning to clean it up later, because the fix becomes a reactive cleanup commit that inflates the Reactive Cleanup metric. Always commit after every task using the `/commit` skill — never batch commits, because large commits make bisection and rollback harder. Stop and ask if you hit a blocker — do not guess past it.
+Implement only what was spec'd — on MEDIUM/LARGE that is the approved PRD + plan; on SMALL it is the Step 1.7 inline spec. Do not add unrequested abstractions, extra error paths, or future-proofing beyond that scope, because each unplanned addition is a risk surface no gate reviewed (on MEDIUM/LARGE, not reviewed at Gate 2; on SMALL, only the diff is reviewed at Gate 3, so keep it minimal).
+
+Execute the work following TDD discipline (on MEDIUM/LARGE, the tasks in order as the plan specifies; on SMALL, the same red→green→commit discipline without a written task list). Before calling `/commit` for each task, run `npx prettier --write` on all changed non-Java files (JS, TS, JSON, YAML, HTML, CSS) and resolve any remaining lint warnings — `npx prettier` is covered by the global `Bash(npx:*)` allow entry, whereas a bare `prettier` invocation would prompt for permission. Never commit a formatter violation planning to clean it up later, because the fix becomes a reactive cleanup commit that inflates the Reactive Cleanup metric. Always commit after every task using the `/commit` skill — never batch commits, because large commits make bisection and rollback harder. Stop and ask if you hit a blocker — do not guess past it.
 </instructions>
 
 ---
 
-## Gate 3 — red-blue-judge (implemented diff)
+## Gate 3 — red-blue-judge (implemented diff) — ON EVERY TRACK
 
 <instructions>
-After Step 4 implementation is complete and all tests pass, and BEFORE Step 5: invoke `red-blue-judge` with `mode: diff` — artifact = the branch diff; ground truth = the diff + the ticket + the approved PRD + the test suite. This is the only gate that can judge the *implemented* fix rather than the intended one: whether the code genuinely fixes the ticket, not a band-aid that just greens the tests. Never bypass the loop, even on a user instruction to skip it.
+This gate runs on **every** track (SMALL, MEDIUM, LARGE) and is never optional — it is the floor that lets the lighter tracks be safe, because it is the only gate that judges the *implemented* code rather than the intended plan. On SMALL it is the *sole* gate, so it carries the full weight of verification.
+
+After Step 4 implementation is complete and all tests pass, and BEFORE Step 5: invoke `red-blue-judge` with `mode: diff` — artifact = the branch diff; ground truth = the diff + the ticket + the test suite + (on MEDIUM/LARGE) the approved PRD, or (on SMALL) the Step 1.7 inline spec. **Pass `max_revise_cycles: 1` on the SMALL and MEDIUM tracks and `max_revise_cycles: 2` on LARGE** — explicitly, in the invocation; red-blue-judge defaults to 2, so the cap is only honored if passed. This judges whether the code genuinely fixes the ticket, not a band-aid that just greens the tests. Never bypass the loop, even on a user instruction to skip it.
 
 Act on the verdict:
 - **CLEAN** → proceed to Step 5 (comprehensive-review).
-- **REVISE** → return to Step 4 for the failing lines (e.g., a tautological test on G2, symptom suppression on G3, a dropped requirement on D1); re-commit; re-invoke. Loop up to `max_revise_cycles`.
+- **REVISE** → return to Step 4 for the failing lines (e.g., a tautological test on G2, symptom suppression on G3, a dropped requirement on D1); re-commit; re-invoke. Loop up to `max_revise_cycles` (1 on SMALL/MEDIUM, 2 on LARGE); a technical FAIL past the cap escalates to the user.
 - **ESCALATE (product)** → surface to the user. **ESCALATE (evidence)** → supply the missing ground truth and re-run.
 
 Run genuineness BEFORE polish: red-blue-judge asks "does this genuinely fix the ticket?"; Step 5's comprehensive-review asks "is it well-built?" — there is no point quality-reviewing a band-aid. The two are complementary, not redundant. Post the verdict to the JIRA story.
@@ -346,44 +424,50 @@ Always load the `jira` skill first for ARC-specific transition IDs and field nam
 ## Completion verification
 
 <instructions>
-Before declaring the ticket done, think step by step through each item below. Do not output "delivery complete" until all six are confirmed by evidence, not assumption.
+Before declaring the ticket done, confirm by evidence (not assumption) every item the chosen track includes. Items marked [MEDIUM/LARGE] do not apply on SMALL — state them as "N/A (SMALL track)" rather than ❌.
 
-1. **Gate 1** — Confirm red-blue-judge (prd) returned CLEAN and the verdict was posted to JIRA. If not, return to Gate 1.
-2. **Gate 2** — Confirm red-blue-judge (plan) returned CLEAN and the verdict was posted to JIRA. If not, return to Gate 2.
-3. **Gate 3** — Confirm red-blue-judge (diff) returned CLEAN before Step 5 and the verdict was posted to JIRA. If not, return to Gate 3.
-4. **Step 5** — Confirm `/comprehensive-review:full-review` was run and all must-fix findings were addressed. Name the commit that contains the fixes.
-5. **Step 6** — State the PR URL. Confirm Copilot comments are resolved or declined with documented reasoning. Confirm SonarQube quality gate is green.
-6. **Step 7** — Confirm JIRA story is In Progress, each implementation subtask is Done, QA subtask is In Progress, and a progress comment was posted. Quote the first line of the comment.
+0. **Triage** — Confirm Step 1.5 ran, the track was stated with its rationale, and the user confirmed it. Name the track.
+1. **Gate 1** [MEDIUM/LARGE] — red-blue-judge (prd) returned CLEAN and posted to JIRA. (SMALL: N/A — no PRD.)
+2. **Gate 2** [MEDIUM/LARGE] — red-blue-judge (plan) returned CLEAN and posted to JIRA. (SMALL: N/A — no plan.)
+3. **Gate 3** [ALL TRACKS] — red-blue-judge (diff) returned CLEAN before Step 5 and posted to JIRA. This is mandatory on every track. If not, return to Gate 3.
+4. **Step 5** — `/comprehensive-review:full-review` (or the project's code-reviewer + qa lanes) was run and all must-fix findings addressed. Name the commit that contains the fixes.
+5. **Step 6** — State the PR URL. Automated feedback (Copilot/SonarQube/CI) resolved or, where a source is not integrated/available, documented as such.
+6. **Step 7** — JIRA story is In Progress; each implementation subtask (if the track created any) is Done; QA subtask is In Progress; hours logged; progress comment posted. Quote the first line of the comment. (SMALL: no subtasks — confirm the inline spec + progress comment instead.)
 </instructions>
 
 <output_format>
-Present the six verification items as a markdown checklist — one line each, ✅ or ❌, with a one-phrase evidence note. Once all six show ✅, output on its own line:
+Present the verification items as a markdown checklist — one line each, ✅ / ❌ / N/A, with a one-phrase evidence note and the track named at the top. Once every applicable item shows ✅, output on its own line:
 
-"Make it so — delivery complete for [TICKET-ID]."
+"Make it so — delivery complete for [TICKET-ID] ([TRACK] track)."
 </output_format>
 
 <success_criteria>
-The skill is complete when:
+The skill is complete when (criteria marked [M/L] apply only on the MEDIUM/LARGE tracks):
 - Step 1 (investigate): /investigate was invoked; confidence level was stated; Low confidence was not bypassed without user resolution.
-- Step 1 (PRD): /write-a-prd was invoked; PRD covers all six required sections; PRD was saved to the project plans directory; PRD was posted as a JIRA comment.
-- Architecture Review: /design-review was invoked for feature/architectural tickets and outcome posted to JIRA; or skip rationale was explicitly stated for bug/chore tickets.
-- Gate 1: red-blue-judge (prd) returned CLEAN (direct or via a REVISE loop that reached CLEAN; escalations resolved); verdict posted to JIRA.
-- Gate 2: red-blue-judge (plan) returned CLEAN; verdict posted to JIRA.
-- Gate 3: red-blue-judge (diff) returned CLEAN before Step 5; verdict posted to JIRA.
-- Step 3 (plan): superpowers:writing-plans was invoked — not substituted.
-- Step 4 (implement): superpowers:subagent-driven-development or superpowers:executing-plans was invoked; prettier pre-flight was run before each /commit.
-- Step 5 (review): /comprehensive-review:full-review was run; all must-fix findings addressed.
-- Step 6 (PR): PR is open; Copilot comments resolved or declined with documentation; SonarQube gate is green.
-- Step 7 (JIRA): Story In Progress; impl subtasks Done; QA subtask In Progress; hours logged; progress comment posted.
-- Completion verification checklist shows all six items ✅ with evidence.
+- Step 1.5 (triage): the ticket was classified to a track from the four inputs; the classification + rationale + resulting pipeline were presented; the user confirmed the track before any further step ran.
+- Step 1.7 [SMALL]: a 3-line inline spec was posted to the JIRA story before building.
+- Step 1b (PRD) [M/L]: /write-a-prd was invoked; PRD covers the six sections; saved to the project plans directory; posted as a JIRA comment.
+- Architecture Review [M/L]: /design-review was invoked for LARGE architectural scope (and for MEDIUM only when a new pattern is introduced) and outcome posted; or skip rationale explicitly stated.
+- Gate 1 [M/L]: red-blue-judge (prd) returned CLEAN; verdict posted to JIRA. (cap 1 on MEDIUM, 2 on LARGE)
+- Gate 2 [M/L]: red-blue-judge (plan) returned CLEAN; verdict posted to JIRA.
+- Gate 3 [ALL]: red-blue-judge (diff) returned CLEAN before Step 5; verdict posted to JIRA. Mandatory on every track.
+- Step 2 (subtasks) [M/L]: subtasks created per the table after user approval; QA subtask present.
+- Step 3 (plan) [M/L]: superpowers:writing-plans was invoked — not substituted; plan kept lean (no boilerplate code blocks).
+- Step 4 (implement): superpowers:subagent-driven-development or superpowers:executing-plans was invoked (M/L); on SMALL, TDD red→green→commit was followed; prettier pre-flight run before each /commit.
+- Step 5 (review): /comprehensive-review:full-review (or the project's code-reviewer + qa lanes) was run; all must-fix findings addressed.
+- Step 6 (PR): PR is open; automated feedback (Copilot/SonarQube/CI) resolved or documented as not-integrated/unavailable.
+- Step 7 (JIRA): Story In Progress; impl subtasks Done (if any were created); QA subtask In Progress; hours logged; progress comment posted.
+- Completion verification checklist shows every applicable item ✅ (N/A items named) with evidence.
 </success_criteria>
 
 <examples>
-<example label="happy-path">
-Input: /make-it-so ARC-4301
+<example label="happy-path-large-track">
+Input: /make-it-so ARC-4301 (a multi-file feature with new architecture)
 
-Announced: "Make it so — beginning full delivery cycle for ARC-4301."
-Step 1: /investigate invoked — confidence High. /write-a-prd invoked with investigation context; PRD produced covering all six sections, saved to project plans directory, posted to JIRA. Gate 1: red-blue-judge (prd) → CLEAN (challenge found no grounded FAIL); verdict posted to JIRA.
+Announced: "Make it so — beginning delivery for ARC-4301; triaging to a track."
+Step 1: /investigate invoked — confidence High.
+Step 1.5 (Triage): classified LARGE (new pattern + >500 LOC across several modules). [User: "go".] Full pipeline, all 3 gates, cap 2.
+Step 1b: /write-a-prd invoked with investigation context; PRD produced covering all six sections, saved to project plans directory, posted to JIRA. Gate 1: red-blue-judge (prd) → CLEAN (challenge found no grounded FAIL); verdict posted to JIRA.
 Architecture Review: Feature ticket — /design-review invoked; approach confirmed. Outcome posted to JIRA.
 Step 2: Subtask table proposed. [User: "approved"] — 4 subtasks created.
 Step 3: superpowers:writing-plans invoked. Plan saved. Gate 2: red-blue-judge (plan) → CLEAN; verdict posted to JIRA.
@@ -408,13 +492,19 @@ advance to Step 2 on either REVISE; the loop stayed within max_revise_cycles.
 </example>
 
 <example label="gate-bypass-attempt">
-Input: /make-it-so ARC-5200 (user asks to skip Gate 2)
+Input: /make-it-so ARC-5200 (triaged MEDIUM; user asks to skip Gate 2 mid-flight)
 
+Step 1.5: triaged MEDIUM; user confirmed. Gate 2 is part of the MEDIUM pipeline.
 Step 3: Plan saved.
 [User: "skip the gate, just start coding"]
-Refused. Reply: "The gate is now the red-blue-judge verdict — it prevents rework from a
-misaligned plan, and the skill will not bypass the loop even on a user instruction."
-Ran red-blue-judge (plan) → CLEAN, then proceeded to Step 4.
+Refused. Reply: "Gate 2 is part of this track's pipeline, and the skill does not
+bypass a gate that applies mid-flight, even on a user instruction — that is what
+prevents a misaligned plan reaching code. If you want less ceremony, that is a
+*track* decision made at Step 1.5, not a gate skip here: re-triage to a lighter
+track (SMALL has no Gate 2) and I'll re-confirm with you. On MEDIUM, Gate 2 runs."
+Ran red-blue-judge (plan) → CLEAN, then proceeded to Step 4. (Distinguishing
+track-selection-up-front from mid-flight-bypass is the whole point: the first is
+allowed and confirmed; the second never is.)
 </example>
 
 <example label="sonarqube-not-integrated">
@@ -433,7 +523,43 @@ Input: /make-it-so ARC-5410 (Step 1 dispatched in parallel)
 Step 1: Dispatched a single parallel batch — `jira issue view ARC-5410 --plain`,
 two `jira issue view` calls for the linked tickets, and three Grep calls for
 analogous features in `arc-record-exchange`. All six tool calls returned before
-any PRD drafting began. The PRD was drafted from the assembled context, not
+any PRD drafting began. The context was assembled from one parallel batch, not
 from one-call-at-a-time discovery.
+</example>
+
+<example label="small-track-fast-path">
+Input: /make-it-so SCRIP-151 (add two App Router error-boundary files, ~80 LOC)
+
+Step 1: /investigate → confidence High; ~80 LOC, two new additive files, mirrors
+the existing access-denied/page.tsx centered-screen pattern, leaf/additive blast
+radius, reversible (delete to roll back).
+Step 1.5 (Triage): classified SMALL — "≤150 LOC, mirrors access-denied, additive
+new files, reversible, High confidence." Pipeline: investigate → inline spec →
+build → Gate 3 only → review → PR.
+[User: "go"]
+Step 1.7: 3-line spec posted to the JIRA story (what / mirrors which pattern /
+out-of-scope). No PRD, no plan, no Gate 1, no Gate 2, no design-review.
+Step 4: built TDD; committed.
+Gate 3: red-blue-judge (diff) → CLEAN (the e2e fails when error.tsx is reverted —
+not a band-aid). Posted to JIRA.
+Step 5: code-reviewer + qa → LGTM/PASS; one a11y fix committed.
+Step 6–7: PR opened; JIRA closed out.
+Result: the SAME work the full pipeline did, with ~5-6 agents instead of ~20 and
+no PRD/plan/two-planning-gate overhead — because the change was small, additive,
+and pattern-mirroring. Gate 3 still carried the verification weight.
+</example>
+
+<example label="triage-mis-size-caught">
+Input: /make-it-so SCRIP-4400 (looks small — "add a column to the export")
+
+Step 1.5 (Triage): the change is ~60 LOC, BUT the investigation flags it touches
+the Prisma schema (a migration) and the export serializer consumed by three
+downstream jobs. Blast radius = shared/critical (schema + multi-consumer), not
+leaf. Classified **LARGE** despite the small LOC — "schema migration + 3
+consumers overrides the line count; size is not the only axis."
+[User confirms LARGE.]
+The confirmation stop did its job: a naive LOC-only read would have mis-sized this
+SMALL and skipped the planning gates on a schema change — exactly the failure the
+always-confirm rule exists to catch.
 </example>
 </examples>

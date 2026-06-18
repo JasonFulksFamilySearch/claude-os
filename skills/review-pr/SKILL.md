@@ -194,6 +194,7 @@ Run **in addition** to the six slots above.
   5. If a PR number is available, check `gh pr view <PR_NUMBER> --json body` for a Jira ticket reference (pattern `ARC-\d+`) in the PR description. A present reference is treated as evidence the retirement story has been filed or is planned.
   6. Emit a **BLOCKING** finding for any new flag with no retirement ticket referenced. The PR cannot merge until a retirement ticket is created and its number is added to the PR description or a PR comment.
   7. If no new flags are found, emit: `No new feature flags — retirement gate not triggered.`
+- **JS / TS bonus — Dead wiring (stack-generic).** Verifies runtime wiring the type checker and unit tests miss: event listeners have a producer, and Redux fields a component reads have a reducer that writes them. Diff-scoped, grounded against `origin/<headRef>`. **Read [checks.md](checks.md) for the full procedure** (exact `git diff`/`git grep` patterns and the BLOCKING criterion). Summary: extract listeners/reads from added (`+`) lines, grep the head ref for a producer/writer; a zero-producer listener is **BLOCKING only when the event name is `!`-prefixed** (worker-event convention — a literal match), otherwise a non-blocking finding; a Redux read with no writer is always a non-blocking finding.
 - **Java bonus — `@SneakyThrows` audit.** Grep `pattern: "@SneakyThrows"`, `path: "src/main/java/"`, `glob: "*.java"`. Lombok's `@SneakyThrows` hides checked exceptions from the type system; flag every occurrence outside any package explicitly named `experimental` or `prototype`.
 - **Python bonus — `# type: ignore` delta.** Parse `git diff <BASE>...HEAD -- "*.py"` for added lines containing `# type: ignore`. Each new ignore should be justified in a comment.
 
@@ -220,7 +221,7 @@ Check:
 For modified test files, verify the four universal qualities. Pattern hints below switch by stack.
 
 1. **Coverage completeness** — happy path, sad path (null / undefined / wrong types), edge cases, error propagation.
-2. **Test clarity** — descriptive names (no ticket numbers per `~/.claude/rules/commits.md`), clear setup, tests assert behavior not just mock calls.
+2. **Test clarity** — descriptive names (no ticket numbers per `~/.claude/rules/commits.md`), clear setup, tests assert behavior not just mock calls. Detect assertion-free tests mechanically in modified test files: grep for `expect(true).toBe(true)`, `test(` / `it(` bodies containing no `expect(`, and every added `.skip` / `.todo`. A test that asserts nothing — or a real-named suite parked on `.skip`/`.todo` — reports green while validating nothing; flag it as a defect, not a pass.
 3. **Unused mocks** — verify mocks match current imports; flag module-level mocks that should be scoped.
 4. **Suppression scoping** — `console.error` overrides (JS), `@SuppressWarnings` (Java), `warnings.filterwarnings` (Python) should be scoped to one test, not module-level.
 
@@ -333,6 +334,7 @@ Output the numeric score and label in the report overview, **beneath** the verdi
 - Tombstone comments: <slot 1 results>
 - Test coverage regressions: <slot 2 results>
 - Orphaned new files: <slot 3 results>
+- Dead wiring: <event listeners with no producer (BLOCKING if `!`-prefixed); Redux fields read with no writer>
 - Global suppressions: <slot 6 results>
 
 ### Pattern Consistency
@@ -373,11 +375,14 @@ verdict — never the reverse:
 | `CLEAN` | `APPROVE` | No findings, or nits only. |
 | `REVISE` | `COMMENT` | Default — raise the findings without rubber-stamping or hard-blocking. |
 | `REVISE` **with a BLOCKING finding** | `REQUEST_CHANGES` | Feature-flag retirement gate tripped, deleted-test-with-live-source, security vuln, or prod-crash risk. |
-| `ESCALATE` | `REQUEST_CHANGES` | Correctness depends on a fact outside the diff, or an open product question. |
+| `ESCALATE (product)` | `REQUEST_CHANGES` | An open product/stakeholder question only a human can rule on — or **any** evidence-escalation that also carries a technical FAIL. Always blocking. |
+| `ESCALATE (evidence)`, **no technical FAIL** (contract-verification) | `COMMENT` if the risk is **latent**; `REQUEST_CHANGES` if it is **live** | The code is clean but its correctness depends on a fact the codebase can't confirm (upstream API contract, another service's response, deploy ordering). **Latent** = no live code path hits it yet (e.g. gated by an off feature flag) → non-blocking nudge, since a hard block is friction with no live danger. **Live** = the unverified contract is on an active path → hard-block until verified. When unsure which, default to `REQUEST_CHANGES`. |
 
 **Never recommend `APPROVE` unless the verdict is `CLEAN`.** That single rule keeps the posted
 signal honest — a `REVISE` posted as `APPROVE` rubber-stamps a change the verdict said needs
-attention.
+attention. Note the evidence-escalation `COMMENT` above is **not** an approve: it surfaces the
+blocker non-blockingly (the contract still must be verified before merge), it just declines to
+trip branch protection for a risk that cannot fire yet.
 
 **Then:**
 
@@ -534,5 +539,5 @@ The review is complete and correct when:
 - The Step 7 report template is populated end-to-end — no `<placeholder>` text remaining.
 - Every cited file:line was confirmed via Read or Grep in this session (no hallucinated references).
 - The eight Critical Questions are answered explicitly, even if briefly.
-- The verdict was mapped to a GitHub review event per the Step 9 table (CLEAN→APPROVE, REVISE→COMMENT or REQUEST_CHANGES, ESCALATE→REQUEST_CHANGES), and `post-review` was invoked unless `skip` was passed or no PR exists.
+- The verdict was mapped to a GitHub review event per the Step 9 table (CLEAN→APPROVE, REVISE→COMMENT or REQUEST_CHANGES, ESCALATE(product)→REQUEST_CHANGES, ESCALATE(evidence) with no technical FAIL→COMMENT if latent else REQUEST_CHANGES), and `post-review` was invoked unless `skip` was passed or no PR exists.
 </success_criteria>
