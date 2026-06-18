@@ -375,11 +375,14 @@ verdict — never the reverse:
 | `CLEAN` | `APPROVE` | No findings, or nits only. |
 | `REVISE` | `COMMENT` | Default — raise the findings without rubber-stamping or hard-blocking. |
 | `REVISE` **with a BLOCKING finding** | `REQUEST_CHANGES` | Feature-flag retirement gate tripped, deleted-test-with-live-source, security vuln, or prod-crash risk. |
-| `ESCALATE` | `REQUEST_CHANGES` | Correctness depends on a fact outside the diff, or an open product question. |
+| `ESCALATE (product)` | `REQUEST_CHANGES` | An open product/stakeholder question only a human can rule on — or **any** evidence-escalation that also carries a technical FAIL. Always blocking. |
+| `ESCALATE (evidence)`, **no technical FAIL** (contract-verification) | `COMMENT` if the risk is **latent**; `REQUEST_CHANGES` if it is **live** | The code is clean but its correctness depends on a fact the codebase can't confirm (upstream API contract, another service's response, deploy ordering). **Latent** = no live code path hits it yet (e.g. gated by an off feature flag) → non-blocking nudge, since a hard block is friction with no live danger. **Live** = the unverified contract is on an active path → hard-block until verified. When unsure which, default to `REQUEST_CHANGES`. |
 
 **Never recommend `APPROVE` unless the verdict is `CLEAN`.** That single rule keeps the posted
 signal honest — a `REVISE` posted as `APPROVE` rubber-stamps a change the verdict said needs
-attention.
+attention. Note the evidence-escalation `COMMENT` above is **not** an approve: it surfaces the
+blocker non-blockingly (the contract still must be verified before merge), it just declines to
+trip branch protection for a risk that cannot fire yet.
 
 **Then:**
 
@@ -536,5 +539,5 @@ The review is complete and correct when:
 - The Step 7 report template is populated end-to-end — no `<placeholder>` text remaining.
 - Every cited file:line was confirmed via Read or Grep in this session (no hallucinated references).
 - The eight Critical Questions are answered explicitly, even if briefly.
-- The verdict was mapped to a GitHub review event per the Step 9 table (CLEAN→APPROVE, REVISE→COMMENT or REQUEST_CHANGES, ESCALATE→REQUEST_CHANGES), and `post-review` was invoked unless `skip` was passed or no PR exists.
+- The verdict was mapped to a GitHub review event per the Step 9 table (CLEAN→APPROVE, REVISE→COMMENT or REQUEST_CHANGES, ESCALATE(product)→REQUEST_CHANGES, ESCALATE(evidence) with no technical FAIL→COMMENT if latent else REQUEST_CHANGES), and `post-review` was invoked unless `skip` was passed or no PR exists.
 </success_criteria>
