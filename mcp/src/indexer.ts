@@ -489,20 +489,22 @@ export async function vectorCoverageSweep(
   const healed = before - after;
 
   if (after > 0) {
-    // Name the rows still missing (capped log) so a poisoned input is debuggable.
+    // Name the rows still missing (capped log) so a poisoned input is debuggable. Include the
+    // anchor: post-C2 a chunked file holds multiple rows per path, so source_path alone cannot
+    // identify which specific row is poisoned.
     const stillMissing = db
       .prepare(
-        `SELECT o.source_path
+        `SELECT o.source_path, o.anchor
            FROM observations o
            LEFT JOIN vec_items v ON o.id = v.observation_id
           WHERE v.observation_id IS NULL
           ORDER BY o.id
           LIMIT 20`,
       )
-      .all() as { source_path: string }[];
+      .all() as { source_path: string; anchor: string }[];
     log("warn", "vectorCoverageSweep: observations still missing vectors", {
       remaining: after,
-      paths: stillMissing.map((r) => r.source_path),
+      rows: stillMissing.map((r) => ({ source_path: r.source_path, anchor: r.anchor })),
     });
   }
 
