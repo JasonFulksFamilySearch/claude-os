@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync, openSync, writeSync, closeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
 import { openDb } from "../src/db.js";
-import { isV3Schema, runMigrations, backupDb, verifyV3 } from "../src/migrations.js";
+import { isV3Schema, runMigrations, backupDb, verifyV3, verifyBackup } from "../src/migrations.js";
 import { main as migrateMain } from "../src/scripts/migrate.js";
 
 // Mock the embedder so cutover tests don't pull in @huggingface/transformers.
@@ -519,5 +519,58 @@ describe("runCutover", () => {
       | { value: string }
       | undefined;
     expect(row?.value).toBe("1");
+  });
+});
+
+describe("verifyBackup", () => {
+  let vbDir: string;
+  let liveDbPath: string;
+  let liveDb: Database.Database;
+
+  beforeEach(() => {
+    vbDir = mkdtempSync(join(tmpdir(), "claude-os-verifybackup-"));
+    liveDbPath = join(vbDir, "live.db");
+    liveDb = openDb(liveDbPath); // fresh v3 DB, 0 observations
+  });
+
+  afterEach(() => {
+    liveDb.close();
+    rmSync(vbDir, { recursive: true, force: true });
+  });
+
+  it("passes for a complete VACUUM INTO snapshot with matching count", () => {
+    // Seed one observation so the count is non-trivial.
+    liveDb.prepare(`
+      INSERT INTO observations
+        (source_type, source_path, anchor, parent_title, project, topic, title,
+         content, content_hash, file_mtime, indexed_at, frontmatter)
+      VALUES ('learning', ?, '', NULL, NULL, NULL, 'T', 'body', 'h', 1, 2, NULL)
+    `).run(join(vbDir, "x.md"));
+    const dest = join(vbDir, "good.bak");
+    backupDb(liveDb, dest);
+    expect(() => verifyBackup(dest, 1)).not.toThrow();
+  });
+
+  it("throws when the file is below the 4096-byte size floor", () => {
+    const dest = join(vbDir, "tiny.bak");
+    writeFileSync(dest, "not a db"); // 8 bytes
+    expect(() => verifyBackup(dest, 0)).toThrow(/4096/);
+  });
+
+  it("throws when the snapshot observation count does not match expected", () => {
+    const dest = join(vbDir, "count.bak");
+    backupDb(liveDb, dest); // snapshot has 0 observations
+    expect(() => verifyBackup(dest, 5)).toThrow(/observations/);
+  });
+
+  it("throws when integrity_check fails (corrupt file above the floor)", () => {
+    const dest = join(vbDir, "corrupt.bak");
+    backupDb(liveDb, dest);          // start from a real, > 4096-byte SQLite file
+    // Overwrite the SQLite header magic with garbage to fail integrity_check
+    // while keeping the file size above the floor.
+    const fd = openSync(dest, "r+");
+    writeSync(fd, Buffer.from("XXXXXXXXXXXXXXXX"), 0, 16, 0);
+    closeSync(fd);
+    expect(() => verifyBackup(dest, 0)).toThrow();
   });
 });

@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { statSync } from "node:fs";
 
 /**
  * Returns true iff the observations table has the v3 `anchor` column.
@@ -152,6 +153,47 @@ export function backupDb(db: Database.Database, destPath: string): void {
   // VACUUM INTO takes a string literal, not a bind parameter. Escape single
   // quotes to keep the path safe inside the SQL string.
   db.exec(`VACUUM INTO '${destPath.replace(/'/g, "''")}'`);
+}
+
+/**
+ * Verify a freshly-written backup is a complete, openable, populated SQLite
+ * database BEFORE the caller relies on it for rollback. Throws on any of:
+ *   - file below the 4096-byte (one SQLite page) size floor — cheap reject for
+ *     zero-byte / truncated writes;
+ *   - observation-row count != the live count captured just before the backup
+ *     (the load-bearing check — a stale stub fails here even if it is a valid,
+ *     above-floor SQLite file);
+ *   - PRAGMA integrity_check != "ok" — structural corruption.
+ *
+ * Opens its own read-only handle (sqlite-vec NOT required for COUNT +
+ * integrity_check) and always closes it.
+ *
+ * @param path          Path to the backup file just written by backupDb.
+ * @param expectedCount observations row count of the live DB immediately before backup.
+ */
+export function verifyBackup(path: string, expectedCount: number): void {
+  const size = statSync(path).size;
+  if (size < 4096) {
+    throw new Error(
+      `backup verification failed: ${path} is ${size} bytes (< 4096-byte floor)`,
+    );
+  }
+
+  const snap = new Database(path, { readonly: true });
+  try {
+    const { n } = snap.prepare("SELECT COUNT(*) AS n FROM observations").get() as { n: number };
+    if (n !== expectedCount) {
+      throw new Error(
+        `backup verification failed: snapshot has ${n} observations, expected ${expectedCount}`,
+      );
+    }
+    const ic = snap.pragma("integrity_check", { simple: true });
+    if (ic !== "ok") {
+      throw new Error(`backup verification failed: integrity_check returned ${String(ic)}`);
+    }
+  } finally {
+    snap.close();
+  }
 }
 
 /**
