@@ -24,6 +24,25 @@ function yamlScalar(value) {
   return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
 }
 
+// Strip a trailing "(worktree: …)" or "(TICKET-1234: …)" parenthetical only.
+// Legit parentheticals like "(v2)" or "(beta)" are preserved.
+function stripWorktreeSuffix(s) {
+  return s.replace(/\s*\((?:worktree|[A-Za-z]+-\d+)[:\s][^)]*\)\s*$/, '');
+}
+
+// Lowercase; non-alphanumeric runs → single hyphen; trim leading/trailing hyphens.
+function slugify(s) {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+// Truncate at/under max on a hyphen boundary (never mid-token).
+function truncateOnHyphenBoundary(s, max) {
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max);
+  const i = cut.lastIndexOf('-');
+  return i > 0 ? cut.slice(0, i) : cut;
+}
+
 // Manual schema coercion — replaces Zod (unavailable in hooks layer).
 // Prevents TypeError when Haiku returns unexpected shapes (string instead of
 // array, null fields, extra keys).
@@ -43,10 +62,11 @@ function coerceObservation(raw) {
     }
     return [];
   }
-  const projectClean = safeString(raw.project, 64);
+  const projectRaw = safeString(raw.project, 256);
+  const projectSlug = truncateOnHyphenBoundary(slugify(stripWorktreeSuffix(projectRaw)), 64);
   return {
     summary: safeString(raw.summary, 2000),
-    project: projectClean.length > 0 ? projectClean : null,
+    project: projectSlug.length > 0 ? projectSlug : null,
     decisions: coerceArray(raw.decisions, 500),
     corrections: coerceArray(raw.corrections, 500),
     discoveries: coerceArray(raw.discoveries, 500),
@@ -63,4 +83,4 @@ function coerceObservation(raw) {
   };
 }
 
-module.exports = { safeString, yamlScalar, coerceObservation };
+module.exports = { safeString, yamlScalar, stripWorktreeSuffix, slugify, truncateOnHyphenBoundary, coerceObservation };
