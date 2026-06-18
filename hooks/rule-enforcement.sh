@@ -236,10 +236,10 @@ if [ "$TOOL_NAME" = "Edit" ] || [ "$TOOL_NAME" = "Write" ]; then
     fi
   fi
 
-  # Rule 11: Refuse to write to .env files
+  # Rule 13: Refuse to write to .env files
   if [[ "$SUBJECT" =~ \.env(\..+)?$ ]]; then
-    log_and_exit "BLOCKED" "Rule 11" \
-      "Rule 11: Refusing to write to .env files (credentials must not be written by Claude). Edit manually." \
+    log_and_exit "BLOCKED" "Rule 13" \
+      "Rule 13: Refusing to write to .env files (credentials must not be written by Claude). Edit manually." \
       2
   fi
 
