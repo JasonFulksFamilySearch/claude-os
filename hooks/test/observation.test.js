@@ -53,6 +53,25 @@ test('yamlScalar: comma forces quoting', () => {
   assert.strictEqual(yamlScalar('a,b'), '"a,b"');
 });
 
+// ── yamlScalar: control character handling ────────────────────────────────────
+
+test('yamlScalar: newline in value is quoted and escaped', () => {
+  assert.strictEqual(yamlScalar('a\nb'), '"a\\nb"');
+});
+
+test('yamlScalar: tab in value is quoted and escaped', () => {
+  assert.strictEqual(yamlScalar('tab\there'), '"tab\\there"');
+});
+
+test('yamlScalar: carriage return in value is quoted and escaped', () => {
+  assert.strictEqual(yamlScalar('cr\rhere'), '"cr\\rhere"');
+});
+
+test('yamlScalar: NUL byte produces no raw control char in output', () => {
+  const result = yamlScalar('\x00');
+  assert.ok(!/[\x00-\x1f]/.test(result), 'result must contain no raw control characters');
+});
+
 // ── coerceObservation: project normalization ──────────────────────────────────
 
 test('coerceObservation: compound watched project with worktree suffix → slug', () => {

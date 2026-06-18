@@ -113,7 +113,8 @@ function buildEpisodeContent(obs, sessionId, turnCount) {
     'date: ' + todayLocal(),
     'session_id: ' + safeSessionId,
   ];
-  // Contract: every future freeform-string frontmatter key MUST go through yamlScalar.
+  // Contract: every freeform-string frontmatter key MUST go through yamlScalar — it is
+  // self-sufficient: quotes and escapes YAML-structural chars AND control characters (including newlines).
   if (obs.project) fmLines.push('project: ' + yamlScalar(obs.project));
   if (Number.isInteger(obs.value_score) && obs.value_score >= 0 && obs.value_score <= 4) {
     fmLines.push('value_score: ' + obs.value_score);

@@ -17,11 +17,19 @@ function safeString(v, max) {
 const YAML_SPECIAL = /[:#\[\]{}&*!|>'"%@,`\\]/;   // special anywhere
 const YAML_LEAD    = /^[-?:,\[\]{}#&*!|>'"%@` ]/;  // indicator/space at start
 const YAML_COERCE  = /^(?:true|false|null|~|yes|no|on|off|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)$/i;
+const YAML_CONTROL = /[\x00-\x1f]/;
 function yamlScalar(value) {
   const s = String(value);
-  const unsafe = s === '' || s !== s.trim() || YAML_SPECIAL.test(s) || YAML_LEAD.test(s) || YAML_COERCE.test(s);
+  const unsafe = s === '' || s !== s.trim() || YAML_SPECIAL.test(s) || YAML_LEAD.test(s) || YAML_COERCE.test(s) || YAML_CONTROL.test(s);
   if (!unsafe) return s;
-  return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+  const esc = s
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t')
+    .replace(/[\x00-\x1f]/g, (c) => '\\x' + c.charCodeAt(0).toString(16).padStart(2, '0'));
+  return '"' + esc + '"';
 }
 
 // Strip a trailing "(worktree: …)" or "(TICKET-1234: …)" parenthetical only.
