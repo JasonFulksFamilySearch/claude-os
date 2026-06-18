@@ -27,8 +27,10 @@
  *   2. Set meta.c2_chunking_enabled = '1'.
  *   3. fullReindex: with the flag ON, indexFile routes learning/decision files
  *      through chunkByEntries and large context/project docs through chunkByHeadings.
- *   4. Return { rechunked, backupPath } — rechunked is the count of re-indexed files;
- *      backupPath is the verified snapshot's path (logged for the rollback procedure).
+ *   4. Return { rechunked, backupPath, errored, erroredPaths } — rechunked is the count
+ *      of re-indexed files; backupPath is the verified snapshot's path (logged for the
+ *      rollback procedure); errored/erroredPaths report files skipped due to parse/index
+ *      errors (the batch still completed).
  *
  * Usage:
  *   npm run cutover
@@ -46,13 +48,15 @@ import { fullReindex, type IndexerConfig, defaultConfig } from "../indexer.js";
  * @param config IndexerConfig passed to fullReindex.
  * @param backupPath  Override the backup destination (default: timestamped path derived from `db.name`).
  *                    Tests inject an explicit path; only the default resolution is timestamped.
- * @returns { rechunked, backupPath } — rechunked is fullReindex's "indexed" count; backupPath is the verified snapshot.
+ * @returns { rechunked, backupPath, errored, erroredPaths } — rechunked is fullReindex's
+ *          "indexed" count; backupPath is the verified snapshot; errored/erroredPaths report
+ *          files skipped because they threw during parse/index (the batch still completed).
  */
 export async function runCutover(
   db: Database.Database,
   config: IndexerConfig,
   backupPath?: string,
-): Promise<{ rechunked: number; backupPath: string }> {
+): Promise<{ rechunked: number; backupPath: string; errored: number; erroredPaths: string[] }> {
   // Default the backup destination to a per-run TIMESTAMPED path derived from the
   // live DB's own filename. A stale file at the old fixed `<db>.pre-cutover.bak`
   // path can no longer suppress the backup (the default destination is now distinct).
@@ -79,7 +83,12 @@ export async function runCutover(
   // --- Step 3: Re-index (now chunks because the flag is on) ---
   const summary = await fullReindex(db, config);
 
-  return { rechunked: summary.indexed, backupPath: resolvedBackupPath };
+  return {
+    rechunked: summary.indexed,
+    backupPath: resolvedBackupPath,
+    errored: summary.errored,
+    erroredPaths: summary.erroredPaths,
+  };
 }
 
 // CLI entry: resolve defaults from environment / DEFAULT_DB_PATH, then run.
@@ -109,6 +118,17 @@ if (isDirectEntry) {
     const result = await runCutover(cliDb, defaultConfig());
     console.log(`cutover: verified pre-cutover snapshot at ${result.backupPath}`);
     console.log(`cutover: complete — ${result.rechunked} files re-chunked`);
+    if (result.erroredPaths.length > 0) {
+      console.warn(
+        `cutover: WARNING — ${result.errored} file(s) skipped due to parse/index errors:`,
+      );
+      for (const p of result.erroredPaths) console.warn(`  - ${p}`);
+      console.warn("cutover: fix the above file(s) and re-run the reindex to pick them up.");
+      // Untrustworthy terminal state: the cutover finished, but the index does not match
+      // the corpus (≥1 file is missing). Signal it the way eval.ts and migrate.ts signal an
+      // untrustworthy/failed run — a non-zero exit code.
+      process.exitCode = 1;
+    }
   } catch (err: unknown) {
     const msg = err instanceof Error ? (err.stack ?? err.message) : String(err);
     console.error("cutover: unexpected error:", msg);

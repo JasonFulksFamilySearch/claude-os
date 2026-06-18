@@ -587,6 +587,24 @@ describe("runCutover", () => {
     expect(result.backupPath).toBe(explicit);
     expect(existsSync(explicit)).toBe(true);
   });
+
+  it("reports a malformed file without aborting, preserving backupPath/rechunked", async () => {
+    // The malformed fixture MUST go in a dir whose .md files classify() accepts so it
+    // reaches parseFile and throws. context/*.md classifies any .md (indexer.ts:69);
+    // agent/ classifies ONLY CLAUDE.md/learnings.md (:54-64), so agent/bad.md would be
+    // skipped_unclassified and never throw. The runCutover fixture only creates agent/,
+    // so create context/ here.
+    mkdirSync(join(dataRoot, "context"), { recursive: true });
+    const badPath = join(dataRoot, "context", "bad.md");
+    writeFileSync(badPath, '---\ntitle: "unterminated\n---\n# Bad\n', "utf8");
+
+    const result = await runCutover(cutoverDb, cutoverConfig, cutoverDbPath + ".pre-cutover.bak");
+
+    expect(result.errored).toBe(1);
+    expect(result.erroredPaths).toContain(badPath);
+    expect(result.backupPath).toBe(cutoverDbPath + ".pre-cutover.bak");
+    expect(result.rechunked).toBeGreaterThan(0);
+  });
 });
 
 describe("verifyBackup", () => {
