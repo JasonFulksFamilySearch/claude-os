@@ -511,8 +511,8 @@ export async function fullReindex(
     skipped,
     errored,
     removed,
-    erroredPaths,
     durationMs: Date.now() - start,
+    erroredPaths,
   };
   log("info", "fullReindex complete", { ...summary });
   return summary;

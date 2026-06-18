@@ -590,8 +590,8 @@ describe("runCutover", () => {
 
   it("reports a malformed file without aborting, preserving backupPath/rechunked", async () => {
     // The malformed fixture MUST go in a dir whose .md files classify() accepts so it
-    // reaches parseFile and throws. context/*.md classifies any .md (indexer.ts:69);
-    // agent/ classifies ONLY CLAUDE.md/learnings.md (:54-64), so agent/bad.md would be
+    // reaches parseFile and throws. classify() accepts context/*.md unconditionally, but
+    // from agent/ it accepts ONLY CLAUDE.md and learnings.md — so an agent/bad.md would be
     // skipped_unclassified and never throw. The runCutover fixture only creates agent/,
     // so create context/ here.
     mkdirSync(join(dataRoot, "context"), { recursive: true });
