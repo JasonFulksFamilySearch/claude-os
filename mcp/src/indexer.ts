@@ -406,8 +406,10 @@ export interface ReindexSummary {
   indexed: number;
   unchanged: number;
   skipped: number;
+  errored: number;
   removed: number;
   durationMs: number;
+  erroredPaths: string[];
 }
 
 export async function fullReindex(
@@ -460,16 +462,27 @@ export async function fullReindex(
   let indexed = 0;
   let unchanged = 0;
   let skipped = 0;
+  let errored = 0;
+  const erroredPaths: string[] = [];
   // Per-path changed anchors — drives the targeted multi-chunk embed pass below.
   const newlyIndexed: Array<{ path: string; changedAnchors: string[] }> = [];
 
   for (const file of candidates) {
-    const r = indexFile(db, file, config);
-    if (r.status === "indexed") {
-      indexed++;
-      newlyIndexed.push({ path: file, changedAnchors: r.changedAnchors });
-    } else if (r.status === "skipped_unchanged") unchanged++;
-    else skipped++;
+    try {
+      const r = indexFile(db, file, config);
+      if (r.status === "indexed") {
+        indexed++;
+        newlyIndexed.push({ path: file, changedAnchors: r.changedAnchors });
+      } else if (r.status === "skipped_unchanged") unchanged++;
+      else skipped++;
+    } catch (err) {
+      errored++;
+      erroredPaths.push(file);
+      log("error", "fullReindex skipped file (parse/index failed)", {
+        path: file,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   // Async embedding pass for newly indexed docs — runs after sync FTS work.
@@ -496,7 +509,9 @@ export async function fullReindex(
     indexed,
     unchanged,
     skipped,
+    errored,
     removed,
+    erroredPaths,
     durationMs: Date.now() - start,
   };
   log("info", "fullReindex complete", { ...summary });
