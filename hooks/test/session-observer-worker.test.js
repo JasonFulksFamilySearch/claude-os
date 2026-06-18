@@ -66,6 +66,21 @@ test('a missing transcript causes a dead-letter record to be written (integratio
   assert.ok(dlFiles.length > 0, 'dead-letter record must be written for a missing transcript');
 });
 
+// ── buildEpisodeContent yamlScalar quoting ────────────────────────────────────
+
+test('buildEpisodeContent quotes a project value containing a colon', () => {
+  const { buildEpisodeContent } = require('../session-observer-worker.js');
+  const content = buildEpisodeContent(
+    { project: 'a: b', summary: 's', decisions: [], corrections: [], discoveries: [], files_of_note: [] },
+    'sess',
+    3
+  );
+  assert.ok(content.includes('project: "a: b"'),
+    'project line must be double-quoted when value contains a colon');
+  assert.ok(!content.includes('project: a: b'),
+    'unquoted colon-bearing project line must not appear');
+});
+
 test('a too-short but present transcript does NOT produce a dead-letter record', () => {
   const { mkdirSync, writeFileSync, readdirSync: rds } = require('node:fs');
   const TMP2 = join(tmpdir(), `dl-short-${process.pid}`);
