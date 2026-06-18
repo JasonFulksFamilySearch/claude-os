@@ -16,24 +16,24 @@
  *      PASS (non-regressing recall/MRR relative to the saved baseline).
  *
  * Sequence:
- *   1. Guard: if the backup file already exists, skip backup (idempotent re-run).
- *   2. Backup the DB via VACUUM INTO to `<db>.pre-cutover.bak`. Uses a DISTINCT
- *      path from migrate.ts's `.pre-c2.bak` to avoid a VACUUM INTO collision when
- *      both scripts have been run on the same machine.
- *   3. Set meta.c2_chunking_enabled = '1'.
- *   4. fullReindex: with the flag ON, indexFile now routes learning/decision files
+ *   1. Backup the DB via VACUUM INTO to a per-run timestamped destination
+ *      `<db>.pre-cutover.<UTC-timestamp>.bak` (default), then VERIFY the snapshot
+ *      (size floor, observation-count parity, integrity_check) — throwing before
+ *      any mutation if it is incomplete. The timestamped path means a stale stub
+ *      cannot suppress the backup and never collides with migrate.ts's `.pre-c2.bak`.
+ *   2. Set meta.c2_chunking_enabled = '1'.
+ *   3. fullReindex: with the flag ON, indexFile routes learning/decision files
  *      through chunkByEntries and large context/project docs through chunkByHeadings.
- *   5. Return { rechunked: N } — N is the count of files that were re-indexed
- *      (status "indexed") by fullReindex.
+ *   4. Return { rechunked, backupPath } — rechunked is the count of re-indexed files;
+ *      backupPath is the verified snapshot's path (logged for the rollback procedure).
  *
  * Usage:
  *   npm run cutover
  */
 import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
-import { existsSync } from "node:fs";
 import { DEFAULT_DB_PATH } from "../db.js";
-import { backupDb } from "../migrations.js";
+import * as migrations from "../migrations.js";
 import { fullReindex, type IndexerConfig, defaultConfig } from "../indexer.js";
 
 /**
@@ -41,27 +41,30 @@ import { fullReindex, type IndexerConfig, defaultConfig } from "../indexer.js";
  *
  * @param db     Open better-sqlite3 handle (caller owns open/close).
  * @param config IndexerConfig passed to fullReindex.
- * @param backupPath  Override the backup destination (default: `<DEFAULT_DB_PATH>.pre-cutover.bak`).
- *                    The default is used only for the CLI entry; tests supply the fixture path.
- * @returns { rechunked } — count of files fullReindex reported as "indexed" (newly chunked).
+ * @param backupPath  Override the backup destination (default: timestamped path derived from `db.name`).
+ *                    Tests inject an explicit path; only the default resolution is timestamped.
+ * @returns { rechunked, backupPath } — rechunked is fullReindex's "indexed" count; backupPath is the verified snapshot.
  */
 export async function runCutover(
   db: Database.Database,
   config: IndexerConfig,
   backupPath?: string,
-): Promise<{ rechunked: number }> {
-  // Resolve the backup path from the DB filename when not supplied.
-  // In test usage, callers pass an explicit path derived from the fixture DB path.
-  // In CLI usage, we derive it from DEFAULT_DB_PATH.
-  const resolvedBackupPath = backupPath ?? (DEFAULT_DB_PATH + ".pre-cutover.bak");
+): Promise<{ rechunked: number; backupPath: string }> {
+  // Default the backup destination to a per-run TIMESTAMPED path derived from the
+  // live DB's own filename. A stale file at the old fixed `<db>.pre-cutover.bak`
+  // path can no longer suppress the backup (the destination is unique per run),
+  // and the timestamp guarantees VACUUM INTO never collides. Tests inject an
+  // explicit path; only the default resolution is timestamped.
+  const ts = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+  const resolvedBackupPath = backupPath ?? `${db.name}.pre-cutover.${ts}.bak`;
 
-  // --- Step 1: Backup (idempotent guard) ---
-  // VACUUM INTO throws if the destination already exists — guard prevents the throw
-  // on a second run (idempotency). A pre-existing backup means the operator already
-  // ran this once; skip re-backup rather than fail.
-  if (!existsSync(resolvedBackupPath)) {
-    backupDb(db, resolvedBackupPath);
-  }
+  // --- Step 1: Backup, then VERIFY before any mutation ---
+  // Capture the live observation count on the untouched whole-file store; the
+  // snapshot must match it. (This count is read pre-flip, so a file that a later
+  // reindex would skip is counted identically on both sides and cannot perturb it.)
+  const liveCount = (db.prepare("SELECT COUNT(*) AS n FROM observations").get() as { n: number }).n;
+  migrations.backupDb(db, resolvedBackupPath);
+  migrations.verifyBackup(resolvedBackupPath, liveCount); // throws → flag never flips, reindex never runs
 
   // --- Step 2: Flip the chunking flag ---
   db.prepare(
@@ -72,7 +75,7 @@ export async function runCutover(
   // --- Step 3: Re-index (now chunks because the flag is on) ---
   const summary = await fullReindex(db, config);
 
-  return { rechunked: summary.indexed };
+  return { rechunked: summary.indexed, backupPath: resolvedBackupPath };
 }
 
 // CLI entry: resolve defaults from environment / DEFAULT_DB_PATH, then run.
@@ -89,7 +92,6 @@ const isDirectEntry =
 
 if (isDirectEntry) {
   const cliDbPath = process.env["CLAUDE_OS_DB_PATH"] ?? DEFAULT_DB_PATH;
-  const cliBackupPath = cliDbPath + ".pre-cutover.bak";
 
   const cliDb = new Database(cliDbPath);
   cliDb.pragma("journal_mode = WAL");
@@ -97,11 +99,11 @@ if (isDirectEntry) {
   sqliteVec.load(cliDb);
 
   try {
-    console.log("cutover: starting — backup, flag flip, fullReindex");
+    console.log("cutover: starting — backup, verify, flag flip, fullReindex");
     console.log(`cutover: DB path: ${cliDbPath}`);
-    console.log(`cutover: backup path: ${cliBackupPath}`);
 
-    const result = await runCutover(cliDb, defaultConfig(), cliBackupPath);
+    const result = await runCutover(cliDb, defaultConfig());
+    console.log(`cutover: verified pre-cutover snapshot at ${result.backupPath}`);
     console.log(`cutover: complete — ${result.rechunked} files re-chunked`);
   } catch (err: unknown) {
     const msg = err instanceof Error ? (err.stack ?? err.message) : String(err);
