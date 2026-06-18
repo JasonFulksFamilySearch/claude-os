@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync, openSync, writeSync, closeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
 import { openDb } from "../src/db.js";
-import { isV3Schema, runMigrations, backupDb, verifyV3 } from "../src/migrations.js";
+import { isV3Schema, runMigrations, backupDb, verifyV3, verifyBackup } from "../src/migrations.js";
 import { main as migrateMain } from "../src/scripts/migrate.js";
 
 // Mock the embedder so cutover tests don't pull in @huggingface/transformers.
@@ -418,6 +418,7 @@ describe("migrate script main()", () => {
 // ---------------------------------------------------------------------------
 
 import { runCutover } from "../src/scripts/cutover.js";
+import * as migrations from "../src/migrations.js";
 import type { IndexerConfig } from "../src/indexer.js";
 
 // A two-entry learnings file: two dated entries → 2 chunk rows when chunking on.
@@ -509,15 +510,134 @@ describe("runCutover", () => {
     expect(existsSync(backupPath)).toBe(true);
   });
 
-  it("is idempotent — second call does not throw (distinct backup path avoids collision)", async () => {
-    const backupPath = cutoverDbPath + ".pre-cutover.bak";
-    await runCutover(cutoverDb, cutoverConfig, backupPath);
-    // Second call: flag already '1', backup path already exists. Must not throw.
-    await expect(runCutover(cutoverDb, cutoverConfig, backupPath)).resolves.not.toThrow();
-    // Flag still '1'.
-    const row = cutoverDb.prepare("SELECT value FROM meta WHERE key='c2_chunking_enabled'").get() as
-      | { value: string }
-      | undefined;
-    expect(row?.value).toBe("1");
+  it("two runs with distinct destinations do not collide or throw", async () => {
+    const first = cutoverDbPath + ".run1.bak";
+    const second = cutoverDbPath + ".run2.bak";
+    await expect(runCutover(cutoverDb, cutoverConfig, first)).resolves.toBeTruthy();
+    // Second run on the already-chunked store, distinct destination → no VACUUM INTO collision.
+    await expect(runCutover(cutoverDb, cutoverConfig, second)).resolves.toBeTruthy();
+    expect(existsSync(first)).toBe(true);
+    expect(existsSync(second)).toBe(true);
+    const flag = cutoverDb.prepare("SELECT value FROM meta WHERE key='c2_chunking_enabled'").get() as { value: string } | undefined;
+    expect(flag?.value).toBe("1");
+  });
+
+  it("takes a fresh verified snapshot at a timestamped path even when a stale stub sits at the legacy fixed path", async () => {
+    // Arm the defect: a stale junk file at the OLD fixed default path.
+    const legacy = cutoverDbPath + ".pre-cutover.bak";
+    writeFileSync(legacy, "x".repeat(100_000)); // ~100KB stub, not a SQLite DB
+    const liveCount = (cutoverDb.prepare("SELECT COUNT(*) AS n FROM observations").get() as { n: number }).n;
+
+    // Call WITHOUT an explicit path → default timestamped resolution kicks in.
+    const result = await runCutover(cutoverDb, cutoverConfig);
+
+    // A fresh snapshot at a distinct timestamped path was produced and verified.
+    expect(result.backupPath).toMatch(/\.pre-cutover\.\d{8}T\d{6}Z\.bak$/);
+    expect(result.backupPath).not.toBe(legacy);
+    expect(existsSync(result.backupPath)).toBe(true);
+    const snap = new Database(result.backupPath, { readonly: true });
+    try {
+      const { n } = snap.prepare("SELECT COUNT(*) AS n FROM observations").get() as { n: number };
+      expect(n).toBe(liveCount); // snapshot is the pre-cutover whole-file store
+    } finally {
+      snap.close();
+    }
+    // Flag flipped, reindex ran.
+    const flag = cutoverDb.prepare("SELECT value FROM meta WHERE key='c2_chunking_enabled'").get() as { value: string } | undefined;
+    expect(flag?.value).toBe("1");
+  });
+
+  it("aborts BEFORE flipping the flag when the backup fails verification", async () => {
+    // Force a bad backup: stub backupDb to write a sub-floor junk file.
+    // cutover.ts calls `migrations.backupDb(...)` through the namespace import (Step 3a),
+    // so this spy reliably intercepts the production call.
+    const spy = vi.spyOn(migrations, "backupDb").mockImplementation((_db, dest: string) => {
+      writeFileSync(dest, "bogus"); // 5 bytes < 4096 floor → verifyBackup throws
+    });
+    try {
+      await expect(runCutover(cutoverDb, cutoverConfig)).rejects.toThrow();
+      // Flag was never flipped.
+      const flag = cutoverDb.prepare("SELECT value FROM meta WHERE key='c2_chunking_enabled'").get() as { value: string } | undefined;
+      expect(flag?.value).not.toBe("1");
+      // Live store is still whole-file (original anchor='' row, no anchored rows) → fullReindex never ran.
+      const rows = cutoverDb.prepare("SELECT anchor FROM observations").all() as { anchor: string }[];
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.every(r => r.anchor === "")).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("snapshot passes integrity_check and matches the pre-cutover observation count", async () => {
+    const liveCount = (cutoverDb.prepare("SELECT COUNT(*) AS n FROM observations").get() as { n: number }).n;
+    const result = await runCutover(cutoverDb, cutoverConfig);
+    const snap = new Database(result.backupPath, { readonly: true });
+    try {
+      const { n } = snap.prepare("SELECT COUNT(*) AS n FROM observations").get() as { n: number };
+      expect(n).toBe(liveCount);
+      expect(snap.pragma("integrity_check", { simple: true })).toBe("ok");
+    } finally {
+      snap.close();
+    }
+  });
+
+  it("honors an explicitly injected backup path (test-injection contract)", async () => {
+    const explicit = cutoverDbPath + ".injected.bak";
+    const result = await runCutover(cutoverDb, cutoverConfig, explicit);
+    expect(result.backupPath).toBe(explicit);
+    expect(existsSync(explicit)).toBe(true);
+  });
+});
+
+describe("verifyBackup", () => {
+  let vbDir: string;
+  let liveDbPath: string;
+  let liveDb: Database.Database;
+
+  beforeEach(() => {
+    vbDir = mkdtempSync(join(tmpdir(), "claude-os-verifybackup-"));
+    liveDbPath = join(vbDir, "live.db");
+    liveDb = openDb(liveDbPath); // fresh v3 DB, 0 observations
+  });
+
+  afterEach(() => {
+    liveDb.close();
+    rmSync(vbDir, { recursive: true, force: true });
+  });
+
+  it("passes for a complete VACUUM INTO snapshot with matching count", () => {
+    // Seed one observation so the count is non-trivial.
+    liveDb.prepare(`
+      INSERT INTO observations
+        (source_type, source_path, anchor, parent_title, project, topic, title,
+         content, content_hash, file_mtime, indexed_at, frontmatter)
+      VALUES ('learning', ?, '', NULL, NULL, NULL, 'T', 'body', 'h', 1, 2, NULL)
+    `).run(join(vbDir, "x.md"));
+    const dest = join(vbDir, "good.bak");
+    backupDb(liveDb, dest);
+    expect(() => verifyBackup(dest, 1)).not.toThrow();
+  });
+
+  it("throws when the file is below the 4096-byte size floor", () => {
+    const dest = join(vbDir, "tiny.bak");
+    writeFileSync(dest, "not a db"); // 8 bytes
+    expect(() => verifyBackup(dest, 0)).toThrow(/4096/);
+  });
+
+  it("throws when the snapshot observation count does not match expected", () => {
+    const dest = join(vbDir, "count.bak");
+    backupDb(liveDb, dest); // snapshot has 0 observations
+    expect(() => verifyBackup(dest, 5)).toThrow(/observations/);
+  });
+
+  it("throws when integrity_check fails (corrupt file above the floor)", () => {
+    const dest = join(vbDir, "corrupt.bak");
+    backupDb(liveDb, dest);          // start from a real, > 4096-byte SQLite file
+    // Overwrite the SQLite header magic with garbage to fail integrity_check
+    // while keeping the file size above the floor.
+    const fd = openSync(dest, "r+");
+    writeSync(fd, Buffer.from("XXXXXXXXXXXXXXXX"), 0, 16, 0);
+    closeSync(fd);
+    expect(() => verifyBackup(dest, 0)).toThrow();
   });
 });

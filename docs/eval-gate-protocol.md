@@ -193,3 +193,23 @@ PASS means "the cutover did not regress retrieval."
 The cutover is a one-way migration (existing whole-file rows are replaced with
 anchored per-entry rows). The pre-cutover (file-level) baseline is the comparison point;
 never overwrite it with `--rebaseline` until a PASS is in hand.
+
+### Rollback (abandoning a chunked index)
+
+`runCutover` now guarantees a verified snapshot at a known timestamped path
+(`<db>.pre-cutover.<UTC-timestamp>.bak`, logged on success). To roll back a cutover
+whose gate came back FAIL/INCONCLUSIVE or whose rechunk corrupted retrieval:
+
+1. Stop any process holding the live DB (the MCP server).
+2. Locate the most recent verified snapshot — the path the cutover logged
+   (`cutover: verified pre-cutover snapshot at …`).
+3. Move the live `memory.db` aside and copy the snapshot into its place. Because
+   `VACUUM INTO` produced a single fully-checkpointed file with no `-wal`/`-shm`
+   siblings, a plain file copy is sufficient.
+4. Confirm `c2_chunking_enabled` is `'0'` (or absent) in the restored DB — the
+   snapshot predates the flag flip, so it is whole-file by construction.
+5. Re-run the eval gate (`npm run eval`) to confirm the restored index matches the
+   pre-cutover baseline.
+
+This is an operational procedure, not new code: the cutover's job is to guarantee
+step 2 always has a real, verified file to point at.
