@@ -21,13 +21,16 @@ import {
   classify,
   indexFile,
   fullReindex,
+  countMissingVectors,
+  vectorCoverageSweep,
+  MAX_VECTOR_SWEEP,
   isWatchIgnored,
   removeFile,
   embedPathObservations,
   indexAndEmbed,
   type IndexerConfig,
 } from "../src/indexer.js";
-import { embedDocument } from "../src/embedder.js";
+import { embedDocument, serializeVector, composeEmbedText } from "../src/embedder.js";
 
 // Enable per-entry chunking by setting the meta flag the indexer reads at its
 // single chokepoint. Default (no row) is '0' → flag off.
@@ -480,6 +483,166 @@ describe("fullReindex — vector index", () => {
       .prepare("SELECT count(*) AS c FROM vec_items WHERE observation_id = ?")
       .get(BigInt(obs!.id)) as { c: number };
     expect(vec.c).toBe(1);
+  });
+});
+
+describe("vectorCoverageSweep", () => {
+  // Insert an observation row directly (bypassing indexFile) so we control vector presence.
+  let seq = 0;
+  function insertObs(content: string): number {
+    seq++;
+    const now = Math.floor(Date.now() / 1000);
+    const r = db
+      .prepare(
+        `INSERT INTO observations
+          (source_type, source_path, project, topic, title, content, content_hash, file_mtime, indexed_at, frontmatter)
+         VALUES ('context', @sp, NULL, 't', 'T', @c, @h, @m, @m, NULL)`,
+      )
+      .run({ sp: `/tmp/sweep-o${seq}.md`, c: content, h: `h${seq}`, m: now });
+    return Number(r.lastInsertRowid);
+  }
+  // vec0 PK must bind as BigInt (better-sqlite3 sends numbers as FLOAT).
+  function seedVec(id: number): void {
+    db.prepare("INSERT INTO vec_items(observation_id, embedding) VALUES (?, ?)").run(
+      BigInt(id),
+      serializeVector(new Float32Array(768).fill(0.1)),
+    );
+  }
+
+  it("countMissingVectors counts observations with no vec_items row", () => {
+    const a = insertObs("alpha");
+    const b = insertObs("beta");
+    insertObs("gamma"); // orphan
+    seedVec(a);
+    seedVec(b);
+
+    expect(countMissingVectors(db)).toBe(1);
+  });
+
+  it("re-embeds all orphans when under the cap and reports counts", async () => {
+    const ids = [insertObs("a"), insertObs("b"), insertObs("c")];
+    seedVec(ids[0]); // one already covered; two orphaned
+
+    const result = await vectorCoverageSweep(db);
+
+    expect(result.before).toBe(2);
+    expect(result.healed).toBe(2);
+    expect(result.after).toBe(0);
+    expect(countMissingVectors(db)).toBe(0);
+  });
+
+  it("honors the per-sweep cap — heals up to the cap, leaves the rest reported", async () => {
+    // Cap+1 orphans → cap healed, 1 remains.
+    for (let i = 0; i < MAX_VECTOR_SWEEP + 1; i++) insertObs(`o${i}`);
+
+    const result = await vectorCoverageSweep(db);
+
+    expect(result.before).toBe(MAX_VECTOR_SWEEP + 1);
+    expect(result.healed).toBe(MAX_VECTOR_SWEEP);
+    expect(result.after).toBe(1);
+  });
+
+  it("is a no-op at full coverage (idempotent)", async () => {
+    const id = insertObs("a");
+    seedVec(id);
+
+    const first = await vectorCoverageSweep(db);
+    expect(first.before).toBe(0);
+    expect(first.healed).toBe(0);
+
+    const second = await vectorCoverageSweep(db);
+    expect(second.before).toBe(0);
+    expect(second.after).toBe(0);
+  });
+
+  it("does not hot-loop a permanently-failing row — counts it as still-missing", async () => {
+    insertObs("poison");
+    // embedObservation swallows the throw (catch-log-drop), so the row stays orphaned.
+    vi.mocked(embedDocument).mockRejectedValueOnce(new Error("embed boom"));
+
+    const result = await vectorCoverageSweep(db);
+
+    expect(result.before).toBe(1);
+    expect(result.healed).toBe(0); // attempted once, still missing
+    expect(result.after).toBe(1);
+    expect(countMissingVectors(db)).toBe(1);
+  });
+
+  it("fullReindex heals a pre-existing orphan and reports coverage", async () => {
+    // Index a file so it has an observation + vector, then delete its vector to simulate
+    // a past terminal embed failure (an orphan no change-driven pass would ever repair).
+    const file = join(dataRoot, "context", "github.md");
+    writeFileSync(file, "# github\n\ngh cli command patterns\n", "utf8");
+    await fullReindex(db, config);
+    const obs = db
+      .prepare("SELECT id FROM observations WHERE source_path = ?")
+      .get(file) as { id: number };
+    db.prepare("DELETE FROM vec_items WHERE observation_id = ?").run(
+      BigInt(obs.id),
+    );
+    expect(countMissingVectors(db)).toBe(1);
+
+    // A reindex with NO content change must still heal the orphan via the coverage sweep.
+    const summary = await fullReindex(db, config);
+
+    expect(summary.vecMissingBefore).toBe(1);
+    expect(summary.vecMissingAfter).toBe(0);
+    expect(countMissingVectors(db)).toBe(0);
+  });
+
+  it("embeds a chunk-row orphan with the same enriched text as the production path", async () => {
+    // A chunk row (anchor != "") with a section + parent title. The sweep must embed the SAME
+    // title-enriched text embedPathObservations produces — not raw content — so a healed orphan's
+    // vector matches the live index. The other sweep tests insert whole-file rows (anchor=""),
+    // where composed == raw, so only this case exercises (and guards) the enrichment.
+    const now = Math.floor(Date.now() / 1000);
+    const content = "body of the dated entry";
+    db.prepare(
+      `INSERT INTO observations
+        (source_type, source_path, anchor, parent_title, project, topic, title,
+         content, content_hash, file_mtime, indexed_at, frontmatter)
+       VALUES ('learning', '/tmp/sweep-chunk.md', '2026-01-01', 'Learnings', NULL, NULL,
+         '2026-01-01 — first', @c, 'hchunk', @m, @m, NULL)`,
+    ).run({ c: content, m: now });
+
+    vi.mocked(embedDocument).mockClear();
+    vi.mocked(embedDocument).mockResolvedValue(new Float32Array(768).fill(0));
+
+    const result = await vectorCoverageSweep(db);
+    expect(result.healed).toBe(1);
+
+    const calls = vi.mocked(embedDocument).mock.calls;
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0]).toBe(composeEmbedText("Learnings", "2026-01-01 — first", content));
+    // Direct regression guard: a revert to embedding raw content would make these equal.
+    expect(calls[0][0]).not.toBe(content);
+  });
+
+  it("reports vecMissingAfter from the post-removal state, not the pre-removal sweep count", async () => {
+    // Index a file so it has an observation + vector.
+    vi.mocked(embedDocument).mockResolvedValue(new Float32Array(768).fill(0));
+    const file = join(dataRoot, "context", "doomed.md");
+    writeFileSync(file, "# doomed\n\nthis file is about to be deleted\n", "utf8");
+    await fullReindex(db, config);
+    const obs = db
+      .prepare("SELECT id FROM observations WHERE source_path = ?")
+      .get(file) as { id: number };
+
+    // Orphan it AND make re-embedding fail (sweep can't heal it), then delete the file so the
+    // removal pass prunes the orphan row within the same reindex.
+    db.prepare("DELETE FROM vec_items WHERE observation_id = ?").run(BigInt(obs.id));
+    expect(countMissingVectors(db)).toBe(1);
+    vi.mocked(embedDocument).mockRejectedValueOnce(new Error("poison"));
+    rmSync(file);
+
+    const summary = await fullReindex(db, config);
+
+    // The un-healable orphan was removed (its file is gone), so the FINAL state has zero holes.
+    // vecMissingAfter must reflect that — coverage.after (measured before removal) reports 1.
+    expect(summary.vecMissingBefore).toBe(1);
+    expect(summary.vecMissingAfter).toBe(0);
+    expect(summary.removed).toBeGreaterThanOrEqual(1);
+    expect(countMissingVectors(db)).toBe(0);
   });
 });
 

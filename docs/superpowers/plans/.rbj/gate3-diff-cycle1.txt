@@ -1,0 +1,23 @@
+# RBJ audit record — skill v1.0
+# utc: 2026-06-11T22:59:21Z   mode: diff   cycle: 1/2
+# artifact: branch worktree-feat+d2-vector-coverage-sweep (88a522c/e06272b/7605334) vs base 52e2d5b — mcp/src/indexer.ts + mcp/test/indexer.test.ts
+# ground_truth: the diff + GitHub issue #33 (ticket + PRD) + mcp/test/indexer.test.ts + mcp/src/{db,index}.ts + working tree
+=== RBJ-VERDICT v1.0 ===
+mode: diff
+cycle: 1/2
+verdict: CLEAN
+escalation_kind: none
+scores:
+- D1 PASS none :: All 5 PRD User Stories + 4 Impl Decisions + 5 Testing Decisions reflected: countMissingVectors (US1/2), vectorCoverageSweep (US1/3), ReindexSummary fields (US2), MAX_VECTOR_SWEEP cap+named-log (US3), embedObservation reuse (US5), fullReindex wiring after change-driven pass (ID1)
+- D2 PASS none :: Diff limited to indexer.ts + indexer.test.ts; no schema/embedder/retrieval/ranking change; only additive exports + 2 summary fields + sweep wiring
+- G1 PASS none :: Root cause (terminal embed leaves orphaned vec_items; no pass repairs it) addressed at cited locations — LEFT JOIN/NULL detection + re-embed via existing embedObservation, called in fullReindex after the change-driven pass; not a downstream symptom
+- G2 PASS none :: "fullReindex heals" test proven non-tautological (stub→FAIL "expected +0 to be 1", restored); cap/idempotence/failing-embedder tests each assert distinct sweep behavior, independently verified non-tautological by challenger
+- G3 PASS none :: No NEW suppression; embedObservation's catch-log-drop is pre-existing and intentionally the retry surface (PRD ID1); the diff adds no swallowed error / widened type / test special-casing
+- G4 PASS none :: ReindexSummary's 2 new required fields: only consumer is index.ts via {...summary} spread (compatible); fullReindex is sole constructor and supplies both; tsc PASS; fullReindex signature/timing/return contract unchanged (await completes before removal pass)
+- G5 PASS none :: Regression test reproduces orphaned-vector condition: index file → delete its vec_items row → assert orphaned → fullReindex (no content change) → assert healed (vecMissingBefore=1/After=0/count=0)
+- G6 PASS none :: No external dependency — healing relies only on existing embedObservation, existing vec_items schema, and fullReindex's existing periodic invocation (index.ts startup + REINDEX_INTERVAL_MS backstop); no deploy ordering / server contract / cross-service
+red_challenge: no-grounded-fail
+revise_lines: none
+escalation_ask: none
+=== END RBJ-VERDICT ===
+Gate 3 cycle 1: CLEAN. Genuine root-cause fix; red challenger found no grounded FAIL after tracing count math, sweep/removal ordering, ReindexSummary consumers, and transaction failure paths. Non-blocking note for PR: sweep runs before the removal pass, so it may re-embed an orphan for a file about to be deleted — wasted work, not a correctness bug (PRD risk register accepts trivial sweep cost).

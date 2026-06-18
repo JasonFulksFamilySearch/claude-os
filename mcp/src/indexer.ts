@@ -21,6 +21,13 @@ function readFlag(db: Database.Database, key: string): string {
 
 const MAX_FILE_BYTES = 1024 * 1024;
 
+// Max orphan re-embeds attempted per sweep. A poisoned (permanently-failing) orphan costs
+// one bounded attempt per sweep (named in the log), never a hot-loop; rows beyond the cap
+// are the next sweep's work. (Within a single fullReindex a row that just failed the
+// change-driven embed pass is also picked up here — that case sees two attempts in the run,
+// not one — but each sweep itself attempts any given orphan at most once.)
+export const MAX_VECTOR_SWEEP = 50;
+
 export interface WatchedProject {
   slug: string;
   path: string;
@@ -409,7 +416,99 @@ export interface ReindexSummary {
   errored: number;
   removed: number;
   durationMs: number;
+  vecMissingBefore: number;
+  vecMissingAfter: number;
   erroredPaths: string[];
+}
+
+/** Count observations that have no vec_items row (orphaned embeddings). */
+export function countMissingVectors(db: Database.Database): number {
+  const row = db
+    .prepare(
+      `SELECT count(*) AS c
+         FROM observations o
+         LEFT JOIN vec_items v ON o.id = v.observation_id
+        WHERE v.observation_id IS NULL`,
+    )
+    .get() as { c: number };
+  return row.c;
+}
+
+export interface CoverageSweepResult {
+  /** Orphan count before the sweep. */
+  before: number;
+  /** Orphans successfully re-embedded this sweep (bounded by MAX_VECTOR_SWEEP). */
+  healed: number;
+  /** Orphan count after the sweep (remaining work + any permanently-failing rows). */
+  after: number;
+}
+
+/**
+ * Self-healing pass: re-embed observations that have no vec_items row, bounded per sweep.
+ * Reuses embedObservation (its catch-log-drop is unchanged; THIS sweep is the retry, so a
+ * transient embed failure self-heals next cycle). A permanently-failing row costs one
+ * bounded attempt per sweep and is named in the warn log rather than hot-looped.
+ */
+export async function vectorCoverageSweep(
+  db: Database.Database,
+): Promise<CoverageSweepResult> {
+  const before = countMissingVectors(db);
+  if (before === 0) return { before: 0, healed: 0, after: 0 };
+
+  const orphans = db
+    .prepare(
+      `SELECT o.id, o.content, o.title, o.parent_title, o.anchor
+         FROM observations o
+         LEFT JOIN vec_items v ON o.id = v.observation_id
+        WHERE v.observation_id IS NULL
+        ORDER BY o.id
+        LIMIT ?`,
+    )
+    .all(MAX_VECTOR_SWEEP) as {
+    id: number;
+    content: string;
+    title: string | null;
+    parent_title: string | null;
+    anchor: string;
+  }[];
+
+  for (const { id, content, title, parent_title, anchor } of orphans) {
+    // Failures are swallowed inside embedObservation (catch-log-drop); the sweep is the retry.
+    // Compose embed text identically to embedPathObservations so a healed orphan's vector
+    // matches what the change-driven path produces — raw for whole-file rows (anchor=""),
+    // title-enriched for chunk rows. Embedding raw content here would let re-embedded
+    // orphans drift from the live index.
+    await embedObservation(
+      db,
+      id,
+      composeEmbedText(parent_title, anchor === "" ? null : title, content),
+    );
+  }
+
+  const after = countMissingVectors(db);
+  const healed = before - after;
+
+  if (after > 0) {
+    // Name the rows still missing (capped log) so a poisoned input is debuggable. Include the
+    // anchor: post-C2 a chunked file holds multiple rows per path, so source_path alone cannot
+    // identify which specific row is poisoned.
+    const stillMissing = db
+      .prepare(
+        `SELECT o.source_path, o.anchor
+           FROM observations o
+           LEFT JOIN vec_items v ON o.id = v.observation_id
+          WHERE v.observation_id IS NULL
+          ORDER BY o.id
+          LIMIT 20`,
+      )
+      .all() as { source_path: string; anchor: string }[];
+    log("warn", "vectorCoverageSweep: observations still missing vectors", {
+      remaining: after,
+      rows: stillMissing.map((r) => ({ source_path: r.source_path, anchor: r.anchor })),
+    });
+  }
+
+  return { before, healed, after };
 }
 
 export async function fullReindex(
@@ -492,6 +591,10 @@ export async function fullReindex(
     await embedPathObservations(db, path, changedAnchors);
   }
 
+  // Self-healing coverage pass: repair any observation missing its vector (a past terminal
+  // embed failure that no change-driven pass would ever touch). Bounded per sweep.
+  const coverage = await vectorCoverageSweep(db);
+
   const candidateSet = candidates;
   const existingPaths = db
     .prepare("SELECT source_path FROM observations")
@@ -504,6 +607,12 @@ export async function fullReindex(
     }
   }
 
+  // vecMissingAfter reflects the FINAL DB state — recomputed after the removal pass. Removals
+  // can delete orphaned observations the sweep could not heal (e.g. a poisoned row whose file
+  // is now gone), so coverage.after — measured before removals — would overstate the holes
+  // remaining in the reported summary.
+  const vecMissingAfter = countMissingVectors(db);
+
   const summary: ReindexSummary = {
     total: candidates.size,
     indexed,
@@ -512,6 +621,8 @@ export async function fullReindex(
     errored,
     removed,
     durationMs: Date.now() - start,
+    vecMissingBefore: coverage.before,
+    vecMissingAfter,
     erroredPaths,
   };
   log("info", "fullReindex complete", { ...summary });
