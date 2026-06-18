@@ -11,6 +11,19 @@ function safeString(v, max) {
   return v.replace(/[\x00-\x1f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
+// Quote any scalar that isn't unambiguously safe as a bare YAML value.
+// Returns `value` unchanged when YAML-safe; otherwise a double-quoted token
+// with embedded `\` and `"` escaped (backslash first to avoid double-escaping).
+const YAML_SPECIAL = /[:#\[\]{}&*!|>'"%@,`\\]/;   // special anywhere
+const YAML_LEAD    = /^[-?:,\[\]{}#&*!|>'"%@` ]/;  // indicator/space at start
+const YAML_COERCE  = /^(?:true|false|null|~|yes|no|on|off|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)$/i;
+function yamlScalar(value) {
+  const s = String(value);
+  const unsafe = s === '' || s !== s.trim() || YAML_SPECIAL.test(s) || YAML_LEAD.test(s) || YAML_COERCE.test(s);
+  if (!unsafe) return s;
+  return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+}
+
 // Manual schema coercion — replaces Zod (unavailable in hooks layer).
 // Prevents TypeError when Haiku returns unexpected shapes (string instead of
 // array, null fields, extra keys).
@@ -50,4 +63,4 @@ function coerceObservation(raw) {
   };
 }
 
-module.exports = { safeString, coerceObservation };
+module.exports = { safeString, yamlScalar, coerceObservation };
