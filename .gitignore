@@ -26,6 +26,10 @@ credentials/
 _tmp_*
 **/_tmp_*
 
+# Per-machine personality drafts kept at repo root — machine-local "soul" that
+# must never propagate via the shared repo. Same leak-guard rationale as above.
+personality-*-draft.md
+
 # OS / editor cruft
 .DS_Store
 .vscode/
@@ -69,3 +73,7 @@ config/episodes.json
 # above is defeated by !docs/** for anything under docs/, so re-exclude it here.
 docs/.DS_Store
 docs/**/.DS_Store
+
+# Re-ignore red-blue-judge gate scratch inside docs/ — transient verification
+# cycle artifacts, not portable system code. Force-tracked by !docs/** otherwise.
+docs/**/.rbj/
