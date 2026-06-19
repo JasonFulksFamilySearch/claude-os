@@ -7,7 +7,7 @@ description: >
   schedule (not user-invoked); never posts to Slack. Pass `--dry-run` to report candidates
   without writing.
 argument-hint: "[--dry-run]"
-allowed-tools: Bash(gh *) Bash(jira *) Bash(node *) Bash(date *) mcp__atlassian__getJiraIssue mcp__atlassian__transitionJiraIssue mcp__atlassian__addCommentToJiraIssue mcp__atlassian__getTransitionsForJiraIssue
+allowed-tools: Bash(gh *) Bash(jira *) Bash(node *) Bash(date *) Bash(jq *) mcp__atlassian__getJiraIssue mcp__atlassian__transitionJiraIssue mcp__atlassian__addCommentToJiraIssue mcp__atlassian__getTransitionsForJiraIssue
 ---
 
 <role>
@@ -61,9 +61,24 @@ If either exits non-zero, write a single error digest entry and stop rather than
 transient auth failure never looks like "no PRs to advance":
 
 ```js
-const { appendDigestEntry } = require('/Users/fulksjas/.claude-os/hooks/digest-queue-write.js');
+const { appendDigestEntry } = require(require('os').homedir() + '/.claude-os/hooks/digest-queue-write.js');
 appendDigestEntry({ agent: 'merge-progression', status: 'error', error: 'auth check failed' });
 ```
+
+## Step 0 — Resolve agent + load config
+
+This skill is **write-capable** (it transitions Jira tickets) and runs **LOCAL only**
+(`cloud_allowed: false`). Resolve the agent and read its repo list from config:
+
+```bash
+AGENT="${AGENT:-$(jq -r '.agent_name' "$HOME/.claude-data/agent/identity.json" 2>/dev/null | tr '[:upper:]' '[:lower:]')}"
+CFG="$HOME/.claude-data/config/digest-config.json"
+SLUGS=$(jq -r ".digests.\"merge-progression\".$AGENT.repos[]" "$CFG")
+```
+
+If `$AGENT` is empty or the block is missing, write an error entry (`error: 'agent/config
+unresolved'`) and stop. The `repos` are `owner/repo` slugs — for Willis these are the ARC repos
+(canonically sourced from `reference/arc-repos.json` into the config template), for Walter, claude-os.
 
 ## Step 1 — Find the operator's merged PRs
 
@@ -73,12 +88,11 @@ general principle that keeps the skill portable to whoever runs it:
 ```bash
 ME=$(gh api user --jq .login)
 SINCE=$(date -v-2d +%Y-%m-%d)   # 2-day lookback so it always exceeds the cron cadence
-SLUGS=$(node -e "JSON.parse(require('fs').readFileSync('/Users/fulksjas/.claude-os/reference/arc-repos.json','utf8')).repos.forEach(r=>console.log(r.slug))")
+# SLUGS resolved in Step 0 from the agent's config block.
 ```
 
-The ARC repo slugs are read from `~/.claude-os/reference/arc-repos.json` at runtime so this list
-never drifts from the rest of the system. The per-repo queries are independent, so issue them in
-parallel; only the per-ticket steps in Step 3 are dependent and must run sequentially:
+The per-repo queries are independent, so issue them in parallel; only the per-ticket steps in
+Step 3 are dependent and must run sequentially:
 
 ```bash
 gh pr list --repo "<slug>" --state merged --author "$ME" --search "merged:>=$SINCE" \
@@ -116,7 +130,7 @@ Write exactly one entry per run regardless of count, so the morning digest can s
 without duplicate noise:
 
 ```js
-const { appendDigestEntry } = require('/Users/fulksjas/.claude-os/hooks/digest-queue-write.js');
+const { appendDigestEntry } = require(require('os').homedir() + '/.claude-os/hooks/digest-queue-write.js');
 appendDigestEntry({ agent: 'merge-progression', status: 'ok', items: [ /* one per processed ticket */ ] });
 ```
 

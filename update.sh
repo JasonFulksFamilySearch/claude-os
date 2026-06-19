@@ -301,6 +301,33 @@ fi
 
 echo ""
 
+# ── Step 7.5: Digest family config ────────────────────────────────────────────
+# The background-*-digest skills (pr-digest, sprint-digest, merge-progression) read
+# per-agent config (which repos, which output sink, which cron) from this file. One
+# committed template carries both agents' blocks; each machine reads its own block by
+# the agent name in identity.json. Plain copy only-if-absent — the config has no local
+# paths (repos are owner/repo slugs), so no envsubst is needed.
+
+echo "--- Step 7.5: Digest config ---"
+
+DIGEST_TEMPLATE="$REPO_DIR/config/digest-config.template.json"
+DIGEST_CONFIG_DIR="$HOME/.claude-data/config"
+DIGEST_TARGET="$DIGEST_CONFIG_DIR/digest-config.json"
+
+if [ ! -f "$DIGEST_TEMPLATE" ]; then
+    skip "No digest-config template — skipping"
+else
+    mkdir -p "$DIGEST_CONFIG_DIR"
+    if [ ! -f "$DIGEST_TARGET" ]; then
+        cp "$DIGEST_TEMPLATE" "$DIGEST_TARGET"
+        ok "Provisioned digest config: digest-config.json"
+    else
+        skip "Digest config already exists: digest-config.json"
+    fi
+fi
+
+echo ""
+
 # ── Step 8: Identity anchor, persona, symlink heal, rule templates ───────────
 
 echo "--- Step 8: Identity + rule templates ---"

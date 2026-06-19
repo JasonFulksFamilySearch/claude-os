@@ -6,7 +6,7 @@ description: >
   human in the loop. Never posts to Slack, never transitions tickets. Invoked by the
   background scheduler, not directly by the user.
 argument-hint: ""
-allowed-tools: Bash(jira *) Bash(node *) mcp__atlassian__searchJiraIssuesUsingJql
+allowed-tools: Bash(jira *) Bash(node *) Bash(jq *) Bash(gh *) Bash(date *) mcp__atlassian__searchJiraIssuesUsingJql
 ---
 
 <role>
@@ -19,12 +19,24 @@ cleanly.
 
 <task>
 Query Jira for open sprint tickets that have not been updated in three or more days. Write
-exactly one digest entry to the queue via `appendDigestEntry`.
+exactly one digest entry via the configured output sink (Step 0). The JQL self-scopes to the
+user's active sprint, so this digest needs no repos/project config — only the agent's output sink.
 </task>
+
+## Step 0 — Resolve agent + load config
+
+```bash
+AGENT="${AGENT:-$(jq -r '.agent_name' "$HOME/.claude-data/agent/identity.json" 2>/dev/null | tr '[:upper:]' '[:lower:]')}"
+CFG="$HOME/.claude-data/config/digest-config.json"
+OUTPUT=$(jq -r ".digests.\"sprint-digest\".$AGENT.output" "$CFG")
+```
+
+If `$AGENT` is empty or the config block is missing, write an error entry (`error: 'agent/config
+unresolved'`) and stop. The sprint-digest block has **no repos** — the JQL scopes itself.
 
 ## Health Check
 
-Run this first. If it fails, write an error entry and stop.
+Run this after Step 0. If it fails, write an error entry and stop.
 
 ```bash
 jira me
@@ -33,7 +45,7 @@ jira me
 If the command exits non-zero or returns no output:
 
 ```js
-const { appendDigestEntry } = require('/Users/fulksjas/.claude-os/hooks/digest-queue-write.js');
+const { appendDigestEntry } = require(require('os').homedir() + '/.claude-os/hooks/digest-queue-write.js');
 appendDigestEntry({ agent: 'sprint-staleness', status: 'error', error: 'jira auth check failed' });
 ```
 
@@ -74,33 +86,25 @@ Where `updated` is the ISO timestamp from the Jira response and `now` is `Date.n
 
 Round down to whole days. A ticket last updated exactly 3 days ago has `days_stale = 3`.
 
-## Step 3 — Write Digest Entry
+## Step 3 — Write the digest via the configured output sink
 
-Write exactly one entry to the queue.
+Write exactly one entry. The sink is `$OUTPUT` (Step 0).
 
-**No stale tickets found:**
-
-```js
-const { appendDigestEntry } = require('/Users/fulksjas/.claude-os/hooks/digest-queue-write.js');
-appendDigestEntry({ agent: 'sprint-staleness', status: 'ok', items: [] });
-```
-
-**Stale tickets found:**
+**`output: "queue"`** (LOCAL runs only — a cloud sandbox cannot reach the local queue):
 
 ```js
-const { appendDigestEntry } = require('/Users/fulksjas/.claude-os/hooks/digest-queue-write.js');
-appendDigestEntry({
-  agent: 'sprint-staleness',
-  status: 'ok',
-  items: [
-    { key: 'ARC-1234', summary: 'Issue summary text', status: 'In Progress', days_stale: 5 },
-    ...
-  ]
-});
+const { appendDigestEntry } = require(require('os').homedir() + '/.claude-os/hooks/digest-queue-write.js');
+appendDigestEntry({ agent: 'sprint-staleness', status: 'ok', items: [ /* stale tickets, or [] */ ] });
 ```
 
-Use `node -e` for single-line invocations. If the call requires more than one line, write a
-`_tmp_sprint_digest.js` script, run it with `node`, then delete it.
+Each item: `{ key, summary, status, days_stale }`.
+
+**`output: "issue"`** (cloud-safe): write the stale-ticket list as a GitHub issue (title
+`Sprint staleness — <date>`, markdown body) — never Slack. **`output: "runlog"`** (cloud-safe):
+emit the structured digest JSON to session output; no write.
+
+Use `node -e` for single-line invocations. If a call needs more than one line, write a
+`_tmp_sprint_digest.js` script, run it, then delete it.
 
 ## Output Format
 

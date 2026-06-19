@@ -1,0 +1,97 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Background Digest Family Config",
+  "description": "Per-agent (Walter/Willis) configuration for the background-*-digest skill family. One committed file carries both agents' blocks; each machine reads its own key by lowercased agent name.",
+  "type": "object",
+  "required": ["github_user", "digests"],
+  "properties": {
+    "github_user": {
+      "type": "string",
+      "description": "GitHub login used for review-request matching and PR/Jira authorship."
+    },
+    "digests": {
+      "type": "object",
+      "required": ["pr-digest", "sprint-digest", "merge-progression"],
+      "properties": {
+        "pr-digest": { "$ref": "#/definitions/repoDigest" },
+        "sprint-digest": { "$ref": "#/definitions/sprintDigest" },
+        "merge-progression": { "$ref": "#/definitions/writeDigest" }
+      }
+    }
+  },
+  "definitions": {
+    "outputSink": {
+      "type": "string",
+      "enum": ["queue", "issue", "runlog"],
+      "description": "'queue' = local digest-queue.jsonl (LOCAL runs only — a cloud routine cannot reach it). 'issue' = GitHub issue/comment (cloud-safe). 'runlog' = session output (cloud-safe). Never Slack."
+    },
+    "cron": {
+      "type": "string",
+      "description": "5-field cron expression; seeds the cloud routine for read-only digests."
+    },
+    "repoList": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+      "description": "GitHub repos as owner/repo. Derived from reference/arc-repos.json slug fields for the ARC digests.",
+      "minItems": 1
+    },
+    "agentBlockRepo": {
+      "type": "object",
+      "required": ["repos", "output", "cron"],
+      "additionalProperties": false,
+      "properties": {
+        "repos": { "$ref": "#/definitions/repoList" },
+        "output": { "$ref": "#/definitions/outputSink" },
+        "cron": { "$ref": "#/definitions/cron" }
+      }
+    },
+    "agentBlockSprint": {
+      "type": "object",
+      "required": ["output", "cron"],
+      "additionalProperties": false,
+      "description": "Sprint-digest needs NO repos — its JQL self-scopes to the user's active sprint.",
+      "properties": {
+        "output": { "$ref": "#/definitions/outputSink" },
+        "cron": { "$ref": "#/definitions/cron" }
+      }
+    },
+    "agentBlockWrite": {
+      "type": "object",
+      "required": ["repos", "output", "cron", "cloud_allowed"],
+      "additionalProperties": false,
+      "properties": {
+        "repos": { "$ref": "#/definitions/repoList" },
+        "output": { "$ref": "#/definitions/outputSink" },
+        "cron": { "$ref": "#/definitions/cron" },
+        "cloud_allowed": {
+          "type": "boolean",
+          "description": "Write-capable digests set false to hard-block cloud-routine creation. A skill that transitions Jira tickets must not run unattended from a cloud sandbox."
+        }
+      }
+    },
+    "repoDigest": {
+      "type": "object",
+      "required": ["walter", "willis"],
+      "properties": {
+        "walter": { "$ref": "#/definitions/agentBlockRepo" },
+        "willis": { "$ref": "#/definitions/agentBlockRepo" }
+      }
+    },
+    "sprintDigest": {
+      "type": "object",
+      "required": ["walter", "willis"],
+      "properties": {
+        "walter": { "$ref": "#/definitions/agentBlockSprint" },
+        "willis": { "$ref": "#/definitions/agentBlockSprint" }
+      }
+    },
+    "writeDigest": {
+      "type": "object",
+      "required": ["walter", "willis"],
+      "properties": {
+        "walter": { "$ref": "#/definitions/agentBlockWrite" },
+        "willis": { "$ref": "#/definitions/agentBlockWrite" }
+      }
+    }
+  }
+}
