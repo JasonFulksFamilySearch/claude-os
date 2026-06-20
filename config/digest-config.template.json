@@ -1,0 +1,56 @@
+{
+  "$schema": "./digest-config.schema.json",
+  "_comment": "Per-agent config for the background-*-digest family. Generated from this template by update.sh (only-if-absent) into ~/.claude-data/config/digest-config.json. Edit the TEMPLATE (committed), not the generated file. Each machine reads its own agent block, keyed by the lowercased agent name from ~/.claude-data/agent/identity.json. github_user is the GitHub login used for review-request matching and as the Jira/PR author.",
+  "github_user": "JasonFulksFamilySearch",
+  "digests": {
+    "pr-digest": {
+      "_comment": "Read-only GitHub PR surveillance. repos = owner/repo list. output: 'queue' (local digest-queue.jsonl) for local runs; a cloud routine must use 'issue' or 'runlog'.",
+      "walter": {
+        "repos": ["JasonFulksFamilySearch/claude-os"],
+        "output": "queue",
+        "cron": "7 12 * * *"
+      },
+      "willis": {
+        "repos": [
+          "fs-webdev/arc-record-exchange",
+          "fs-eng/arc-record-exchange-orch-service",
+          "fs-eng/arc-record-exchange-global-status-service",
+          "fs-eng/arc-delivery-specification-service"
+        ],
+        "output": "queue",
+        "cron": "7 12 * * 1-5"
+      }
+    },
+    "sprint-digest": {
+      "_comment": "Read-only Jira sprint-staleness. NO repos/project block — the JQL (assignee=currentUser() AND sprint in openSprints()) self-scopes to the user's active sprint. Only output + cron vary per agent.",
+      "walter": {
+        "output": "queue",
+        "cron": "37 12 * * *"
+      },
+      "willis": {
+        "output": "queue",
+        "cron": "37 12 * * 1-5"
+      }
+    },
+    "merge-progression": {
+      "_comment": "WRITE-CAPABLE: transitions Jira tickets. cloud_allowed:false hard-blocks cloud-routine creation — a write-capable skill must not run unattended from a sandbox. Runs LOCAL ONLY.",
+      "walter": {
+        "repos": ["JasonFulksFamilySearch/claude-os"],
+        "output": "queue",
+        "cron": "15 * * * 1-5",
+        "cloud_allowed": false
+      },
+      "willis": {
+        "repos": [
+          "fs-webdev/arc-record-exchange",
+          "fs-eng/arc-record-exchange-orch-service",
+          "fs-eng/arc-record-exchange-global-status-service",
+          "fs-eng/arc-delivery-specification-service"
+        ],
+        "output": "queue",
+        "cron": "15 * * * 1-5",
+        "cloud_allowed": false
+      }
+    }
+  }
+}
