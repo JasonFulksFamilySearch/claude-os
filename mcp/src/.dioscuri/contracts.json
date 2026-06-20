@@ -1,0 +1,13 @@
+{
+  "_comment": "Per-repo contract definitions for mcp/src (FR-C2 INPUT, not part of the capability). The graph capability ships the mechanism; these definitions are this repo's own inputs, read from .dioscuri/contracts.json at the audited target root. They are NOT hardcoded into the builder.",
+  "contracts": [
+    {
+      "rule_id": "search-pool-guarded",
+      "severity": "warning",
+      "provider": "result_shaper.ts#shapeResults",
+      "consumer": "search_memory.ts#searchMemory",
+      "requiresGuard": "unionIds.length === 0",
+      "description": "searchMemory must only reach shapeResults after the empty-candidate-pool guard returns early; an unguarded path would shape an empty/garbage candidate set."
+    }
+  ]
+}

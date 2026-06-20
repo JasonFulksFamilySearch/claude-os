@@ -57,6 +57,13 @@ package-lock.json
 # Generated skill output (data artifacts, not system code)
 skills/daily-action/plans/
 
+# Dioscuri code-graph artifact — throwaway, rebuildable, per-repo. NEVER committed:
+# it carries a build-commit stamp + machine-built reach/contract index that rebuilds
+# from source. The contracts.json INPUT (a per-repo definition) stays tracked; only
+# the generated graph/ output is ignored.
+.dioscuri/graph/
+**/.dioscuri/graph/
+
 # Machine-local config (generated from *.template.json by install.sh)
 config/watched-projects.json
 config/episodes.json

@@ -8,13 +8,23 @@ const { CANONICAL_HOOKS, CANONICAL_GUARD_HOOKS, CANONICAL_SCRIPT_GUARD_HOOKS, me
 // Deep-clone helper so tests never share mutable state.
 const clone = (o) => JSON.parse(JSON.stringify(o));
 
-test('CANONICAL_HOOKS lists all four documented hooks', () => {
+test('CANONICAL_HOOKS lists all five documented lifecycle hooks', () => {
   const commands = CANONICAL_HOOKS.map((h) => h.command);
-  assert.equal(CANONICAL_HOOKS.length, 4);
+  assert.equal(CANONICAL_HOOKS.length, 5);
   assert.ok(commands.includes('node ~/.claude-os/hooks/session-start-check.js'));
   assert.ok(commands.includes('node ~/.claude-os/hooks/topic-preload.js'));
   assert.ok(commands.includes('node ~/.claude-os/hooks/learnings-flush.js'));
   assert.ok(commands.includes('node ~/.claude-os/hooks/session-observer.js'));
+  assert.ok(commands.includes('node ~/.claude-os/hooks/posttooluse-content-router.js'));
+});
+
+test('CANONICAL_HOOKS registers the PostToolUse ContentRouter seam (matcher-less lifecycle group)', () => {
+  const postToolUse = CANONICAL_HOOKS.filter((h) => h.event === 'PostToolUse');
+  assert.equal(postToolUse.length, 1, 'exactly one PostToolUse seam hook');
+  assert.equal(postToolUse[0].command, 'node ~/.claude-os/hooks/posttooluse-content-router.js');
+  // Lifecycle hooks carry NO matcher (they fire on every event); the seam must
+  // inspect every tool result, so it must not be matcher-scoped like a guard.
+  assert.equal(postToolUse[0].matcher, undefined, 'seam is matcher-less, like the Stop/SessionStart hooks');
 });
 
 test('CANONICAL_HOOKS registers two Stop hooks', () => {
@@ -22,13 +32,20 @@ test('CANONICAL_HOOKS registers two Stop hooks', () => {
   assert.equal(stop.length, 2);
 });
 
-test('mergeHooks wires the four lifecycle hooks, the two Bash guards, and the script guard', () => {
+test('mergeHooks wires the five lifecycle hooks, the two Bash guards, and the script guard', () => {
   const { settings, added, skipped } = mergeHooks({});
-  assert.equal(added.length, 7); // 4 lifecycle + 2 Bash guards + 1 script guard
+  assert.equal(added.length, 8); // 5 lifecycle + 2 Bash guards + 1 script guard
   assert.equal(skipped.length, 0);
   assert.equal(settings.hooks.SessionStart.length, 1);
   assert.equal(settings.hooks.UserPromptSubmit.length, 1);
   assert.equal(settings.hooks.Stop.length, 2);
+  // The ContentRouter seam: one matcher-less PostToolUse group (lifecycle-style).
+  assert.equal(settings.hooks.PostToolUse.length, 1);
+  assert.equal(settings.hooks.PostToolUse[0].matcher, undefined, 'seam group is matcher-less');
+  assert.equal(
+    settings.hooks.PostToolUse[0].hooks[0].command,
+    'node ~/.claude-os/hooks/posttooluse-content-router.js'
+  );
   // Two PreToolUse groups: the two inline guards share a Bash group; the script
   // guard (matcher Bash|Edit|Write) forms its own.
   assert.equal(settings.hooks.PreToolUse.length, 2);
@@ -40,8 +57,9 @@ test('mergeHooks is idempotent — second run adds nothing', () => {
   const first = mergeHooks({});
   const second = mergeHooks(first.settings);
   assert.equal(second.added.length, 0);
-  assert.equal(second.skipped.length, 7); // 4 lifecycle + 2 Bash guards + 1 script guard
+  assert.equal(second.skipped.length, 8); // 5 lifecycle + 2 Bash guards + 1 script guard
   assert.equal(second.settings.hooks.Stop.length, 2);
+  assert.equal(second.settings.hooks.PostToolUse.length, 1); // not duplicated
 });
 
 test('mergeHooks adds session-observer alongside an existing learnings-flush Stop hook', () => {
@@ -94,13 +112,14 @@ const TMP = join(tmpdir(), `hooks-install-test-${process.pid}`);
 before(() => mkdirSync(TMP, { recursive: true }));
 after(() => rmSync(TMP, { recursive: true, force: true }));
 
-test('applyToSettingsFile creates settings with all seven hooks when file is absent', () => {
+test('applyToSettingsFile creates settings with all eight hooks when file is absent', () => {
   const path = join(TMP, 'absent', 'settings.json');
   const res = applyToSettingsFile(path);
-  assert.equal(res.added.length, 7); // 4 lifecycle + 2 Bash guards + 1 script guard
+  assert.equal(res.added.length, 8); // 5 lifecycle + 2 Bash guards + 1 script guard
   assert.ok(existsSync(path));
   const written = JSON.parse(readFileSync(path, 'utf8'));
   assert.equal(written.hooks.Stop.length, 2);
+  assert.equal(written.hooks.PostToolUse.length, 1);
   assert.equal(written.hooks.PreToolUse.length, 2);
 });
 
@@ -123,7 +142,7 @@ test('applyToSettingsFile is idempotent on a real file', () => {
   applyToSettingsFile(path);
   const second = applyToSettingsFile(path);
   assert.equal(second.added.length, 0);
-  assert.equal(second.skipped.length, 7); // 4 lifecycle + 2 Bash guards + 1 script guard
+  assert.equal(second.skipped.length, 8); // 5 lifecycle + 2 Bash guards + 1 script guard
 });
 
 test('applyToSettingsFile preserves unrelated keys on disk', () => {
@@ -198,7 +217,7 @@ test('applyToSettingsFile treats an empty file as fresh (not an error)', () => {
   writeFileSync(path, '   \n  ', 'utf8'); // whitespace only
 
   const res = applyToSettingsFile(path, '2026-06-04T00:00:00.000Z');
-  assert.equal(res.added.length, 7); // 4 lifecycle + 2 Bash guards + 1 script guard
+  assert.equal(res.added.length, 8); // 5 lifecycle + 2 Bash guards + 1 script guard
   const written = JSON.parse(readFileSync(path, 'utf8'));
   assert.equal(written.hooks.Stop.length, 2);
 });
@@ -206,7 +225,7 @@ test('applyToSettingsFile treats an empty file as fresh (not an error)', () => {
 test('applyToSettingsFile treats an absent file as fresh (not an error)', () => {
   const path = join(TMP, 'still-absent', 'settings.json');
   const res = applyToSettingsFile(path);
-  assert.equal(res.added.length, 7); // 4 lifecycle + 2 Bash guards + 1 script guard
+  assert.equal(res.added.length, 8); // 5 lifecycle + 2 Bash guards + 1 script guard
   assert.ok(existsSync(path));
 });
 
@@ -243,8 +262,8 @@ test('CANONICAL_GUARD_HOOKS holds the two PreToolUse/Bash guards', () => {
   }
 });
 
-test('CANONICAL_HOOKS stays exactly four (guards are a separate category)', () => {
-  assert.equal(CANONICAL_HOOKS.length, 4);
+test('CANONICAL_HOOKS stays exactly five (guards are a separate category)', () => {
+  assert.equal(CANONICAL_HOOKS.length, 5);
 });
 
 test('mergeHooks creates ONE PreToolUse Bash group holding both guards on a fresh object', () => {
@@ -390,7 +409,7 @@ test('mergeHooks is idempotent on the script guard (no duplicate group across tw
 });
 
 test('commandPresent recognizes nvm-wrapped lifecycle commands (no broken duplicate on update)', () => {
-  // Reproduces a real machine: the four lifecycle hooks are invoked through an
+  // Reproduces a real machine: the lifecycle hooks are invoked through an
   // nvm-source prefix. The canonical commands are unprefixed; mergeHooks must see the
   // wrapped entries as present, or every update.sh run would append a second,
   // unwrapped (node-not-found) copy of each.
@@ -405,6 +424,7 @@ test('commandPresent recognizes nvm-wrapped lifecycle commands (no broken duplic
       ],
       SessionStart: [{ hooks: [{ type: 'command', command: wrap('node ~/.claude-os/hooks/session-start-check.js') }] }],
       UserPromptSubmit: [{ hooks: [{ type: 'command', command: wrap('node ~/.claude-os/hooks/topic-preload.js') }] }],
+      PostToolUse: [{ hooks: [{ type: 'command', command: wrap('node ~/.claude-os/hooks/posttooluse-content-router.js') }] }],
     },
   };
   const { settings, skipped } = mergeHooks(clone(wrapped));
@@ -415,6 +435,7 @@ test('commandPresent recognizes nvm-wrapped lifecycle commands (no broken duplic
   assert.equal(settings.hooks.Stop[0].hooks.length, 2);
   assert.equal(settings.hooks.SessionStart.length, 1);
   assert.equal(settings.hooks.UserPromptSubmit.length, 1);
+  assert.equal(settings.hooks.PostToolUse.length, 1, 'PostToolUse seam group not duplicated by the nvm-wrapped entry');
 });
 
 // FIDELITY: the script guard command must be byte-identical to what the LIVE
