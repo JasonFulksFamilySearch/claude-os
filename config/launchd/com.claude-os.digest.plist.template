@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>${LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${CLAUDE_BIN}</string>
+    <string>-p</string>
+    <string>/${SKILL}</string>
+    <string>--permission-mode</string>
+    <string>default</string>
+    ${ALLOWED_TOOLS}
+  </array>
+  ${CALENDAR_INTERVAL}
+  <key>RunAtLoad</key><false/>
+  <key>KeepAlive</key><false/>
+  <key>ProcessType</key><string>Background</string>
+  <key>Nice</key><integer>5</integer>
+  <key>WorkingDirectory</key><string>${HOME}</string>
+  <key>StandardOutPath</key><string>/dev/null</string>
+  <key>StandardErrorPath</key><string>${HOME}/.claude-data/.logs/${SKILL}.err</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>${HOME}</string>
+    <key>PATH</key><string>${BIN_PATH}</string>
+  </dict>
+</dict>
+</plist>
