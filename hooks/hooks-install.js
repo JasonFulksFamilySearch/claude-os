@@ -32,6 +32,17 @@ const CANONICAL_HOOKS = [
     command: 'node ~/.claude-os/hooks/session-observer.js',
     statusMessage: 'Writing session episode...',
   },
+  {
+    // The Dioscuri ContentRouter dispatch seam (PRD FR-A1). The ONE PostToolUse
+    // hook hosting `detect type → route`; emits one hookSpecificOutput that MAY
+    // carry updatedToolOutput (compressed) and/or additionalContext (enrich).
+    // Matcher-less lifecycle-style group like the Stop/SessionStart hooks above —
+    // it inspects every tool result, then attaches nothing unless a handler claims
+    // it. Removing this entry fully disables the seam (raw append restored).
+    event: 'PostToolUse',
+    command: 'node ~/.claude-os/hooks/posttooluse-content-router.js',
+    statusMessage: 'Routing tool output...',
+  },
 ];
 
 /**
