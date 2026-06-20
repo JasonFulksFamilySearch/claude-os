@@ -1,6 +1,7 @@
 'use strict';
 
 const smartCrusher = require('./lib/smart-crusher.js');
+const { createEnrichHandler } = require('./lib/injection-enrich.js');
 
 /**
  * posttooluse-content-router.js — the single PostToolUse dispatch seam.
@@ -18,8 +19,12 @@ const smartCrusher = require('./lib/smart-crusher.js');
  * compressor into it — the JSON-array handler below now runs the real compress()
  * (lib/smart-crusher.js), NOT a pass-through, while honoring the frozen interface:
  * same `{ updatedToolOutput }` return contract, same registration, same skip
- * mechanism, same fail-safe-to-raw posture. The graph enrich (additionalContext)
- * is still DIO-13. The frozen interface is documented in
+ * mechanism, same fail-safe-to-raw posture. DIO-13 plugs the real graph enrich
+ * (additionalContext) in — `createEnrichHandler` (lib/injection-enrich.js) APPENDS a
+ * new handler returning `{ additionalContext }` on the same frozen registration point;
+ * it claims a call only when a graph-selected candidate set is staged, six-factor-ranks
+ * the over-budget set, and injects the survivors. Both fields co-carry on one
+ * hookSpecificOutput (FR-A1) and never collide. The frozen interface is documented in
  * docs/dioscuri-content-router-seam.md — read that before plugging a real handler in.
  *
  * AC-2 (prefix safety, PRD §3): both fields land in the volatile tool-result
@@ -171,10 +176,20 @@ const minimalJsonHandler = Object.freeze({
   },
 });
 
-// The registered handler chain. Phase 1 ships exactly the one exerciser. Real
-// handlers append here (compressor first, then enrich) — appending does not
-// change the seam, which is the FR-A2 freeze.
-const HANDLERS = Object.freeze([minimalJsonHandler]);
+// The DIO-13 LIVE graph-enrich handler. APPENDED after the compressor — appending is the
+// FR-A2 freeze (no seam redesign). The compressor owns `updatedToolOutput`; this owns
+// `additionalContext`. They are different keys, so the router co-carries BOTH on one
+// hookSpecificOutput without collision (FR-A1). It claims a call ONLY when a graph-selected
+// candidate set is staged (toolInput._dioscuri.enrichCandidates), so it spends no tokens on
+// ordinary results (FR-A3). The recency clock is injected (determinism); a missing clock
+// makes recency contribute nothing rather than reading the system clock here.
+const enrichHandler = createEnrichHandler();
+
+// The registered handler chain. Real handlers append here (compressor first, then enrich) —
+// appending does not change the seam, which is the FR-A2 freeze. Order matters only for a
+// SHARED field: the compressor wins `updatedToolOutput`; the enrich owns `additionalContext`,
+// a different field, so there is no contention — the order documents intent, not a conflict.
+const HANDLERS = Object.freeze([minimalJsonHandler, enrichHandler]);
 
 // ── The per-call skip mechanism (AC-3) ────────────────────────────────────────
 // Both fields are INDEPENDENTLY skippable. A skip is read from the tool input or
@@ -286,6 +301,7 @@ module.exports = {
   parseJsonResponse,
   buildCompressedEnvelope,
   minimalJsonHandler,
+  enrichHandler,
   HANDLERS,
   skipFlags,
   route,

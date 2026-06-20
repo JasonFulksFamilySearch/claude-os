@@ -8,14 +8,16 @@ const { CANONICAL_HOOKS, CANONICAL_GUARD_HOOKS, CANONICAL_SCRIPT_GUARD_HOOKS, me
 // Deep-clone helper so tests never share mutable state.
 const clone = (o) => JSON.parse(JSON.stringify(o));
 
-test('CANONICAL_HOOKS lists all five documented lifecycle hooks', () => {
+test('CANONICAL_HOOKS lists all seven documented lifecycle hooks', () => {
   const commands = CANONICAL_HOOKS.map((h) => h.command);
-  assert.equal(CANONICAL_HOOKS.length, 5);
+  assert.equal(CANONICAL_HOOKS.length, 7);
   assert.ok(commands.includes('node ~/.claude-os/hooks/session-start-check.js'));
   assert.ok(commands.includes('node ~/.claude-os/hooks/topic-preload.js'));
   assert.ok(commands.includes('node ~/.claude-os/hooks/learnings-flush.js'));
   assert.ok(commands.includes('node ~/.claude-os/hooks/session-observer.js'));
+  assert.ok(commands.includes('node ~/.claude-os/hooks/stop-episodic-capture.js'));
   assert.ok(commands.includes('node ~/.claude-os/hooks/posttooluse-content-router.js'));
+  assert.ok(commands.includes('node ~/.claude-os/hooks/precompact-graph-staleness.js'));
 });
 
 test('CANONICAL_HOOKS registers the PostToolUse ContentRouter seam (matcher-less lifecycle group)', () => {
@@ -27,24 +29,38 @@ test('CANONICAL_HOOKS registers the PostToolUse ContentRouter seam (matcher-less
   assert.equal(postToolUse[0].matcher, undefined, 'seam is matcher-less, like the Stop/SessionStart hooks');
 });
 
-test('CANONICAL_HOOKS registers two Stop hooks', () => {
+test('CANONICAL_HOOKS registers three Stop hooks', () => {
   const stop = CANONICAL_HOOKS.filter((h) => h.event === 'Stop');
-  assert.equal(stop.length, 2);
+  assert.equal(stop.length, 3);
 });
 
-test('mergeHooks wires the five lifecycle hooks, the two Bash guards, and the script guard', () => {
+test('CANONICAL_HOOKS registers the PreCompact graph-staleness hook (matcher-less lifecycle group)', () => {
+  const preCompact = CANONICAL_HOOKS.filter((h) => h.event === 'PreCompact');
+  assert.equal(preCompact.length, 1, 'exactly one PreCompact staleness hook');
+  assert.equal(preCompact[0].command, 'node ~/.claude-os/hooks/precompact-graph-staleness.js');
+  assert.equal(preCompact[0].matcher, undefined, 'PreCompact is matcher-less, like the Stop/SessionStart hooks');
+});
+
+test('mergeHooks wires the seven lifecycle hooks, the two Bash guards, and the script guard', () => {
   const { settings, added, skipped } = mergeHooks({});
-  assert.equal(added.length, 8); // 5 lifecycle + 2 Bash guards + 1 script guard
+  assert.equal(added.length, 10); // 7 lifecycle + 2 Bash guards + 1 script guard
   assert.equal(skipped.length, 0);
   assert.equal(settings.hooks.SessionStart.length, 1);
   assert.equal(settings.hooks.UserPromptSubmit.length, 1);
-  assert.equal(settings.hooks.Stop.length, 2);
+  assert.equal(settings.hooks.Stop.length, 3);
   // The ContentRouter seam: one matcher-less PostToolUse group (lifecycle-style).
   assert.equal(settings.hooks.PostToolUse.length, 1);
   assert.equal(settings.hooks.PostToolUse[0].matcher, undefined, 'seam group is matcher-less');
   assert.equal(
     settings.hooks.PostToolUse[0].hooks[0].command,
     'node ~/.claude-os/hooks/posttooluse-content-router.js'
+  );
+  // The PreCompact staleness hook: one matcher-less group (lifecycle-style).
+  assert.equal(settings.hooks.PreCompact.length, 1);
+  assert.equal(settings.hooks.PreCompact[0].matcher, undefined, 'PreCompact group is matcher-less');
+  assert.equal(
+    settings.hooks.PreCompact[0].hooks[0].command,
+    'node ~/.claude-os/hooks/precompact-graph-staleness.js'
   );
   // Two PreToolUse groups: the two inline guards share a Bash group; the script
   // guard (matcher Bash|Edit|Write) forms its own.
@@ -57,9 +73,10 @@ test('mergeHooks is idempotent — second run adds nothing', () => {
   const first = mergeHooks({});
   const second = mergeHooks(first.settings);
   assert.equal(second.added.length, 0);
-  assert.equal(second.skipped.length, 8); // 5 lifecycle + 2 Bash guards + 1 script guard
-  assert.equal(second.settings.hooks.Stop.length, 2);
+  assert.equal(second.skipped.length, 10); // 7 lifecycle + 2 Bash guards + 1 script guard
+  assert.equal(second.settings.hooks.Stop.length, 3);
   assert.equal(second.settings.hooks.PostToolUse.length, 1); // not duplicated
+  assert.equal(second.settings.hooks.PreCompact.length, 1); // not duplicated
 });
 
 test('mergeHooks adds session-observer alongside an existing learnings-flush Stop hook', () => {
@@ -72,11 +89,14 @@ test('mergeHooks adds session-observer alongside an existing learnings-flush Sto
     },
   };
   const { settings, added, skipped } = mergeHooks(clone(broken));
-  assert.equal(settings.hooks.Stop.length, 2, 'session-observer must be appended, not replace learnings-flush');
+  // learnings-flush stays; session-observer AND the DIO-14 capture hook are appended.
+  assert.equal(settings.hooks.Stop.length, 3, 'new Stop hooks must be appended, not replace learnings-flush');
   const stopCommands = settings.hooks.Stop.flatMap((g) => g.hooks.map((h) => h.command));
   assert.ok(stopCommands.includes('node ~/.claude-os/hooks/learnings-flush.js'));
   assert.ok(stopCommands.includes('node ~/.claude-os/hooks/session-observer.js'));
+  assert.ok(stopCommands.includes('node ~/.claude-os/hooks/stop-episodic-capture.js'));
   assert.ok(added.includes('node ~/.claude-os/hooks/session-observer.js'));
+  assert.ok(added.includes('node ~/.claude-os/hooks/stop-episodic-capture.js'));
 });
 
 test('mergeHooks preserves unrelated settings and unrelated hooks', () => {
@@ -112,14 +132,15 @@ const TMP = join(tmpdir(), `hooks-install-test-${process.pid}`);
 before(() => mkdirSync(TMP, { recursive: true }));
 after(() => rmSync(TMP, { recursive: true, force: true }));
 
-test('applyToSettingsFile creates settings with all eight hooks when file is absent', () => {
+test('applyToSettingsFile creates settings with all ten hooks when file is absent', () => {
   const path = join(TMP, 'absent', 'settings.json');
   const res = applyToSettingsFile(path);
-  assert.equal(res.added.length, 8); // 5 lifecycle + 2 Bash guards + 1 script guard
+  assert.equal(res.added.length, 10); // 7 lifecycle + 2 Bash guards + 1 script guard
   assert.ok(existsSync(path));
   const written = JSON.parse(readFileSync(path, 'utf8'));
-  assert.equal(written.hooks.Stop.length, 2);
+  assert.equal(written.hooks.Stop.length, 3);
   assert.equal(written.hooks.PostToolUse.length, 1);
+  assert.equal(written.hooks.PreCompact.length, 1);
   assert.equal(written.hooks.PreToolUse.length, 2);
 });
 
@@ -142,7 +163,7 @@ test('applyToSettingsFile is idempotent on a real file', () => {
   applyToSettingsFile(path);
   const second = applyToSettingsFile(path);
   assert.equal(second.added.length, 0);
-  assert.equal(second.skipped.length, 8); // 5 lifecycle + 2 Bash guards + 1 script guard
+  assert.equal(second.skipped.length, 10); // 7 lifecycle + 2 Bash guards + 1 script guard
 });
 
 test('applyToSettingsFile preserves unrelated keys on disk', () => {
@@ -161,7 +182,7 @@ test('applyToSettingsFile preserves unrelated keys on disk', () => {
 test('mergeHooks rebuilds a null event value into a valid array', () => {
   const { settings } = mergeHooks({ hooks: { Stop: null } });
   assert.ok(Array.isArray(settings.hooks.Stop));
-  assert.equal(settings.hooks.Stop.length, 2);
+  assert.equal(settings.hooks.Stop.length, 3);
 });
 
 test('CANONICAL_HOOKS contains no duplicate (event, command) pairs', () => {
@@ -217,15 +238,15 @@ test('applyToSettingsFile treats an empty file as fresh (not an error)', () => {
   writeFileSync(path, '   \n  ', 'utf8'); // whitespace only
 
   const res = applyToSettingsFile(path, '2026-06-04T00:00:00.000Z');
-  assert.equal(res.added.length, 8); // 5 lifecycle + 2 Bash guards + 1 script guard
+  assert.equal(res.added.length, 10); // 7 lifecycle + 2 Bash guards + 1 script guard
   const written = JSON.parse(readFileSync(path, 'utf8'));
-  assert.equal(written.hooks.Stop.length, 2);
+  assert.equal(written.hooks.Stop.length, 3);
 });
 
 test('applyToSettingsFile treats an absent file as fresh (not an error)', () => {
   const path = join(TMP, 'still-absent', 'settings.json');
   const res = applyToSettingsFile(path);
-  assert.equal(res.added.length, 8); // 5 lifecycle + 2 Bash guards + 1 script guard
+  assert.equal(res.added.length, 10); // 7 lifecycle + 2 Bash guards + 1 script guard
   assert.ok(existsSync(path));
 });
 
@@ -262,8 +283,8 @@ test('CANONICAL_GUARD_HOOKS holds the two PreToolUse/Bash guards', () => {
   }
 });
 
-test('CANONICAL_HOOKS stays exactly five (guards are a separate category)', () => {
-  assert.equal(CANONICAL_HOOKS.length, 5);
+test('CANONICAL_HOOKS stays exactly seven (guards are a separate category)', () => {
+  assert.equal(CANONICAL_HOOKS.length, 7);
 });
 
 test('mergeHooks creates ONE PreToolUse Bash group holding both guards on a fresh object', () => {
@@ -420,11 +441,13 @@ test('commandPresent recognizes nvm-wrapped lifecycle commands (no broken duplic
         { hooks: [
           { type: 'command', command: wrap('node ~/.claude-os/hooks/learnings-flush.js'), statusMessage: 'Flushing pending learnings...' },
           { type: 'command', command: wrap('node ~/.claude-os/hooks/session-observer.js'), statusMessage: 'Observing session...' },
+          { type: 'command', command: wrap('node ~/.claude-os/hooks/stop-episodic-capture.js'), statusMessage: 'Capturing acted-on findings...' },
         ] },
       ],
       SessionStart: [{ hooks: [{ type: 'command', command: wrap('node ~/.claude-os/hooks/session-start-check.js') }] }],
       UserPromptSubmit: [{ hooks: [{ type: 'command', command: wrap('node ~/.claude-os/hooks/topic-preload.js') }] }],
       PostToolUse: [{ hooks: [{ type: 'command', command: wrap('node ~/.claude-os/hooks/posttooluse-content-router.js') }] }],
+      PreCompact: [{ hooks: [{ type: 'command', command: wrap('node ~/.claude-os/hooks/precompact-graph-staleness.js') }] }],
     },
   };
   const { settings, skipped } = mergeHooks(clone(wrapped));
@@ -432,10 +455,11 @@ test('commandPresent recognizes nvm-wrapped lifecycle commands (no broken duplic
     assert.ok(skipped.includes(c), `${c} should be recognized as present, not re-added`);
   }
   assert.equal(settings.hooks.Stop.length, 1, 'Stop group not duplicated');
-  assert.equal(settings.hooks.Stop[0].hooks.length, 2);
+  assert.equal(settings.hooks.Stop[0].hooks.length, 3);
   assert.equal(settings.hooks.SessionStart.length, 1);
   assert.equal(settings.hooks.UserPromptSubmit.length, 1);
   assert.equal(settings.hooks.PostToolUse.length, 1, 'PostToolUse seam group not duplicated by the nvm-wrapped entry');
+  assert.equal(settings.hooks.PreCompact.length, 1, 'PreCompact group not duplicated by the nvm-wrapped entry');
 });
 
 // FIDELITY: the script guard command must be byte-identical to what the LIVE
