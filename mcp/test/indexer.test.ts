@@ -192,6 +192,21 @@ describe("classify", () => {
     expect(classify(context, config)).not.toBeNull();
   });
 
+  it("rejects the DIO-15 TOIN signal sink (.logs/mcp-server.log) — never an observations row", () => {
+    // The TOIN observability log (hooks/lib/toin-log.js → ~/.claude-data/.logs/mcp-server.log,
+    // the same sink as mcp/src/logger.ts) lives under .logs/, OUTSIDE every walked dir. The real
+    // classify() must return null for it, so a TOIN signal record can NEVER become an
+    // `observations` row and never enters the retrieval eval surface (DIO-15 AC: sink provably
+    // off the eval-gated surface). This is the falsifiable proof, run against the real classifier.
+    const sink = join(dataRoot, ".logs", "mcp-server.log");
+    expect(classify(sink, config)).toBeNull();
+    // A nested path under .logs/ is equally un-indexable (the whole dir is off-corpus).
+    expect(classify(join(dataRoot, ".logs", "sub", "mcp-server.log"), config)).toBeNull();
+    // Positive control: a sibling context file still classifies non-null — the rejection is
+    // specific to the off-corpus location, not a blanket null.
+    expect(classify(join(dataRoot, "context", "jira.md"), config)).not.toBeNull();
+  });
+
   it("classifies episode files", () => {
     const p = join(dataRoot, "episodes", "2026-05-14-abc.md");
     expect(classify(p, config)).toEqual({

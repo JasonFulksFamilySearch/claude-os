@@ -348,9 +348,38 @@ function createArchiveResolver({ archiveRoot = DEFAULT_ARCHIVE_ROOT } = {}) {
  *        relevant subset. The SQLite/FTS tokenizer-parity implementation lives in
  *        mcp/src/ccr-query.ts (FTS5 is only available there); a JS fallback is provided
  *        for the no-SQLite hook environment. Injected so the caller wires the right one.
+ * @param {(result:object)=>void} [onEvent]
+ *        DIO-15 SIGNAL tap. Called once per retrieve with the result ({ found, store, hash,
+ *        reason? }) so the TOIN log can record retrieval fire-volume + store-hit distribution.
+ *        SIGNAL ONLY: it is handed the result AFTER it is computed; it can read it but its
+ *        return value is DISCARDED, so it can never change what retrieve returns. A throwing
+ *        tap is swallowed — logging never breaks the retrieve. A retrieve is a MACHINE access:
+ *        this tap logs it, but (by design) the CCR stores are plain files and touch NO
+ *        access_stats, so logging the access does not — and must not — reinforce memory (AC-4).
  */
-function createRetrieve({ ephemeral, archive, graphResolver } = {}, { queryFn } = {}) {
+function createRetrieve({ ephemeral, archive, graphResolver } = {}, { queryFn, onEvent } = {}) {
   if (!ephemeral) throw new Error('createRetrieve requires an ephemeral store (#3)');
+
+  // The signal tap: fire-and-forget, never throws into the retrieve. Default = the TOIN
+  // logger's retrieval record. Injectable so tests can capture events without a real sink.
+  const tap =
+    typeof onEvent === 'function'
+      ? onEvent
+      : (result) => {
+          try {
+            require('./toin-log.js').defaultLogger().logRetrieval(result);
+          } catch {
+            /* signal logging is best-effort; never break the retrieve */
+          }
+        };
+  function signal(result) {
+    try {
+      tap(result);
+    } catch {
+      /* a throwing tap never affects the retrieve result */
+    }
+    return result;
+  }
 
   /**
    * retrieve(hash[, query]) — resolve and serve the byte-exact original from the store
@@ -369,7 +398,7 @@ function createRetrieve({ ephemeral, archive, graphResolver } = {}, { queryFn } 
    */
   function retrieve(hash, query) {
     if (!/^[0-9a-f]{64}$/.test(hash)) {
-      return { found: false, hash, reason: 'malformed-hash' };
+      return signal({ found: false, hash, reason: 'malformed-hash' });
     }
 
     let store;
@@ -390,13 +419,13 @@ function createRetrieve({ ephemeral, archive, graphResolver } = {}, { queryFn } 
     }
 
     if (original === undefined) {
-      return { found: false, hash, reason: 'no-store-owns-hash' };
+      return signal({ found: false, hash, reason: 'no-store-owns-hash' });
     }
 
     // AC-1: the resolved original must hash back to the requested key — byte-exact or
     // it is not the original. A resolver that returns a non-matching blob fails closed.
     if (hashCanonical(original) !== hash) {
-      return { found: false, hash, reason: 'hash-mismatch-on-resolve', store };
+      return signal({ found: false, hash, reason: 'hash-mismatch-on-resolve', store });
     }
 
     const result = { found: true, store, original, hash };
@@ -407,7 +436,9 @@ function createRetrieve({ ephemeral, archive, graphResolver } = {}, { queryFn } 
         : jsFallbackQuery(original, query);
     }
 
-    return result;
+    // SIGNAL the hit. The tap reads { found, store, hash } off the result; `original` is on
+    // the object but the TOIN record builder logs only the hash + store (signal, never content).
+    return signal(result);
   }
 
   return retrieve;

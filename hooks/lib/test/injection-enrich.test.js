@@ -287,3 +287,61 @@ test('FAIL-SAFE: a handler default clock keeps the module clock-free (injected, 
 test('DEFAULT_INJECTION_BUDGET is a positive integer (a real cap, not unbounded)', () => {
   assert.ok(Number.isInteger(DEFAULT_INJECTION_BUDGET) && DEFAULT_INJECTION_BUDGET > 0);
 });
+
+// ── DIO-15 FIRE-VOLUME SIGNAL: the enrich handler logs every claimed pass ──────
+
+test('DIO-15 SIGNAL: a CLAIMED enrich pass fires the onEnrich tap with fired/unitCount/size', () => {
+  const events = [];
+  const handler = createEnrichHandler({
+    nowSecondsFn: () => NOW,
+    onEnrich: (ev) => events.push(ev),
+  });
+  const candidates = [
+    { id: 'c1', features: { toin_importance: 0.9, note_timestamp: NOW } },
+    { id: 'c2', features: { toin_importance: 0.5, note_timestamp: NOW } },
+    { id: 'c3', features: { toin_importance: 0.1, note_timestamp: NOW } },
+  ];
+  const out = handler.route({ toolInput: { _dioscuri: { enrichCandidates: candidates, budget: 2 } } });
+
+  assert.ok('additionalContext' in out, 'the pass injected');
+  assert.equal(events.length, 1, 'exactly one fire-volume signal per claimed pass');
+  const ev = events[0];
+  assert.equal(ev.fired, true, 'fire-volume records that enrich injected');
+  assert.equal(ev.unitCount, 3, 'records the candidate set size (over-firing detector)');
+  // The signal carries the injected TEXT to the tap; the record builder measures its size only.
+  assert.equal(ev.injectedText, out.additionalContext, 'the tap receives the injected text to size it');
+});
+
+test('DIO-15 SIGNAL: the fire-volume tap is read-only — a throwing tap never breaks route()', () => {
+  const handler = createEnrichHandler({
+    nowSecondsFn: () => NOW,
+    onEnrich: () => { throw new Error('logging blew up'); },
+  });
+  let out;
+  assert.doesNotThrow(() => {
+    out = handler.route({
+      toolInput: { _dioscuri: { enrichCandidates: [{ id: 'x', features: { toin_importance: 0.9, note_timestamp: NOW } }] } },
+    });
+  }, 'a throwing fire-volume tap must not surface');
+  assert.ok('additionalContext' in out, 'route() still injects despite the failed signal');
+});
+
+test('DIO-15 SIGNAL: the fire-volume tap also fires on the FAIL-SAFE raw path', () => {
+  const events = [];
+  const handler = createEnrichHandler({
+    nowSecondsFn: () => NOW,
+    // A similarity resolver that throws forces the ranking path into the fail-safe raw branch.
+    similarityResolver: () => { throw new Error('rank path down'); },
+    onEnrich: (ev) => events.push(ev),
+  });
+  const out = handler.route({
+    toolInput: {
+      _dioscuri: {
+        enrichCandidates: [{ id: 'c1', call_path: ['a#1'], summary: 'raw' }],
+      },
+    },
+  });
+  assert.ok('additionalContext' in out, 'fail-safe still injects the raw set');
+  assert.equal(events.length, 1, 'the fail-safe raw injection is ALSO logged as fire-volume');
+  assert.equal(events[0].fired, true);
+});

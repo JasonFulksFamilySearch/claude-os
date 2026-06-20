@@ -203,7 +203,13 @@ function main() {
     } catch { /* no/invalid stdin → use process.cwd() */ }
 
     try {
-      checkAndRebuild(repoRootFromCwd(cwd));
+      const result = checkAndRebuild(repoRootFromCwd(cwd));
+      // DIO-15 SIGNAL: record the staleness verdict (+ whether a rebuild ran) to the TOIN
+      // log. Best-effort observation, wrapped separately so a logging failure never fails the
+      // compaction. SIGNAL ONLY — nothing reads this verdict back to change behaviour.
+      try {
+        require('./lib/toin-log.js').defaultLogger().logStaleness(result);
+      } catch { /* signal logging is best-effort */ }
     } catch { /* never fail the compaction over a staleness check */ }
     process.exit(0);
   });

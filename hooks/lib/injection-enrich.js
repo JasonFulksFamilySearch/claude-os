@@ -226,14 +226,42 @@ function enrich(candidates, ctx = {}) {
  * text (best-effort raw injection); if even rendering the raw set throws, route() returns {}
  * → no `additionalContext` → raw append. A ranking error NEVER breaks the hook (seam doc §7).
  *
- * @param {object} [deps] { nowSecondsFn, similarityResolver } injected for determinism/testing.
- *   `nowSecondsFn` supplies the recency clock; it is the ONE place a clock may be read, and it
- *   is injected (never an inline Date.now()) so the module source stays clock-free.
+ * @param {object} [deps] { nowSecondsFn, similarityResolver, onEnrich } injected for
+ *   determinism/testing. `nowSecondsFn` supplies the recency clock; it is the ONE place a clock
+ *   may be read, and it is injected (never an inline Date.now()) so the module source stays
+ *   clock-free.
+ *
+ *   `onEnrich` is the DIO-15 fire-volume SIGNAL tap — the additionalContext token-cost guard.
+ *   It is called once per CLAIMED enrich pass with { fired, unitCount, injectedText } so the
+ *   TOIN log records how often enrich injects and how much (the over-firing detector). SIGNAL
+ *   ONLY: its return value is discarded and a throw is swallowed, so it can never change what
+ *   route() emits or break the hook. Default = the TOIN logger's enrich record.
  */
 function createEnrichHandler(deps = {}) {
   const nowSecondsFn = typeof deps.nowSecondsFn === 'function' ? deps.nowSecondsFn : null;
   const defaultSimilarityResolver =
     typeof deps.similarityResolver === 'function' ? deps.similarityResolver : undefined;
+
+  // The fire-volume signal tap. Fire-and-forget; never throws into route(). Default emits the
+  // TOIN enrich record. The token estimate is computed by the record builder from the text
+  // LENGTH only — the injected text itself is never logged (signal = size, not content).
+  const onEnrich =
+    typeof deps.onEnrich === 'function'
+      ? deps.onEnrich
+      : (ev) => {
+          try {
+            require('./toin-log.js').defaultLogger().logEnrich(ev);
+          } catch {
+            /* signal logging is best-effort; never break the hook */
+          }
+        };
+  function signalEnrich(ev) {
+    try {
+      onEnrich(ev);
+    } catch {
+      /* a throwing tap never affects the route() emission */
+    }
+  }
 
   return Object.freeze({
     id: 'graph-enrich',
@@ -269,7 +297,12 @@ function createEnrichHandler(deps = {}) {
 
       try {
         const additionalContext = enrich(candidates, ctx);
-        return additionalContext === undefined ? {} : { additionalContext };
+        const fired = additionalContext !== undefined;
+        // SIGNAL fire-volume (AC-1c): this pass CLAIMED (a set was staged) — record whether it
+        // injected, how many candidates were in play, and the injected size. The token estimate
+        // is derived from the text length only; the text is never stored.
+        signalEnrich({ fired, unitCount: candidates.length, injectedText: fired ? additionalContext : '' });
+        return fired ? { additionalContext } : {};
       } catch {
         // FAIL-SAFE: ranking threw → degrade to the UNRANKED candidate set as raw injection
         // text (best-effort), never break the hook. If even this throws, fall through to {}.
@@ -280,7 +313,9 @@ function createEnrichHandler(deps = {}) {
               finding: c && c.call_path ? { call_path: c.call_path, summary: c.summary } : undefined,
             })),
           );
-          return rawText.length > 0 ? { additionalContext: rawText } : {};
+          const fired = rawText.length > 0;
+          signalEnrich({ fired, unitCount: candidates.length, injectedText: fired ? rawText : '' });
+          return fired ? { additionalContext: rawText } : {};
         } catch {
           return {}; // last-resort: emit nothing → raw append
         }

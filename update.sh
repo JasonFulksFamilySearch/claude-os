@@ -548,6 +548,15 @@ mkdir -p "$HOME/.claude-data/findings-acted"
 mkdir -p "$HOME/.claude-data/findings-buffer"
 ok "findings-acted + findings-buffer directories ready (DIO-14, indexer-excluded)"
 
+# DIO-15 TOIN signal log sink: hooks/lib/toin-log.js appends observability records
+# (CCR retrieval, graph-staleness, enrich fire-volume) to .logs/mcp-server.log — the
+# same sink the MCP server uses. Provisioned here idempotently so the dir exists on a
+# fresh machine even before the first write (the helper also self-creates it on write).
+# Under .logs/, OUTSIDE every indexer-walked dir, so a TOIN record can never become an
+# observations row (indexer.classify() returns null for it).
+mkdir -p "$HOME/.claude-data/.logs"
+ok ".logs directory ready (DIO-15 TOIN signal sink, indexer-excluded)"
+
 echo ""
 
 # ── Done ──────────────────────────────────────────────────────────────────────

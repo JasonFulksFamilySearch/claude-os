@@ -344,3 +344,55 @@ test('AC-1 FAIL-CLOSED: a store that returns a blob NOT hashing to the key is re
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+// ── DIO-15 SIGNAL TAP: retrieve fires the onEvent tap on EVERY path, read-only ──
+
+test('DIO-15 SIGNAL: the onEvent tap fires once per retrieve — on hit AND on miss', () => {
+  const root = tmpRoot('signal');
+  try {
+    const payload = payloadWithConstantAndError(20);
+    const cache = ccr.createEphemeralCache({ sessionId: 'ssig', cacheRoot: root });
+    const events = [];
+    const retrieve = ccr.createRetrieve(
+      { ephemeral: cache },
+      { onEvent: (r) => events.push(r) },
+    );
+
+    // Miss before put — the malformed-hash and no-store-owns-hash paths both signal.
+    retrieve('not-a-hash');
+    retrieve(ccr.hashCanonical(payload)); // valid hash, nothing stored yet → miss
+    // Then a hit.
+    const hash = cache.put(payload);
+    retrieve(hash);
+
+    assert.equal(events.length, 3, 'one signal per retrieve, on every return path');
+    assert.equal(events[0].found, false);
+    assert.equal(events[0].reason, 'malformed-hash');
+    assert.equal(events[1].found, false);
+    assert.equal(events[1].reason, 'no-store-owns-hash');
+    assert.equal(events[2].found, true);
+    assert.equal(events[2].store, 'ephemeral');
+    assert.equal(events[2].hash, hash, 'the tap sees the retrieve key (signal, not content)');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('DIO-15 SIGNAL: a THROWING tap never changes what retrieve returns (read-only observation)', () => {
+  const root = tmpRoot('signal-throw');
+  try {
+    const payload = [{ a: 1 }, { a: 2 }];
+    const cache = ccr.createEphemeralCache({ sessionId: 'sthr', cacheRoot: root });
+    const hash = cache.put(payload);
+    const retrieve = ccr.createRetrieve(
+      { ephemeral: cache },
+      { onEvent: () => { throw new Error('logging blew up'); } },
+    );
+    let r;
+    assert.doesNotThrow(() => { r = retrieve(hash); }, 'a throwing tap must not surface');
+    assert.equal(r.found, true, 'the result is unchanged by the failed signal');
+    assert.equal(ccr.stableStringify(r.original), ccr.stableStringify(payload));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
