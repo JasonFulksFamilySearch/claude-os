@@ -3,7 +3,7 @@
 /**
  * hooks-install.js — single source of truth for claude-os lifecycle hooks.
  *
- * Holds the canonical four-hook contract (mirrors the README hook table) and
+ * Holds the canonical lifecycle-hook contract (mirrors the README hook table) and
  * merges it into a Claude Code settings object at the INDIVIDUAL-COMMAND level:
  * a hook is added only if no existing group already runs that exact command.
  * This makes wiring idempotent and safe on machines that already have some
@@ -33,6 +33,18 @@ const CANONICAL_HOOKS = [
     statusMessage: 'Writing session episode...',
   },
   {
+    // DIO-14 Stop episodic-capture producer (PRD FR-F2/FR-F3). A SECOND Stop entry
+    // alongside session-observer: at session close it flushes the session's acted-on
+    // findings into the promoted:false, indexer-excluded findings buffer that the
+    // background worker WILL read as a second input ("one path, two inputs") once that
+    // consumer lands (DIO-18's lane — nothing reads it yet). Claude Code has NO
+    // PostTask event — Stop is the real trigger. It FEEDS that worker; it never writes
+    // promoted memory (AC-4). Removing this entry disables the capture with no residue.
+    event: 'Stop',
+    command: 'node ~/.claude-os/hooks/stop-episodic-capture.js',
+    statusMessage: 'Capturing acted-on findings...',
+  },
+  {
     // The Dioscuri ContentRouter dispatch seam (PRD FR-A1). The ONE PostToolUse
     // hook hosting `detect type → route`; emits one hookSpecificOutput that MAY
     // carry updatedToolOutput (compressed) and/or additionalContext (enrich).
@@ -42,6 +54,18 @@ const CANONICAL_HOOKS = [
     event: 'PostToolUse',
     command: 'node ~/.claude-os/hooks/posttooluse-content-router.js',
     statusMessage: 'Routing tool output...',
+  },
+  {
+    // DIO-14 PreCompact graph-staleness check (PRD FR-F1). Before Claude Code
+    // compacts the context window, compare the .dioscuri/graph/ artifact's
+    // build-commit stamp against the working-tree HEAD; if HEAD moved, rebuild the
+    // graph (npm run graph:build) so a stale index does not survive the compact.
+    // The only write it can cause is the throwaway, indexer-excluded graph rebuild —
+    // an AC-4 carve-out (never promoted memory). Removing this entry disables the
+    // staleness check with no residue.
+    event: 'PreCompact',
+    command: 'node ~/.claude-os/hooks/precompact-graph-staleness.js',
+    statusMessage: 'Checking graph staleness...',
   },
 ];
 

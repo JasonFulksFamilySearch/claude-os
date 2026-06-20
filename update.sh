@@ -512,6 +512,15 @@ echo "--- Step 11: Capture-queue directories ---"
 mkdir -p "$HOME/.claude-data/capture-queue/dead-letter"
 ok "capture-queue directories ready"
 
+# DIO-14 Stop episodic-capture: the acted-on-findings staging input (auditor flow
+# writes here in-session) and the promoted:false buffer (the Stop hook flushes into
+# it; a worker will read it — the consumer lands in a later unit). Both are siblings
+# of capture-queue/ — outside every indexer-walked dir, so a buffer entry can never
+# become an observations row.
+mkdir -p "$HOME/.claude-data/findings-acted"
+mkdir -p "$HOME/.claude-data/findings-buffer"
+ok "findings-acted + findings-buffer directories ready (DIO-14, indexer-excluded)"
+
 echo ""
 
 # ── Done ──────────────────────────────────────────────────────────────────────

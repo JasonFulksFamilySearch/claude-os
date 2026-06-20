@@ -198,7 +198,7 @@ the one-time `npm run reembed` migration, troubleshooting, and how to add watche
 
 ## Hooks
 
-Four Node.js lifecycle hooks (plus a detached worker) wire the memory system into the Claude Code
+Seven Node.js lifecycle hooks (plus a detached worker) wire the memory system into the Claude Code
 session lifecycle:
 
 | Hook | Trigger | Purpose |
@@ -207,6 +207,9 @@ session lifecycle:
 | `topic-preload.js` | UserPromptSubmit | Keyword-matches the prompt against `_index.md`; auto-injects matching topic files |
 | `learnings-flush.js` | Stop | Flushes `_tmp_pending_learning-<suffix>.json` marker family (plus legacy un-suffixed) entries to the appropriate `learnings.md` |
 | `session-observer.js` | Stop | Spawns the detached `session-observer-worker.js` (Haiku) to summarize the session and write an episode |
+| `stop-episodic-capture.js` | Stop | Flushes the session's acted-on findings into the `promoted:false`, indexer-excluded findings buffer the worker will read (DIO-14; consumer lands in a later unit; no write-back to promoted memory) |
+| `posttooluse-content-router.js` | PostToolUse | The Dioscuri ContentRouter dispatch seam — compresses (`updatedToolOutput`) and/or enriches (`additionalContext`) a tool result in one pass |
+| `precompact-graph-staleness.js` | PreCompact | Checks the `mcp/src/.dioscuri/graph/` artifact's build-commit stamp against the working-tree HEAD; rebuilds the throwaway graph index if HEAD moved (DIO-14) |
 
 > Hooks are wired automatically by `install.sh` (fresh installs) and reconciled by `update.sh` (existing machines) via `hooks/hooks-install.js`. Re-running either is safe — registration is idempotent at the command level.
 
