@@ -146,9 +146,11 @@ no emission → raw passthrough.
 
 ## 8. What this seam is NOT (scope guard for QA)
 
-- **Not a compressor.** The Phase-1 JSON handler is a pass-through that returns the
-  tool output unchanged in `updatedToolOutput`. The real SmartCrusher port is
-  **DIO-7**.
+- **Not a compressor (in Phase 1).** The Phase-1 JSON handler was a pass-through. The
+  real SmartCrusher port (**DIO-7**) has since replaced that handler's `route` body —
+  same `{ updatedToolOutput }` contract, real compression — per §5. See
+  `docs/dioscuri-smartcrusher-compression.md` for the mechanism, the determinism
+  proof, and the AC-1 reversibility contract. The seam interface itself is unchanged.
 - **Not a graph enrich.** No `additionalContext` handler ships in Phase 1; the real
   enrich is **DIO-13**.
 - **Not the capture path.** Routing compressed output into episodic capture

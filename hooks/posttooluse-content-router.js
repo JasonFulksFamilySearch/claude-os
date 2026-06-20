@@ -1,5 +1,7 @@
 'use strict';
 
+const smartCrusher = require('./lib/smart-crusher.js');
+
 /**
  * posttooluse-content-router.js — the single PostToolUse dispatch seam.
  *
@@ -12,10 +14,12 @@
  * carry BOTH fields, so one tool result can be compressed AND enriched in one
  * pass (PRD FR-A1).
  *
- * SCOPE (Phase 1, DIO-4): this builds the SEAM and FREEZES its interface. It is
- * NOT a real compressor (the SmartCrusher port is DIO-7) and NOT a real graph
- * enrich (DIO-13). A minimal pass-through JSON handler is wired only to prove the
- * route fires and the field lands. The frozen interface is documented in
+ * SCOPE: DIO-4 built and FROZE this seam. DIO-7 plugs the real SmartCrusher
+ * compressor into it — the JSON-array handler below now runs the real compress()
+ * (lib/smart-crusher.js), NOT a pass-through, while honoring the frozen interface:
+ * same `{ updatedToolOutput }` return contract, same registration, same skip
+ * mechanism, same fail-safe-to-raw posture. The graph enrich (additionalContext)
+ * is still DIO-13. The frozen interface is documented in
  * docs/dioscuri-content-router-seam.md — read that before plugging a real handler in.
  *
  * AC-2 (prefix safety, PRD §3): both fields land in the volatile tool-result
@@ -41,14 +45,15 @@
 // returns into ONE hookSpecificOutput. Real handlers (DIO-7 compressor, DIO-13
 // enrich) register here without touching the seam — that is the freeze.
 //
-// The minimal JSON handler below is the seam exerciser ONLY. It is a pass-through:
-// it proves a JSON tool result routes through `updatedToolOutput` and the field
-// lands, without being a real compressor. DIO-7 replaces its `route` body.
+// DIO-7 replaces the `route` BODY of this handler with the real SmartCrusher
+// compress() — same `{ updatedToolOutput }` return contract (seam doc §5). `detect`
+// is unchanged (JSON-shaped claim). The router, input decode, output schema, and
+// skip mechanism are untouched — that is the freeze.
 
 /**
- * True if the tool response is (or parses to) a JSON value. Used by the minimal
- * handler's detect(). Strings are probed by a parse attempt; objects/arrays are
- * already structured.
+ * True if the tool response is (or parses to) a JSON value. Used by the handler's
+ * detect(). Strings are probed by a parse attempt; objects/arrays are already
+ * structured.
  */
 function isJsonToolResponse(toolResponse) {
   if (toolResponse == null) return false;
@@ -68,25 +73,102 @@ function isJsonToolResponse(toolResponse) {
 }
 
 /**
- * The minimal JSON handler — a SEAM EXERCISER, not a compressor.
+ * Parse a JSON tool response (string or already-structured) into a value, or return
+ * undefined if it is not parseable. The router catches throws too (fail-safe to raw
+ * append), but parsing here lets the handler decide passthrough WITHOUT throwing.
+ */
+function parseJsonResponse(toolResponse) {
+  if (toolResponse == null) return undefined;
+  if (typeof toolResponse === 'object') return toolResponse; // already parsed
+  if (typeof toolResponse !== 'string') return undefined;
+  const trimmed = toolResponse.trim();
+  if (!trimmed) return undefined;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Build the compressed `updatedToolOutput` envelope from a SmartCrusher result. The
+ * envelope is a self-describing JSON object that carries:
+ *   - the retained (constant-factored) rows — the compressed payload the agent reads;
+ *   - the factored-out `constants` block (shared fields lifted once);
+ *   - the per-row classification `verdicts` (AC-5b: the preservation rule is asserted
+ *     against this, so it MUST be observable on the output, not discarded);
+ *   - a reversibility `marker` carrying the original hash + retained indices so a CCR
+ *     retrieve path (DIO-11) can recover the byte-exact original (AC-1).
+ * Deterministic: every field derives from compress(), which is deterministic.
+ */
+function buildCompressedEnvelope(result) {
+  return {
+    _dioscuri: {
+      compressed: true,
+      // AC-1 reversibility surface: the original is a recoverable projection. The
+      // marker is the retrieve key (full CCR retrieve is DIO-11); the original is
+      // never destroyed in place — `retainedIndices` + `originalHash` are what a
+      // retrieve path needs to resolve and verify the byte-exact original.
+      marker: `[${result.originalCount} items compressed to ${result.retainedIndices.length}. Retrieve more: hash=${result.originalHash}]`,
+      originalHash: result.originalHash,
+      originalCount: result.originalCount,
+      droppedCount: result.droppedCount,
+      retainedIndices: result.retainedIndices,
+      // AC-5b: per-row classification verdict surfaced on the output (not just the
+      // retained array) — error/anomaly/boundary vs droppable, by original index.
+      verdicts: result.verdicts,
+    },
+    constants: result.constants,
+    retained: result.retained,
+  };
+}
+
+/**
+ * The JSON-array compressor handler — the real SmartCrusher port (DIO-7).
  *
- * detect: claims any JSON-shaped tool response.
- * route:  returns the tool output UNCHANGED in `updatedToolOutput`. This is a
- *         deliberate pass-through (PRD FR-B2 / DIO-5) — its only job is to prove
- *         the route fires and `updatedToolOutput` lands. DIO-7 swaps the body for
- *         the real SmartCrusher compress() without changing this contract.
+ * detect: claims any JSON-shaped tool response (unchanged from the seam exerciser).
+ * route:  runs SmartCrusher compress() over a JSON ARRAY and returns the compressed
+ *         envelope in `updatedToolOutput`. Degrades to raw passthrough (returns the
+ *         input unchanged) for any input compress() cannot meaningfully shrink — a
+ *         non-array JSON value, an array under the compression floor, or anything
+ *         that would otherwise crash the tool call. Same `{ updatedToolOutput }`
+ *         contract the seam froze.
  */
 const minimalJsonHandler = Object.freeze({
-  id: 'minimal-json',
+  id: 'json-smartcrusher',
   detect: (input) => isJsonToolResponse(input.toolResponse),
-  route: (input) => ({
-    // Pass-through: byte-identical to the input. A real compressor returns a
-    // smaller string here; the seam contract is the same either way.
-    updatedToolOutput:
+  route: (input) => {
+    const raw =
       typeof input.toolResponse === 'string'
         ? input.toolResponse
-        : JSON.stringify(input.toolResponse),
-  }),
+        : JSON.stringify(input.toolResponse);
+
+    const parsed = parseJsonResponse(input.toolResponse);
+
+    // Only JSON ARRAYS are compressible by SmartCrusher. A JSON object / primitive,
+    // or an unparseable value, degrades to raw passthrough — never a crash, never a
+    // lossy rewrite (seam doc §8: malformed input → raw passthrough).
+    if (!Array.isArray(parsed)) {
+      return { updatedToolOutput: raw };
+    }
+
+    let result;
+    try {
+      result = smartCrusher.compress(parsed);
+    } catch {
+      // Any compressor fault degrades to raw passthrough — the seam never fails a
+      // tool call, and we never ship a half-compressed (unrecoverable) payload.
+      return { updatedToolOutput: raw };
+    }
+
+    // Below the floor (small array) → compress() returns compressed:false. Pass the
+    // raw output through unchanged — no overhead where there is no benefit.
+    if (!result.compressed) {
+      return { updatedToolOutput: raw };
+    }
+
+    return { updatedToolOutput: JSON.stringify(buildCompressedEnvelope(result)) };
+  },
 });
 
 // The registered handler chain. Phase 1 ships exactly the one exerciser. Real
@@ -201,6 +283,8 @@ async function main() {
 
 module.exports = {
   isJsonToolResponse,
+  parseJsonResponse,
+  buildCompressedEnvelope,
   minimalJsonHandler,
   HANDLERS,
   skipFlags,
