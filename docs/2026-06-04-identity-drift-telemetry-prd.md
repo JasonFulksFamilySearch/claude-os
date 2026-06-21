@@ -1,5 +1,7 @@
 # PRD — B3: Identity-Drift Telemetry + Identity/Capability Write-Guard
 
+> **⚠️ Superseded by launchd scheduling (PR #62)** — background digests run as launchd LaunchAgents, not CronCreate/`/schedule`. Any scheduling step below describes the retired path; follow the launchd flow in `context-templates/background-agents.md` instead.
+
 *Authored 2026-06-04 · roadmap item B3 (A1→A2→B1→B2 shipped; B3 is the last original item) · gated by red-blue-judge before implementation*
 
 ## Problem Statement

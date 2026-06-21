@@ -55,7 +55,18 @@ The jobs are **inert until provisioned** — writing `scheduled-jobs.json` and m
    could not be resolved (nothing was written — fail-safe) or `scheduled-jobs.json`/a cron is
    malformed; fix and re-run.
 
-3. **Verify each agent loaded** (replace `<skill>` with each of `background-pr-digest`,
+3. **Edit the genome `CLAUDE.md` to drop the retired CronCreate path** — same sitting as the
+   provision above, so the deployed agent instructions never contradict shipped behavior. In
+   `~/.claude-os/CLAUDE.md`, the "Scheduled background jobs → … session-start injects the
+   register commands" line and the "When session start injects a `[Background jobs]` block,
+   silently call CronCreate …" block describe a path PR #62 removed (that block is never emitted
+   now). Replace them so they point at `update.sh` Step 9.5 / `bin/digest-launchd-install.js` and
+   state plainly that these jobs run as launchd LaunchAgents — there is nothing to register at
+   session start, and CronCreate must NOT be called for them (it would double-schedule). This is
+   a live-machine edit on a gitignored, machine-provisioned file — it cannot ride a PR; apply it
+   by hand here, paired with the provision in step 2.
+
+4. **Verify each agent loaded** (replace `<skill>` with each of `background-pr-digest`,
    `background-sprint-digest`, `background-merge-progression`):
    ```bash
    launchctl print "gui/$(id -u)/com.claude-os.digest.<skill>" | head -20
@@ -65,7 +76,7 @@ The jobs are **inert until provisioned** — writing `scheduled-jobs.json` and m
    `RunAtLoad = false` — provisioning must not have fired a digest (critical: merge-progression
    transitions real Jira tickets).
 
-4. **Force a test fire** of a read-only job first (pr-digest is safest — never writes):
+5. **Force a test fire** of a read-only job first (pr-digest is safest — never writes):
    ```bash
    launchctl kickstart "gui/$(id -u)/com.claude-os.digest.background-pr-digest"
    ```
@@ -73,7 +84,7 @@ The jobs are **inert until provisioned** — writing `scheduled-jobs.json` and m
    empty/clean `~/.claude-data/.logs/background-pr-digest.err`. The digest surfaces in your
    next interactive session via `session-start-check.js`.
 
-5. **(Optional but recommended for the WRITE job) confirm the permission scope holds under
+6. **(Optional but recommended for the WRITE job) confirm the permission scope holds under
    no-TTY** before trusting merge-progression unattended. The job's safety rests on
    `--permission-mode default` *denying* any tool outside the skill's `allowed-tools` set.
    Prove it with a controlled contrast — and use a command that is **not** pre-allowed in your

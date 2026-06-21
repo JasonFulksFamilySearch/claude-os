@@ -1,5 +1,7 @@
 # Experience-Synthesis Value-Gated Selection — Implementation Plan
 
+> **⚠️ Superseded by launchd scheduling (PR #62)** — background digests run as launchd LaunchAgents, not CronCreate/`/schedule`. Any scheduling step below describes the retired path; follow the launchd flow in `context-templates/background-agents.md` instead.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make experience-synthesis select which episodes/clusters to distill by a per-session *value* signal, shipping the gate inert (shadow mode) with a calibration log, and reconcile the code↔doc cluster-ordering mismatch.

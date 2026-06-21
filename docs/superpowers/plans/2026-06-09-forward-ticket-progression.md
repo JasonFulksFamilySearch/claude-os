@@ -1,5 +1,7 @@
 # Forward Ticket Progression (Per-PR Tier) Implementation Plan
 
+> **⚠️ Superseded by launchd scheduling (PR #62)** — background digests run as launchd LaunchAgents, not CronCreate/`/schedule`. The scheduling steps below describe the retired path; follow the launchd flow in `context-templates/background-agents.md` instead.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Automate `In Progress → In Test` (Simplified) and `In Progress → Resolved` (Defect) at PR-merge time, via a single shared transition procedure that `investigate` also adopts.

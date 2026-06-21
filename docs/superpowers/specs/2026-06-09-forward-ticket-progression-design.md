@@ -1,5 +1,7 @@
 # Forward Ticket Progression — Per-PR Tier (Design)
 
+> **⚠️ Superseded by launchd scheduling (PR #62)** — background digests run as launchd LaunchAgents, not CronCreate/`/schedule`. The scheduling design below describes the retired path; follow the launchd flow in `context-templates/background-agents.md` instead.
+
 - **Date:** 2026-06-09
 - **Status:** Approved for implementation (test-drive)
 - **Authors:** Willis, with Jason
