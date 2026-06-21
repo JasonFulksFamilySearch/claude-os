@@ -1,9 +1,12 @@
-# claude-os
+# Dioscuri
 
 [![readme style: standard](https://img.shields.io/badge/readme%20style-standard-brightgreen.svg)](https://github.com/RichardLitt/standard-readme)
 ![node: >=24](https://img.shields.io/badge/node-%3E%3D24-339933.svg)
 ![platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg)
 ![status: phases 1–4 live](https://img.shields.io/badge/status-phases%201--4%20live-blue.svg)
+
+*The official name is **Dioscuri**. The repo, install path, and other identifiers still carry the
+legacy `claude-os` slug — that migration is tracked separately ([details](#the-dioscuri-model--n-agents-one-shared-body)).*
 
 Portable agent-identity system for Claude Code: one codebase, N machines, full persistent memory.
 
@@ -93,9 +96,11 @@ not a special case — it shares the same body and grows its own soul.
 > [Hooks](#hooks)) runs the same twins motif at the tool-call level: two transforms — *compress* and
 > *enrich* — attaching to one tool result in a single pass.
 >
-> The *concept* is **Dioscuri**; the repo slug, paths (`~/.claude-data/`, `~/.claude/`), and
-> identifiers remain `claude-os` for now. That identifier rename is deliberately deferred and tracked
-> separately — see the
+> **Dioscuri** is the official name. The repo slug, install path (`~/.claude-os`), data dir
+> (`~/.claude-data/`), the `*-claude-os` skill names, the `claude-os-mcp` server, and the
+> `CLAUDE_OS_HOOK_DEPTH` env var still carry the legacy identifier for now — that's a real
+> filesystem/git migration with backward-compat surface, deliberately deferred and tracked separately.
+> See the
 > [identity-architecture design spec](docs/superpowers/specs/2026-06-05-claude-os-identity-architecture-design.md).
 
 ## Directory layout
@@ -166,7 +171,7 @@ first use.
 
 ## Usage
 
-claude-os is mostly invisible in normal use — skills and memory activate automatically inside any
+Dioscuri is mostly invisible in normal use — skills and memory activate automatically inside any
 Claude Code session. The common touchpoints:
 
 **Invoke a skill** — by slash command or plain language; the agent auto-detects the right one:
@@ -251,7 +256,7 @@ session lifecycle:
 
 > Hooks are wired automatically by `install.sh` (fresh installs) and reconciled by `update.sh` (existing machines) via `hooks/hooks-install.js`. Re-running either is safe — registration is idempotent at the command level.
 
-claude-os also installs two `PreToolUse` Bash guard hooks (an additional category, not memory hooks):
+Dioscuri also installs two `PreToolUse` Bash guard hooks (an additional category, not memory hooks):
 
 | Hook | Trigger | Purpose |
 |---|---|---|
@@ -318,10 +323,10 @@ Skills are invocable via the `Skill` tool. The agent auto-detects which skill ap
 | `grade-proposal` | Score a single reflection proposal (0–100) before applying it |
 | `experience-synthesis` | Synthesize unpromoted episodes into candidate higher-order learnings via pre-human gates |
 
-### Claude OS system
+### Dioscuri system
 | Skill | Purpose |
 |---|---|
-| `transmit-claude-os` | Commit and push all pending claude-os changes to origin |
+| `transmit-claude-os` | Commit and push all pending Dioscuri changes to origin |
 | `assimilate-claude-os` | Pull latest from origin; rebuild MCP server if `mcp/` changed |
 | `audit-claude-os` | Hostile-reviewer audit of the full installation (CLAUDE.md, skills, hooks) |
 | `mcp-health-audit` | Audit skills/context/settings for dead MCP prefixes, tool-name drift, permission gaps |
@@ -488,8 +493,8 @@ This is a personal, single-maintainer system, not a community project — extern
 aren't accepted. "Contributing" here means evolving your own installation: make changes on either
 machine and propagate them with the sync workflow in
 [Keeping machines in sync](#keeping-machines-in-sync) (`/transmit-claude-os` →
-`/assimilate-claude-os`). The [`audit-claude-os`](#claude-os-system) and
-[`mcp-health-audit`](#claude-os-system) skills validate the installation after changes.
+`/assimilate-claude-os`). The [`audit-claude-os`](#dioscuri-system) and
+[`mcp-health-audit`](#dioscuri-system) skills validate the installation after changes.
 
 ## License
 

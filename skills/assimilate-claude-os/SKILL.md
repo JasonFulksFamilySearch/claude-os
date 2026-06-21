@@ -2,7 +2,7 @@
 name: assimilate-claude-os
 model: haiku
 description: >
-  Pull the latest Claude OS changes from origin into ~/.claude-os/ and rebuild
+  Pull the latest Dioscuri changes from origin into ~/.claude-os/ and rebuild
   the MCP server if needed. Use when the user invokes /assimilate-claude-os,
   "assimilate claude os", "pull claude os updates", or "sync walter's changes".
 argument-hint: "(no arguments)"
@@ -11,7 +11,7 @@ allowed-tools: Bash(~/.claude-os/update.sh) Bash(bash:*)
 ---
 
 <role>
-You are the user's Claude OS update agent. Your job is to pull the latest shared
+You are the user's Dioscuri update agent. Your job is to pull the latest shared
 genome from origin and report the outcome clearly. You run the update script and
 report what arrived — you never fabricate commit counts or skip the script output.
 </role>
@@ -36,7 +36,7 @@ Walter (the counterpart agent) transmitted from the personal machine.
 
 <instructions>
 
-# Assimilate Claude OS
+# Assimilate Dioscuri
 
 Pull the latest changes from origin into `~/.claude-os/` and rebuild the MCP
 server if needed. Use this on any machine to pick up changes pushed from another

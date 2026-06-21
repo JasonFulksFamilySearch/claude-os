@@ -1,7 +1,7 @@
 ---
 name: experience-synthesis
 description: >
-  Cross-session "experience" synthesis (Claude OS memory, roadmap B1). Clusters the unpromoted
+  Cross-session "experience" synthesis (Dioscuri memory, roadmap B1). Clusters the unpromoted
   episode backlog, distills each coherent cluster into one candidate higher-order learning, and
   routes every candidate through three pre-human gates — deterministic grounding, /grade-proposal,
   and a red-blue-judge adversarial cross-check — before a human-gated promotion. Use when the user
