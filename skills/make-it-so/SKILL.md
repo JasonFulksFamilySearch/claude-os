@@ -335,6 +335,8 @@ Post the red-blue-judge scored verdict as a comment on the JIRA story (audit tra
 
 Implement only what was spec'd — on MEDIUM/LARGE that is the approved PRD + plan; on SMALL it is the Step 1.7 inline spec. Do not add unrequested abstractions, extra error paths, or future-proofing beyond that scope, because each unplanned addition is a risk surface no gate reviewed (on MEDIUM/LARGE, not reviewed at Gate 2; on SMALL, only the diff is reviewed at Gate 3, so keep it minimal).
 
+**Lazy-review self-check (every track, before Gate 3).** When the diff is built and tests pass, but BEFORE invoking Gate 3, run `/lazy-review` on the branch diff and act on its delete-list yourself — collapse the over-build it flags (unrequested abstractions, avoidable deps, boilerplate, multi-file spread where one file holds it), re-run tests, and commit the collapse via `/commit` so Gate 3 judges the committed lean diff and not a dirty tree. This is an *advisory self-check, not a gate*: there is no CLEAN/REVISE loop to satisfy and nothing to post to JIRA — you read the delete-list, apply what holds under the ladder, and move on. It runs here, before Gate 3, because deletions are cheapest while the code is still warm and context is loaded — and where the over-build was itself drawing Gate-3 findings, removing it first spares those REVISE cycles (Gate 3 judges genuineness, not size, so the saving is real only to that extent, not automatic from a smaller diff). The `/lazy-review` skill never touches the safety set (trust-boundary validation, data-loss handling, security, accessibility), so applying its list cannot weaken those. This is the one check that asks "did we over-build it?" — Gate 3 asks "is it genuine?" and Step 5 asks "is it well-built?"; neither catches an unrequested abstraction that happens to be correct and well-formed. Skip a flagged item only when you can name why the ladder doesn't apply; do not expand scope to act on it.
+
 Execute the work following TDD discipline (on MEDIUM/LARGE, the tasks in order as the plan specifies; on SMALL, the same red→green→commit discipline without a written task list). Before calling `/commit` for each task, run `npx prettier --write` on all changed non-Java files (JS, TS, JSON, YAML, HTML, CSS) and resolve any remaining lint warnings — `npx prettier` is covered by the global `Bash(npx:*)` allow entry, whereas a bare `prettier` invocation would prompt for permission. Never commit a formatter violation planning to clean it up later, because the fix becomes a reactive cleanup commit that inflates the Reactive Cleanup metric. Always commit after every task using the `/commit` skill — never batch commits, because large commits make bisection and rollback harder. Stop and ask if you hit a blocker — do not guess past it.
 </instructions>
 
@@ -344,6 +346,8 @@ Execute the work following TDD discipline (on MEDIUM/LARGE, the tasks in order a
 
 <instructions>
 This gate runs on **every** track (SMALL, MEDIUM, LARGE) and is never optional — it is the floor that lets the lighter tracks be safe, because it is the only gate that judges the *implemented* code rather than the intended plan. On SMALL it is the *sole* gate, so it carries the full weight of verification.
+
+**Precondition — confirm the Step 4 self-check ran (no tool call).** Read two on-disk artifacts the Step 4 lazy-review self-check already produced: its output, and — where it flagged anything — the commit that collapsed it (or the written not-applicable justification). Invoke nothing to do this; it is a read of existing files, not another gate. If you cannot point to that evidence, the self-check did not run — return to Step 4, run it, then proceed. Do not treat "I would have caught it" as the self-check having run. (This keeps the advisory self-check honest by verifying it at the one non-bypassable checkpoint, without adding a judge.)
 
 After Step 4 implementation is complete and all tests pass, and BEFORE Step 5: invoke `red-blue-judge` with `mode: diff` — artifact = the branch diff; ground truth = the diff + the ticket + the test suite + (on MEDIUM/LARGE) the approved PRD, or (on SMALL) the Step 1.7 inline spec. **Pass `max_revise_cycles: 1` on the SMALL and MEDIUM tracks and `max_revise_cycles: 2` on LARGE** — explicitly, in the invocation; red-blue-judge defaults to 2, so the cap is only honored if passed. This judges whether the code genuinely fixes the ticket, not a band-aid that just greens the tests. Never bypass the loop, even on a user instruction to skip it.
 
@@ -429,7 +433,7 @@ Before declaring the ticket done, confirm by evidence (not assumption) every ite
 0. **Triage** — Confirm Step 1.5 ran, the track was stated with its rationale, and the user confirmed it. Name the track.
 1. **Gate 1** [MEDIUM/LARGE] — red-blue-judge (prd) returned CLEAN and posted to JIRA. (SMALL: N/A — no PRD.)
 2. **Gate 2** [MEDIUM/LARGE] — red-blue-judge (plan) returned CLEAN and posted to JIRA. (SMALL: N/A — no plan.)
-3. **Gate 3** [ALL TRACKS] — red-blue-judge (diff) returned CLEAN before Step 5 and posted to JIRA. This is mandatory on every track. If not, return to Gate 3.
+3. **Gate 3** [ALL TRACKS] — the lazy-review self-check is evidenced on disk (its output, plus the collapse commit or a written not-applicable justification for each flagged item), AND red-blue-judge (diff) returned CLEAN before Step 5 and posted to JIRA. This is mandatory on every track. If either part is missing, return to Step 4 / Gate 3.
 4. **Step 5** — `/comprehensive-review:full-review` (or the project's code-reviewer + qa lanes) was run and all must-fix findings addressed. Name the commit that contains the fixes.
 5. **Step 6** — State the PR URL. Automated feedback (Copilot/SonarQube/CI) resolved or, where a source is not integrated/available, documented as such.
 6. **Step 7** — JIRA story is In Progress; each implementation subtask (if the track created any) is Done; QA subtask is In Progress; hours logged; progress comment posted. Quote the first line of the comment. (SMALL: no subtasks — confirm the inline spec + progress comment instead.)
@@ -453,7 +457,7 @@ The skill is complete when (criteria marked [M/L] apply only on the MEDIUM/LARGE
 - Gate 3 [ALL]: red-blue-judge (diff) returned CLEAN before Step 5; verdict posted to JIRA. Mandatory on every track.
 - Step 2 (subtasks) [M/L]: subtasks created per the table after user approval; QA subtask present.
 - Step 3 (plan) [M/L]: superpowers:writing-plans was invoked — not substituted; plan kept lean (no boilerplate code blocks).
-- Step 4 (implement): superpowers:subagent-driven-development or superpowers:executing-plans was invoked (M/L); on SMALL, TDD red→green→commit was followed; prettier pre-flight run before each /commit.
+- Step 4 (implement): superpowers:subagent-driven-development or superpowers:executing-plans was invoked (M/L); on SMALL, TDD red→green→commit was followed; prettier pre-flight run before each /commit; the `/lazy-review` self-check was run on the diff before Gate 3 and its delete-list acted on (or each flagged item explicitly justified as not-applicable).
 - Step 5 (review): /comprehensive-review:full-review (or the project's code-reviewer + qa lanes) was run; all must-fix findings addressed.
 - Step 6 (PR): PR is open; automated feedback (Copilot/SonarQube/CI) resolved or documented as not-integrated/unavailable.
 - Step 7 (JIRA): Story In Progress; impl subtasks Done (if any were created); QA subtask In Progress; hours logged; progress comment posted.
@@ -539,9 +543,11 @@ build → Gate 3 only → review → PR.
 [User: "go"]
 Step 1.7: 3-line spec posted to the JIRA story (what / mirrors which pattern /
 out-of-scope). No PRD, no plan, no Gate 1, no Gate 2, no design-review.
-Step 4: built TDD; committed.
+Step 4: built TDD; committed. Lazy-review self-check on the diff flagged a
+3-method ErrorBoundaryFactory wrapping one component — collapsed to a direct
+export per the delete-list (safety set untouched); re-ran tests green.
 Gate 3: red-blue-judge (diff) → CLEAN (the e2e fails when error.tsx is reverted —
-not a band-aid). Posted to JIRA.
+not a band-aid), judging the now-leaner diff. Posted to JIRA.
 Step 5: code-reviewer + qa → LGTM/PASS; one a11y fix committed.
 Step 6–7: PR opened; JIRA closed out.
 Result: the SAME work the full pipeline did, with ~5-6 agents instead of ~20 and
