@@ -68,8 +68,9 @@ then cite the rung by its canonical number:
 - If a base-ref argument was given, diff against it: `git diff <base-ref>...HEAD`.
 - Otherwise review the working diff: `git diff HEAD` (staged + unstaged combined). If that is empty,
   fall back to `git diff` then `git diff --staged`. If all are empty, report "No diff to review" and stop.
-- Note the changed files (`git diff --name-only ...`) so you can read surrounding context where a span's
-  intent isn't clear from the hunk alone.
+- Note the changed files — `git diff --name-only <base-ref>...HEAD` in base-ref mode, or `git diff --name-only HEAD`
+  in working-tree mode (matching whichever diff you captured above) — so you can read surrounding context where a
+  span's intent isn't clear from the hunk alone.
 
 **Step 2 — Read for intent, not just lines.**
 For each added/changed span that looks like a candidate, Read enough surrounding code to answer:
