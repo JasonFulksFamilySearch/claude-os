@@ -16,13 +16,14 @@ The **build is done; the activation and certification are not.** All ten non-gat
 
 ### 1.1 A note on artifact status (read this before §3)
 
-This review distinguishes three states, because conflating them is a real trap (this doc itself made that error on first draft):
+This review distinguishes four states, because conflating them is a real trap (this doc itself made that error twice — first narrating unpushed work as shipped, then, after the session pushed it, still narrating it as unpushed; both caught by the RBJ gate). *Status below is current as of the close of the session that authored this doc (2026-06-21).*
 
 - **Merged** — on `origin/master`. The ten Dioscuri code units (§2) are here.
-- **Open PR** — pushed, in review, not yet merged. PR #62 (launchd digests) is here — *but see the caveat in §3.4: its final runbook commit was local-only at the time of writing.*
-- **Drafted, local-only** — committed or written in a worktree, **not pushed, no PR**. Three of the documentation deliverables this review credits are in this state: the **operator feature guide** (§3.2), the **structural test-suite design spec** (§3.5), and **this journey review itself**. They live as unpushed commits on `chore/structural-test-suite-spec` (2 commits ahead of master, no PR) plus an untracked file. They are *written*, not *shipped*. The honest next step for them is a docs PR; until then, treat §3.2/§3.5 as "drafted," not "landed."
+- **Open PR** — pushed, in review, not yet merged. **PR #62 (launchd digests) is here, fully pushed** — its final runbook commit (`39a0015`) was pushed before session close, so the PR on GitHub is complete (#64 done). It still needs a Copilot reviewer (#65, Willis-side).
+- **Pushed, no PR** — on `origin` but no PR opened yet. The **operator feature guide** (§3.2), the **structural test-suite design spec** (§3.5), and **this journey review itself** are here: all three are committed and **pushed** to `origin/chore/structural-test-suite-spec` (3 commits), safe from worktree cleanup, but no docs PR is open yet. They are *shipped to the remote*, not *yet in review*. Opening a docs PR is the remaining step.
+- **Drafted, local-only** — committed/written in a worktree, not pushed, no PR. *Nothing is in this state at session close* — the previously-local docs were pushed.
 
-The discipline this enforces: **nothing is called "done" until it is on `origin` or in a PR.** Where the prose below says a doc "exists," read it as "drafted, local-only" unless it names a merged PR.
+The discipline this enforces: **nothing is called "done" until it is on `origin` or in a PR — and a status doc must be re-checked against live `git`/`gh` state at the moment it's read, because pushes that happen after it's written silently invalidate its caveats.**
 
 ## 2. What the plan promised → what we completed
 
@@ -60,7 +61,7 @@ The plan said "route findings through `/red-blue-judge`." What we actually built
 ### 3.2 A documentation corpus the plan didn't scope
 - **System reference** ([#60](https://github.com/JasonFulksFamilySearch/claude-os/issues/60)) — how the merged code actually works, by subsystem, grounded with `file:line` anchors. (The origin plan is preserved separately, as a *comment* on #60 — see Lineage above.)
 - **PRDs** on every remaining unit (#57/#58/#59) and on the digest-family workstream (#53) — the *why* behind each, sourced from the design docs, not memory.
-- **Operator feature guide** (`docs/dioscuri-feature-guide.md`) — how to *use* the upgrade, in Google Developer Documentation Style, with verified control-surface names. *(Drafted, local-only — see §1.1; not yet in a PR.)*
+- **Operator feature guide** (`docs/dioscuri-feature-guide.md`) — how to *use* the upgrade, in Google Developer Documentation Style, with verified control-surface names. *(Pushed to `origin/chore/structural-test-suite-spec`, no PR yet — see §1.1.)*
 - **In-repo frozen contracts** written during the build: `dioscuri-content-router-seam.md`, `dioscuri-smartcrusher-compression.md`, `dioscuri-ccr-retrieval.md`.
 
 ### 3.3 A latent-hazard ledger, tracked not lost
@@ -71,11 +72,11 @@ The build surfaced real hazards that were correctly *deferred with a tracking is
 ### 3.4 A whole sibling workstream — two PRs, one open
 The **background-digest family** (`pr-digest` / `sprint-digest` / `merge-progression`) turned into its own multi-PR effort:
 - **#51 (merged)** — found machine-non-portable (hardcoded `/Users/fulksjas/` paths); shipped as a per-agent-configurable fix.
-- **[PR #62](https://github.com/JasonFulksFamilySearch/claude-os/pull/62) (OPEN, not fully pushed)** — **the durable fix for the recurring `/schedule` friction.** Converts the three digests from *session-only cron* (the ephemeral jobs that re-register every session and kept mis-routing to the cloud `/schedule` handler) into **launchd LaunchAgents that survive session exit**. 1,042 insertions: a generator (`bin/digest-launchd-install.js`) + 467-line test, a plist template, `update.sh` Step 9.5 provisioning, a `session-start-check.js` change, and a first-install runbook. Careful safety design: `RunAtLoad=false` (provisioning must never fire the Jira-transitioning merge-progression job), fail-safe if the `claude` binary can't resolve, and `--permission-mode default` (not `bypass`) so the write-capable job is denied anything outside its allowlist. **Status caveat:** the final runbook commit (`39a0015`) is **local-only / unpushed** — the PR on GitHub is one commit behind what's described here. Before review: push it. So #62 is *near-complete*, not "done."
+- **[PR #62](https://github.com/JasonFulksFamilySearch/claude-os/pull/62) (OPEN, fully pushed, needs Copilot review)** — **the durable fix for the recurring `/schedule` friction.** Converts the three digests from *session-only cron* (the ephemeral jobs that re-register every session and kept mis-routing to the cloud `/schedule` handler) into **launchd LaunchAgents that survive session exit**. ~1,096 insertions: a generator (`bin/digest-launchd-install.js`) + 467-line test, a plist template, `update.sh` Step 9.5 provisioning, a `session-start-check.js` change, and a first-install runbook. Careful safety design: `RunAtLoad=false` (provisioning must never fire the Jira-transitioning merge-progression job), fail-safe if the `claude` binary can't resolve, and `--permission-mode default` (not `bypass`) so the write-capable job is denied anything outside its allowlist. **Status:** the final runbook commit (`39a0015`) was **pushed before session close** — PR #62 on GitHub is now complete, and **#64 (push the runbook) was closed as done**. The remaining step is the Willis-side Copilot review (#65).
 - **[#53](https://github.com/JasonFulksFamilySearch/claude-os/issues/53)** — the *cloud*-portable variant + the session-start misroute, still tracked. Note: #62 addresses the **local** durability (jobs survive session exit) and the recurring re-registration friction; #53's cloud-routine variant is the remaining, separate piece.
 
-### 3.5 A test-strategy spin-off (drafted, local-only — see §1.1)
-The "how do we keep future changes from breaking this?" question spawned a **structural-invariant test-suite design** (`docs/superpowers/specs/2026-06-20-structural-invariant-test-suite-design.md`), itself hardened through `/design-review` + a three-cycle `/red-blue-judge` that caught three real design defects (one of them a GitHub-Actions mechanics error that two prior reviews missed). Its H3 invariant was deferred to [#61](https://github.com/JasonFulksFamilySearch/claude-os/issues/61) rather than shipped vacuous. **Status:** this spec — and the operator feature guide (§3.2) and this journey review — are *drafted, local-only* on `chore/structural-test-suite-spec` (2 commits ahead of master, no PR). They are written, not shipped; the next step is a docs PR. The spec is a *design*, not yet an implementation — the actual test suite (H1 + H2 + the CI change) has not been built.
+### 3.5 A test-strategy spin-off (pushed, no PR — see §1.1)
+The "how do we keep future changes from breaking this?" question spawned a **structural-invariant test-suite design** (`docs/superpowers/specs/2026-06-20-structural-invariant-test-suite-design.md`), itself hardened through `/design-review` + a three-cycle `/red-blue-judge` that caught three real design defects (one of them a GitHub-Actions mechanics error that two prior reviews missed). Its H3 invariant was deferred to [#61](https://github.com/JasonFulksFamilySearch/claude-os/issues/61) rather than shipped vacuous. **Status:** this spec — and the operator feature guide (§3.2) and this journey review — are committed and **pushed** to `origin/chore/structural-test-suite-spec` (3 commits), so they are safe from worktree cleanup; **no docs PR is open yet** (the remaining step). The spec is a *design*, not yet an implementation — the actual test suite (H1 + H2 + the CI change) has not been built.
 
 **The honest takeaway:** the plan described *what to build*. The discovered work was *what it takes to build it correctly and keep it built* — the gates, the docs, the hazard tracking, the test floor. That second category is roughly half the actual effort and none of it was foreseeable from the plan alone.
 
@@ -85,34 +86,34 @@ The "how do we keep future changes from breaking this?" question spawned a **str
 
 Three threads stand between "merged" and "fully done, running, and certified on both machines." They are ordered here by dependency.
 
-### Thread A — Activate (turn it on; unblocks everything)
-**Status: not started. This is the first thing to do and the cheapest.**
+### Thread A — Activate (turn it on; unblocks everything) — [#69](https://github.com/JasonFulksFamilySearch/claude-os/issues/69) + [#70](https://github.com/JasonFulksFamilySearch/claude-os/issues/70)
+**Status: not started. This is the first thing to do and the cheapest. Tracked: #69 (Walter), #70 (Willis), both `go-live` P1.**
 
 The code is on `master` but **merging did not activate it.** The hooks are registered and the directories provisioned only when `update.sh` runs on each machine. Until then, the upgrade is dormant — the PostToolUse router, the PreCompact/Stop hooks, the `.logs/`, `findings-buffer/`, `ccr-cache/` dirs are not live.
 
-- [ ] Run `update.sh` on **Walter** (this machine) — registers the new hooks, provisions the dirs.
-- [ ] Verify activation: a large-JSON tool result shows a compression marker; `~/.claude/settings.json` carries the new hook entries.
-- [ ] Run `update.sh` on **Willis** (the work Mac) — same activation.
+- [ ] **[#69]** Run `update.sh` on **Walter** (this machine) — registers the new hooks, provisions the dirs.
+- [ ] **[#69]** Verify activation: a large-JSON tool result shows a compression marker; `~/.claude/settings.json` carries the new hook entries.
+- [ ] **[#70]** Run `update.sh` on **Willis** (the work Mac) — same activation.
 
 *Why first: nothing downstream (the pilot, the cross-machine cert) can happen until the feature is actually running on at least one machine.*
 
-### Thread B — Pilot, then certify cross-machine (DIO-17 / #57)
-**Status: 🟡 open, sequencing-blocked on Thread A.**
+### Thread B — Pilot, then certify cross-machine — [#71](https://github.com/JasonFulksFamilySearch/claude-os/issues/71) (pilot) + [#57](https://github.com/JasonFulksFamilySearch/claude-os/issues/57) (DIO-17 cert)
+**Status: 🟡 open, sequencing-blocked on Thread A. Tracked: #71 (Willis pilot run, `go-live` P1), #57 (DIO-17 Walter port + cross-machine certification).**
 
 The origin plan's §6.5 pilot decision: run on **Willis first** with a graph-bearing query (so the graph half is exercised, not just compression), confirm promoted-episode quality, *then* port to Walter — which is where **FR-C3 cross-machine reproducibility is first certified** (a finding raised on Willis reproduces on Walter at the same commit). This is untestable on one machine, by design.
 
-- [ ] Run the Willis pilot on a graph-bearing skill (the plan suggested `audit-claude-os` / `standup`).
-- [ ] Read the pilot's promoted-episode quality — is the captured signal durable or noise?
-- [ ] On green: certify cross-machine reproducibility (DIO-17 / #57) — same finding, both twins, same commit.
+- [ ] **[#71]** Run the Willis pilot on a graph-bearing skill (the plan suggested `audit-claude-os` / `standup`).
+- [ ] **[#71]** Read the pilot's promoted-episode quality — is the captured signal durable or noise?
+- [ ] **[#57]** On green: certify cross-machine reproducibility (DIO-17) — same finding, both twins, same commit.
 
-### Thread C — The arming-gated capture path (DIO-18 #58 + DIO-19 #59)
-**Status: 🟡 open, deliberately deferred — the last and most careful work.**
+### Thread C — The arming-gated capture path — [#58](https://github.com/JasonFulksFamilySearch/claude-os/issues/58) (build) + [#59](https://github.com/JasonFulksFamilySearch/claude-os/issues/59) (measure) + [#72](https://github.com/JasonFulksFamilySearch/claude-os/issues/72) (arm)
+**Status: 🟡 open, deliberately deferred — the last and most careful work. Tracked: #58 (DIO-18 build), #59 (DIO-19 fidelity harness), #72 (the gated arming flip, `go-live`, serializes behind #57/#58/#59).**
 
 This is the one piece that writes *into* the eval-gated corpus (compressed tool output → episode `## Tool signals` section), so the origin plan and the build both gated it hard: built default-OFF, armed only after a determinism proof, a manual eval re-baseline, and a fidelity measurement.
 
 - [ ] **Build DIO-18 (#58) default-OFF first** — the capture path must *exist* before it can be measured. (DIO-19 is an A/B harness that runs `compress()` over this path, so the path has to be built before the harness can run. The bidirectional dependency in the tickets — #58 depends-on #59, #59 depends-on #58 — is about *arming* vs. *measuring*, not build order.)
 - [ ] **Then run DIO-19 (#59)** — the non-error fidelity A/B harness over a *disjoint* labeled set; it produces the drop-rate number. **DIO-19 gates DIO-18's *arming*, not its building.**
-- [ ] **Arm DIO-18 only when:** DIO-19 reports within-budget drop · `compress()` proven byte-identical across both machines · `npm run eval --rebaseline` + `cutover` after a non-regressing verdict · green pilot read.
+- [ ] **[#72] Arm DIO-18 only when:** DIO-19 reports within-budget drop · `compress()` proven byte-identical across both machines · `npm run eval --rebaseline` + `cutover` after a non-regressing verdict · green pilot read.
 
 *Why last, and why it serializes behind Thread B:* it's the only lossy write into the corpus, the eval gate is structurally blind to its main risk (it scores `source_path` presence, not content) — so it gets the most discipline. And one arming condition, *`compress()` byte-identical **across both machines***, is **structurally unprovable until Thread B's Walter port completes** — you can't prove cross-machine determinism on one machine. So Thread C cannot *fully arm* until Thread B is done: the three threads are more strictly serial (A → B → C-arming) than "ordered by dependency" alone implies.
 
@@ -127,7 +128,7 @@ This is the one piece that writes *into* the eval-gated corpus (compressed tool 
 | [#67](https://github.com/JasonFulksFamilySearch/claude-os/issues/67) | Update genome CLAUDE.md at merge time | P2 | Jason |
 | [#68](https://github.com/JasonFulksFamilySearch/claude-os/issues/68) | Consolidate post-merge go-live checklist | P2 | Walter |
 
-*#64 is the gating P1: it pushes the local-only runbook commit (`39a0015`, see §3.4) so the PR on GitHub matches what's described. #65 is the Willis-side Copilot step. The three P2s are merge-time cleanup.*
+*#64 (push the runbook commit `39a0015`) is **DONE** — pushed before session close, so PR #62 on GitHub now matches §3.4. #65 (Willis-side Copilot request + verify) is the remaining P1 on this cluster. The three P2s are merge-time cleanup.*
 
 **Other tracked issues** (named for completeness — most are independent of "Dioscuri is done"):
 - **#53** — the *cloud*-portable digest variant + session-start misroute (the piece #62 doesn't cover: running digests when the machine is off, via connectors).
