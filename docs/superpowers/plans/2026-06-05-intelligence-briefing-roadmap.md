@@ -1,5 +1,7 @@
 # claude-os Intelligence Briefing Roadmap
 
+> **⚠️ Superseded by launchd scheduling (PR #62)** — background digests run as launchd LaunchAgents, not CronCreate/`/schedule`. The scheduling steps below (incl. Step 7) describe the retired path; follow the launchd flow in `context-templates/background-agents.md` instead.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close the five most significant capability gaps identified in the June 2026 competitive intelligence sweep — shipping a background engineering orchestration tier, token-efficient retrieval, entity-aware search, contradiction detection, and curated cross-agent sync.

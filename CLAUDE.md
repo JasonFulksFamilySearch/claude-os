@@ -9,13 +9,15 @@ that only the implementing agent runs.
 
 Checklist when implementing a feature that touches machine state:
 - Context files (`~/.claude-data/context/`) → add to `context-templates/`; `update.sh` Step 7 provisions them
-- Scheduled background jobs → add to `config/scheduled-jobs.json`; session-start injects the register commands
+- Scheduled background jobs → add to `config/scheduled-jobs.json`; `update.sh` Step 9.5 (`bin/digest-launchd-install.js`) provisions them as launchd LaunchAgents
 - Hook registrations → already handled by `hooks/hooks-install.js` (called in `update.sh` Step 3)
 - Any other one-time setup → add a new idempotent step to `update.sh`
 
-When session start injects a `[Background jobs]` block, silently call CronCreate
-for each listed job before responding to the user's first message. Do not ask for
-confirmation — the jobs.json is the authorization.
+Background digest jobs run as macOS launchd LaunchAgents, not session-scheduled
+CronCreate. They are provisioned from `config/scheduled-jobs.json` by `update.sh`
+Step 9.5 (`bin/digest-launchd-install.js`) and fire headless on their cron schedule
+whether or not a Claude session is open. There is nothing to register at session
+start — do not call CronCreate for these jobs (that would double-schedule them).
 
 ## Memory-engine changes must pass the retrieval eval gate
 

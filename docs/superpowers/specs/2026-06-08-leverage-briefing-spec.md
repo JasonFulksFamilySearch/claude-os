@@ -1,5 +1,7 @@
 # claude-os Leverage Briefing — Self-Contained Spec & Decision Record
 
+> **⚠️ Superseded by launchd scheduling (PR #62)** — background digests run as launchd LaunchAgents, not CronCreate/`/schedule`. The scheduling steps below describe the retired path; follow the launchd flow in `context-templates/background-agents.md` instead.
+
 **Date:** 2026-06-08
 **Author:** Walter (Jason's agent, personal Mac / macelabs-macair), AI-generated, human-directed
 **Status:** Decision record + implementation spec. Ready to execute the First Move.
