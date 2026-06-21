@@ -7,6 +7,8 @@
 
 Portable agent-identity system for Claude Code: one codebase, N machines, full persistent memory.
 
+> **Dioscuri** — one shared, immortal body; a distinct soul per machine. ([What's in a name?](#the-dioscuri-model--n-agents-one-shared-body))
+
 This repo is the *system* — skills, hooks, agents, an MCP server, templates, and conventions. It
 contains **no** memories, project context, or machine-specific data; that lives in `~/.claude-data/`
 on each machine and is never committed. Install it on as many computers as you like and you get the
@@ -32,7 +34,7 @@ design has no "2" hardcoded anywhere — the (N+1)th agent is one `install.sh` r
 
 ## Table of Contents
 
-- [N-agent architecture](#n-agent-architecture)
+- [The Dioscuri model](#the-dioscuri-model--n-agents-one-shared-body)
 - [Directory layout](#directory-layout)
 - [Prerequisites](#prerequisites)
 - [Install](#install)
@@ -51,24 +53,42 @@ design has no "2" hardcoded anywhere — the (N+1)th agent is one `install.sh` r
 - [Contributing](#contributing)
 - [License](#license)
 
-## N-agent architecture
+## The Dioscuri model — N agents, one shared body
 
-Run the same agent on as many machines as you want — each with its own name, identity, and lived
-experience, but sharing the same code, skills, and conventions from this repo. The "two" you'll see
-referenced throughout is just the current deployment, not a limit: this is an **N+1** system. There
-is no hardcoded pair anywhere in the codebase — identity is fully parameterized at install time
+The concept has a name: **Dioscuri** — the Greek collective for the twins **Castor and Pollux**,
+"the twins as one." It names the design exactly: **one shared, immortal body; a distinct soul per
+machine.**
+
+- **The body** is this repo — the code, skills, hooks, MCP server, and conventions, byte-identical
+  on every machine. It never *contains* a name or a persona; it only ever *references* them.
+- **A soul** is a per-machine identity: its name, its hand-tuned persona, and its own private,
+  persistent memory under `~/.claude-data/`. Souls are rendered locally at install and never
+  committed, so each twin can deliberately differ.
+
+Run the same agent on as many machines as you want — each its own soul, all sharing one body. The
+"two" you'll see referenced throughout is just the current deployment, not a limit: this is an
+**N+1** system. Nothing hardcodes a pair — identity is fully parameterized at install time
 (`AGENT_NAME` / `USER_NAME` / `MACHINE_DESC`), and sync is plain Git push/pull, so any machine pulls
-from any other. Adding the (N+1)th agent is one `install.sh` run with a new name.
+from any other. Castor and Pollux are the canonical pair, but the model takes N souls; the (N+1)th
+is one `install.sh` run with a new name away.
 
-Two are running today (the canonical examples):
+Two souls are running today (the canonical examples):
 
 - **Willis** — work Mac.
 - **Walter** — personal Mac.
 
-Every instance runs identical code from this repo and maintains its own `~/.claude-data/`. The agent
-name, the user's name, and the machine description are chosen at install time via interactive prompts
-and rendered into `~/.claude-data/agent/CLAUDE.md` from the template — so a third machine ("Wendell"
-on a home server, say) is a first-class peer the moment it's installed, not a special case.
+A third machine ("Wendell" on a home server, say) is a first-class twin the moment it's installed,
+not a special case — it shares the same body and grows its own soul.
+
+> **The name reaches into the engineering layer too.** The **Dioscuri** context-engineering
+> subsystem (the `DIO-*` work items, the `.dioscuri/` contracts, and the ContentRouter seam in
+> [Hooks](#hooks)) runs the same twins motif at the tool-call level: two transforms — *compress* and
+> *enrich* — attaching to one tool result in a single pass.
+>
+> The *concept* is **Dioscuri**; the repo slug, paths (`~/.claude-data/`, `~/.claude/`), and
+> identifiers remain `claude-os` for now. That identifier rename is deliberately deferred and tracked
+> separately — see the
+> [identity-architecture design spec](docs/superpowers/specs/2026-06-05-claude-os-identity-architecture-design.md).
 
 ## Directory layout
 
