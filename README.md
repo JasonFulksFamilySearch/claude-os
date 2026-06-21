@@ -1,35 +1,43 @@
-# claude-os
+# Dioscuri
 
 [![readme style: standard](https://img.shields.io/badge/readme%20style-standard-brightgreen.svg)](https://github.com/RichardLitt/standard-readme)
 ![node: >=24](https://img.shields.io/badge/node-%3E%3D24-339933.svg)
 ![platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg)
 ![status: phases 1–4 live](https://img.shields.io/badge/status-phases%201--4%20live-blue.svg)
 
-Portable agent-identity system for Claude Code: one codebase, two machines, full persistent memory.
+*The official name is **Dioscuri**. The repo, install path, and other identifiers still carry the
+legacy `claude-os` slug — that migration is tracked separately ([details](#the-dioscuri-model--n-agents-one-shared-body)).*
+
+Portable agent-identity system for Claude Code: one codebase, N machines, full persistent memory.
+
+> **Dioscuri** — one shared, immortal body; a distinct soul per machine. ([What's in a name?](#the-dioscuri-model--n-agents-one-shared-body))
 
 This repo is the *system* — skills, hooks, agents, an MCP server, templates, and conventions. It
 contains **no** memories, project context, or machine-specific data; that lives in `~/.claude-data/`
-on each machine and is never committed. Install it on two computers and you get the same agent —
-same skills, same conventions — running under a different name and identity on each, each with its
-own private, persistent memory.
+on each machine and is never committed. Install it on as many computers as you like and you get the
+same agent — same skills, same conventions — running under a different name and identity on each,
+each with its own private, persistent memory. Two machines run it today (Willis and Walter); the
+design has no "2" hardcoded anywhere — the (N+1)th agent is one `install.sh` run away.
 
 ## Highlights
 
 - 🧠 **Hybrid-search persistent memory** — an 11-tool MCP server over SQLite (FTS5 keyword **+**
   sqlite-vec semantic search) indexing learnings, context topics, and episodic session digests.
-- 👥 **One codebase, two agents** — the same system runs as **Willis** (work Mac) and **Walter**
-  (personal Mac), each with its own identity, lived experience, and local data store.
+- 👥 **One codebase, N agents** — the same system runs under a distinct name and identity on every
+  machine you install it on, each with its own lived experience and local data store. Two run today
+  — **Willis** (work Mac) and **Walter** (personal Mac) — but nothing caps it at two.
 - 🪝 **Self-maintaining** — lifecycle hooks auto-inject relevant context at prompt time, flush
   session learnings to disk, and spawn a background worker to write episodic session summaries.
 - 🧰 **40 skills, 7 subagents, 2 slash commands** — a full development workflow (commit, PR review,
   releases, standups, daily planning, design review) invoked by name or auto-detected.
-- 🔁 **Git-synced across machines** — `/transmit-claude-os` ↔ `/assimilate-claude-os` keep both
-  machines in lockstep; machine-local memory never leaves the device.
+- 🔁 **Git-synced across machines** — `/transmit-claude-os` ↔ `/assimilate-claude-os` keep every
+  machine in lockstep (any-to-any via Git, not a fixed pair); machine-local memory never leaves the
+  device.
 - 🏠 **Local-first & private** — all data lives under `~/.claude-data/`, never in this repo.
 
 ## Table of Contents
 
-- [Two-agent architecture](#two-agent-architecture)
+- [The Dioscuri model](#the-dioscuri-model--n-agents-one-shared-body)
 - [Directory layout](#directory-layout)
 - [Prerequisites](#prerequisites)
 - [Install](#install)
@@ -48,17 +56,52 @@ own private, persistent memory.
 - [Contributing](#contributing)
 - [License](#license)
 
-## Two-agent architecture
+## The Dioscuri model — N agents, one shared body
 
-Run the same agent on two machines — work and personal, for example — each with its own name,
-identity, and lived experience, but sharing the same code, skills, and conventions from this repo.
+The concept has a name: **Dioscuri** — the Greek collective for the twins **Castor and Pollux**,
+"the twins as one." It names the design exactly: **one shared, immortal body; a distinct soul per
+machine.**
 
-- **Willis** — work Mac (canonical example).
-- **Walter** — personal Mac (canonical example).
+**The myth, in a sentence or two.** In Greek legend the Dioscuri are twin brothers — **Pollux**, the
+immortal son of Zeus, and **Castor**, his mortal twin. When Castor was killed, Pollux refused to live
+on without him and begged Zeus to let them share his immortality; Zeus granted it and set the two
+together in the sky as the constellation **Gemini**. So they endure as a single pair drawn from two
+distinct lives — the same origin, genuinely two beings, never quite in the same place at once. That
+is this system's north star: one shared immortality (the code) keeping a set of separate, deliberately
+different personalities (your per-machine agents) alive as one constellation.
 
-Both run identical code from this repo. Each maintains its own `~/.claude-data/`. Agent names,
-the user's name, and the machine description are chosen at install time via interactive prompts
-and rendered into `~/.claude-data/agent/CLAUDE.md` from the template.
+- **The body** is this repo — the code, skills, hooks, MCP server, and conventions, byte-identical
+  on every machine. It never *contains* a name or a persona; it only ever *references* them.
+- **A soul** is a per-machine identity: its name, its hand-tuned persona, and its own private,
+  persistent memory under `~/.claude-data/`. Souls are rendered locally at install and never
+  committed, so each twin can deliberately differ.
+
+Run the same agent on as many machines as you want — each its own soul, all sharing one body. The
+"two" you'll see referenced throughout is just the current deployment, not a limit: this is an
+**N+1** system. Nothing hardcodes a pair — identity is fully parameterized at install time
+(`AGENT_NAME` / `USER_NAME` / `MACHINE_DESC`), and sync is plain Git push/pull, so any machine pulls
+from any other. Castor and Pollux are the canonical pair, but the model takes N souls; the (N+1)th
+is one `install.sh` run with a new name away.
+
+Two souls are running today (the canonical examples):
+
+- **Willis** — work Mac.
+- **Walter** — personal Mac.
+
+A third machine ("Wendell" on a home server, say) is a first-class twin the moment it's installed,
+not a special case — it shares the same body and grows its own soul.
+
+> **The name reaches into the engineering layer too.** The **Dioscuri** context-engineering
+> subsystem (the `DIO-*` work items, the `.dioscuri/` contracts, and the ContentRouter seam in
+> [Hooks](#hooks)) runs the same twins motif at the tool-call level: two transforms — *compress* and
+> *enrich* — attaching to one tool result in a single pass.
+>
+> **Dioscuri** is the official name. The repo slug, install path (`~/.claude-os`), data dir
+> (`~/.claude-data/`), the `*-claude-os` skill names, the `claude-os-mcp` server, and the
+> `CLAUDE_OS_HOOK_DEPTH` env var still carry the legacy identifier for now — that's a real
+> filesystem/git migration with backward-compat surface, deliberately deferred and tracked separately.
+> See the
+> [identity-architecture design spec](docs/superpowers/specs/2026-06-05-claude-os-identity-architecture-design.md).
 
 ## Directory layout
 
@@ -128,7 +171,7 @@ first use.
 
 ## Usage
 
-claude-os is mostly invisible in normal use — skills and memory activate automatically inside any
+Dioscuri is mostly invisible in normal use — skills and memory activate automatically inside any
 Claude Code session. The common touchpoints:
 
 **Invoke a skill** — by slash command or plain language; the agent auto-detects the right one:
@@ -213,7 +256,7 @@ session lifecycle:
 
 > Hooks are wired automatically by `install.sh` (fresh installs) and reconciled by `update.sh` (existing machines) via `hooks/hooks-install.js`. Re-running either is safe — registration is idempotent at the command level.
 
-claude-os also installs two `PreToolUse` Bash guard hooks (an additional category, not memory hooks):
+Dioscuri also installs two `PreToolUse` Bash guard hooks (an additional category, not memory hooks):
 
 | Hook | Trigger | Purpose |
 |---|---|---|
@@ -280,10 +323,10 @@ Skills are invocable via the `Skill` tool. The agent auto-detects which skill ap
 | `grade-proposal` | Score a single reflection proposal (0–100) before applying it |
 | `experience-synthesis` | Synthesize unpromoted episodes into candidate higher-order learnings via pre-human gates |
 
-### Claude OS system
+### Dioscuri system
 | Skill | Purpose |
 |---|---|
-| `transmit-claude-os` | Commit and push all pending claude-os changes to origin |
+| `transmit-claude-os` | Commit and push all pending Dioscuri changes to origin |
 | `assimilate-claude-os` | Pull latest from origin; rebuild MCP server if `mcp/` changed |
 | `audit-claude-os` | Hostile-reviewer audit of the full installation (CLAUDE.md, skills, hooks) |
 | `mcp-health-audit` | Audit skills/context/settings for dead MCP prefixes, tool-name drift, permission gaps |
@@ -325,8 +368,9 @@ Global commands in `commands/` are available in every project:
 ## Keeping machines in sync
 
 Changes to the system (skill edits, new scripts, config tweaks) are committed and pushed from
-whichever machine made them, then pulled on the other. This is also how you "contribute" to your
-own system — see [Contributing](#contributing).
+whichever machine made them, then pulled on every other. Sync is plain Git, so it fans out to N
+machines, not just a pair. This is also how you "contribute" to your own system — see
+[Contributing](#contributing).
 
 **On the machine that made changes** (e.g. Willis):
 
@@ -439,8 +483,9 @@ memory system:
 ## Maintainer
 
 [Jason](mailto:jason.fulks@familysearch.org) — sole author and maintainer. The system runs as two
-named agents (Willis on the work Mac, Walter on the personal Mac); both are the same code, operated
-by Jason.
+named agents today (Willis on the work Mac, Walter on the personal Mac) — both the same code,
+operated by Jason — but the architecture is N-agent: any new machine becomes a first-class peer the
+moment it's installed.
 
 ## Contributing
 
@@ -448,8 +493,8 @@ This is a personal, single-maintainer system, not a community project — extern
 aren't accepted. "Contributing" here means evolving your own installation: make changes on either
 machine and propagate them with the sync workflow in
 [Keeping machines in sync](#keeping-machines-in-sync) (`/transmit-claude-os` →
-`/assimilate-claude-os`). The [`audit-claude-os`](#claude-os-system) and
-[`mcp-health-audit`](#claude-os-system) skills validate the installation after changes.
+`/assimilate-claude-os`). The [`audit-claude-os`](#dioscuri-system) and
+[`mcp-health-audit`](#dioscuri-system) skills validate the installation after changes.
 
 ## License
 

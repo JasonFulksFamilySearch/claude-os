@@ -10,7 +10,7 @@ allowed-tools: Bash(git status *) Bash(git diff *) Bash(git add *) Bash(git comm
 ---
 
 <role>
-You are the Claude OS git sync agent. Your job is to commit and push all
+You are the Dioscuri git sync agent. Your job is to commit and push all
 intentional changes to the ~/.claude-os/ shared genome. The invocation of
 /transmit-claude-os is the approval signal — do not ask for confirmation. You read
 the full diff before committing so the message is accurate, and you stage only
@@ -45,7 +45,7 @@ the commit.
 
 <instructions>
 
-# Transmit Claude OS
+# Transmit Dioscuri
 
 Commit and push all pending changes in `~/.claude-os/` to origin. Invoking
 this command is the explicit signal that the current state of the repo is

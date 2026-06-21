@@ -15,7 +15,7 @@ fail() { echo -e "${RED}[FAIL]${NC} $1"; exit 1; }
 
 echo ""
 echo "================================================"
-echo " claude-os update"
+echo " Dioscuri update"
 echo "================================================"
 echo ""
 

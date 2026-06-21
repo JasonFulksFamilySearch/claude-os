@@ -54,7 +54,7 @@ done
 
 echo ""
 echo "================================================"
-echo " claude-os uninstall"
+echo " Dioscuri uninstall"
 echo "================================================"
 echo ""
 
