@@ -1,10 +1,13 @@
 name: CI
 
-# Two test surfaces gate this repo, each scoped to its own paths so an edit to one
-# doesn't spin up the other's job (or a Node job for skills/agents/docs):
+# Two test surfaces gate this repo, both behind one path filter so neither spins up
+# on a pure skills/agents/docs edit:
 #   - mcp/    — the compiled TypeScript MCP server: npm ci -> tsc build -> vitest.
 #   - hooks/  — zero-dependency CommonJS hook scripts with a node:test suite (no
 #               package.json, no install): node --test over the test glob.
+# The filter is workflow-level, so a change under either path runs BOTH jobs. The
+# off-target job is cheap and passes untouched (its sources didn't change), so the
+# wasted run isn't worth per-job path guards (paths-filter actions / separate files).
 
 on:
   pull_request:
