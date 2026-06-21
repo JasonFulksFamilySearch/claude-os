@@ -5,31 +5,34 @@
 ![platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg)
 ![status: phases 1–4 live](https://img.shields.io/badge/status-phases%201--4%20live-blue.svg)
 
-Portable agent-identity system for Claude Code: one codebase, two machines, full persistent memory.
+Portable agent-identity system for Claude Code: one codebase, N machines, full persistent memory.
 
 This repo is the *system* — skills, hooks, agents, an MCP server, templates, and conventions. It
 contains **no** memories, project context, or machine-specific data; that lives in `~/.claude-data/`
-on each machine and is never committed. Install it on two computers and you get the same agent —
-same skills, same conventions — running under a different name and identity on each, each with its
-own private, persistent memory.
+on each machine and is never committed. Install it on as many computers as you like and you get the
+same agent — same skills, same conventions — running under a different name and identity on each,
+each with its own private, persistent memory. Two machines run it today (Willis and Walter); the
+design has no "2" hardcoded anywhere — the (N+1)th agent is one `install.sh` run away.
 
 ## Highlights
 
 - 🧠 **Hybrid-search persistent memory** — an 11-tool MCP server over SQLite (FTS5 keyword **+**
   sqlite-vec semantic search) indexing learnings, context topics, and episodic session digests.
-- 👥 **One codebase, two agents** — the same system runs as **Willis** (work Mac) and **Walter**
-  (personal Mac), each with its own identity, lived experience, and local data store.
+- 👥 **One codebase, N agents** — the same system runs under a distinct name and identity on every
+  machine you install it on, each with its own lived experience and local data store. Two run today
+  — **Willis** (work Mac) and **Walter** (personal Mac) — but nothing caps it at two.
 - 🪝 **Self-maintaining** — lifecycle hooks auto-inject relevant context at prompt time, flush
   session learnings to disk, and spawn a background worker to write episodic session summaries.
 - 🧰 **40 skills, 7 subagents, 2 slash commands** — a full development workflow (commit, PR review,
   releases, standups, daily planning, design review) invoked by name or auto-detected.
-- 🔁 **Git-synced across machines** — `/transmit-claude-os` ↔ `/assimilate-claude-os` keep both
-  machines in lockstep; machine-local memory never leaves the device.
+- 🔁 **Git-synced across machines** — `/transmit-claude-os` ↔ `/assimilate-claude-os` keep every
+  machine in lockstep (any-to-any via Git, not a fixed pair); machine-local memory never leaves the
+  device.
 - 🏠 **Local-first & private** — all data lives under `~/.claude-data/`, never in this repo.
 
 ## Table of Contents
 
-- [Two-agent architecture](#two-agent-architecture)
+- [N-agent architecture](#n-agent-architecture)
 - [Directory layout](#directory-layout)
 - [Prerequisites](#prerequisites)
 - [Install](#install)
@@ -48,17 +51,24 @@ own private, persistent memory.
 - [Contributing](#contributing)
 - [License](#license)
 
-## Two-agent architecture
+## N-agent architecture
 
-Run the same agent on two machines — work and personal, for example — each with its own name,
-identity, and lived experience, but sharing the same code, skills, and conventions from this repo.
+Run the same agent on as many machines as you want — each with its own name, identity, and lived
+experience, but sharing the same code, skills, and conventions from this repo. The "two" you'll see
+referenced throughout is just the current deployment, not a limit: this is an **N+1** system. There
+is no hardcoded pair anywhere in the codebase — identity is fully parameterized at install time
+(`AGENT_NAME` / `USER_NAME` / `MACHINE_DESC`), and sync is plain Git push/pull, so any machine pulls
+from any other. Adding the (N+1)th agent is one `install.sh` run with a new name.
 
-- **Willis** — work Mac (canonical example).
-- **Walter** — personal Mac (canonical example).
+Two are running today (the canonical examples):
 
-Both run identical code from this repo. Each maintains its own `~/.claude-data/`. Agent names,
-the user's name, and the machine description are chosen at install time via interactive prompts
-and rendered into `~/.claude-data/agent/CLAUDE.md` from the template.
+- **Willis** — work Mac.
+- **Walter** — personal Mac.
+
+Every instance runs identical code from this repo and maintains its own `~/.claude-data/`. The agent
+name, the user's name, and the machine description are chosen at install time via interactive prompts
+and rendered into `~/.claude-data/agent/CLAUDE.md` from the template — so a third machine ("Wendell"
+on a home server, say) is a first-class peer the moment it's installed, not a special case.
 
 ## Directory layout
 
@@ -325,8 +335,9 @@ Global commands in `commands/` are available in every project:
 ## Keeping machines in sync
 
 Changes to the system (skill edits, new scripts, config tweaks) are committed and pushed from
-whichever machine made them, then pulled on the other. This is also how you "contribute" to your
-own system — see [Contributing](#contributing).
+whichever machine made them, then pulled on every other. Sync is plain Git, so it fans out to N
+machines, not just a pair. This is also how you "contribute" to your own system — see
+[Contributing](#contributing).
 
 **On the machine that made changes** (e.g. Willis):
 
@@ -439,8 +450,9 @@ memory system:
 ## Maintainer
 
 [Jason](mailto:jason.fulks@familysearch.org) — sole author and maintainer. The system runs as two
-named agents (Willis on the work Mac, Walter on the personal Mac); both are the same code, operated
-by Jason.
+named agents today (Willis on the work Mac, Walter on the personal Mac) — both the same code,
+operated by Jason — but the architecture is N-agent: any new machine becomes a first-class peer the
+moment it's installed.
 
 ## Contributing
 
