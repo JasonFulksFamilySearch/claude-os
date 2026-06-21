@@ -34,6 +34,60 @@ Sprint Staleness items:
 { "key": "ARC-123", "summary": "...", "status": "In Progress", "days_stale": 4 }
 ```
 
+## Going live (first install)
+
+The jobs are **inert until provisioned** — writing `scheduled-jobs.json` and merging the code does not schedule anything. To bring the three LaunchAgents up on a Mac:
+
+1. **Get the code onto the machine.** Merge the PR, then on the Mac:
+   ```bash
+   cd ~/.claude-os && git pull
+   ```
+
+2. **Run the provisioner.** `update.sh` Step 9.5 renders + loads all three agents idempotently:
+   ```bash
+   cd ~/.claude-os && ./update.sh
+   ```
+   Or run just the generator (same effect, no other update steps):
+   ```bash
+   cd ~/.claude-os && node bin/digest-launchd-install.js
+   ```
+   Expect `[OK]` / `[SKIP]` lines per job. A `[!!]` warning means the real `claude` binary
+   could not be resolved (nothing was written — fail-safe) or `scheduled-jobs.json`/a cron is
+   malformed; fix and re-run.
+
+3. **Verify each agent loaded** (replace `<skill>` with each of `background-pr-digest`,
+   `background-sprint-digest`, `background-merge-progression`):
+   ```bash
+   launchctl print "gui/$(id -u)/com.claude-os.digest.<skill>" | head -20
+   ls -la ~/Library/LaunchAgents/com.claude-os.digest.*.plist
+   ```
+   A loaded job prints its `state`, `program`, and `StartCalendarInterval`. Confirm
+   `RunAtLoad = false` — provisioning must not have fired a digest (critical: merge-progression
+   transitions real Jira tickets).
+
+4. **Force a test fire** of a read-only job first (pr-digest is safest — never writes):
+   ```bash
+   launchctl kickstart "gui/$(id -u)/com.claude-os.digest.background-pr-digest"
+   ```
+   Then confirm a result landed: a new line in `~/.claude-data/digest-queue.jsonl`, and an
+   empty/clean `~/.claude-data/.logs/background-pr-digest.err`. The digest surfaces in your
+   next interactive session via `session-start-check.js`.
+
+5. **(Optional but recommended for the WRITE job) confirm the permission scope holds under
+   no-TTY** before trusting merge-progression unattended. The job's safety rests on
+   `--permission-mode default` *denying* any tool outside the skill's `allowed-tools` set.
+   Prove it with a controlled contrast — and use a command that is **not** pre-allowed in your
+   `settings.json` (a pre-allowed command like `node` runs under both modes and proves nothing):
+   ```bash
+   # Should be DENIED (lands in permission_denials, no prompt, completes):
+   claude -p "run: sw_vers -productName" --permission-mode default --allowedTools "Bash(echo *)" --output-format json
+   # Should RUN (proves bypass ignores the allowlist — i.e. why we use default, not bypass):
+   claude -p "run: sw_vers -productName" --permission-mode bypassPermissions --allowedTools "Bash(echo *)" --output-format json
+   ```
+
+To unschedule a job: `launchctl bootout "gui/$(id -u)/com.claude-os.digest.<skill>"` and delete
+its plist from `~/Library/LaunchAgents/`.
+
 ## Manual operations
 
 ```bash
