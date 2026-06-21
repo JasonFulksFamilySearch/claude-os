@@ -65,12 +65,14 @@ then cite the rung by its canonical number:
 ## Instructions
 
 **Step 1 — Capture the diff.**
-- If a base-ref argument was given, diff against it: `git diff <base-ref>...HEAD`.
-- Otherwise review the working diff: `git diff HEAD` (staged + unstaged combined). If that is empty,
-  fall back to `git diff` then `git diff --staged`. If all are empty, report "No diff to review" and stop.
-- Note the changed files — `git diff --name-only <base-ref>...HEAD` in base-ref mode, or `git diff --name-only HEAD`
-  in working-tree mode (matching whichever diff you captured above) — so you can read surrounding context where a
-  span's intent isn't clear from the hunk alone.
+- If a base-ref argument was given (the common case when invoked from make-it-so), diff against it:
+  `git diff <base-ref>...HEAD`. This reviews the committed branch work and is unaffected by working-tree state.
+- Otherwise review the working diff. `git diff HEAD` alone is not reliable here — it omits new untracked files
+  and, after a tree reset, can misrepresent staged-only changes — so capture the union: run BOTH `git diff` (unstaged)
+  and `git diff --staged` (staged), and review their combined hunks. If both are empty, report "No diff to review" and stop.
+- Note the changed files with the matching invocation — `git diff --name-only <base-ref>...HEAD` in base-ref mode, or the
+  union `git diff --name-only` + `git diff --name-only --staged` in working-tree mode — so you can read surrounding
+  context where a span's intent isn't clear from the hunk alone.
 
 **Step 2 — Read for intent, not just lines.**
 For each added/changed span that looks like a candidate, Read enough surrounding code to answer:
