@@ -59,6 +59,14 @@ The concept has a name: **Dioscuri** — the Greek collective for the twins **Ca
 "the twins as one." It names the design exactly: **one shared, immortal body; a distinct soul per
 machine.**
 
+**The myth, in a sentence or two.** In Greek legend the Dioscuri are twin brothers — **Pollux**, the
+immortal son of Zeus, and **Castor**, his mortal twin. When Castor was killed, Pollux refused to live
+on without him and begged Zeus to let them share his immortality; Zeus granted it and set the two
+together in the sky as the constellation **Gemini**. So they endure as a single pair drawn from two
+distinct lives — the same origin, genuinely two beings, never quite in the same place at once. That
+is this system's north star: one shared immortality (the code) keeping a set of separate, deliberately
+different personalities (your per-machine agents) alive as one constellation.
+
 - **The body** is this repo — the code, skills, hooks, MCP server, and conventions, byte-identical
   on every machine. It never *contains* a name or a persona; it only ever *references* them.
 - **A soul** is a per-machine identity: its name, its hand-tuned persona, and its own private,
