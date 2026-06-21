@@ -511,6 +511,37 @@ fi
 
 echo ""
 
+# ── Step 9.5: Digest launchd jobs ────────────────────────────────────────────
+# The background-*-digest skills (pr-digest, sprint-digest, merge-progression) must run
+# headless on their cron schedule whether or not a Claude session is open. The generator
+# reads config/scheduled-jobs.json, translates each cron → StartCalendarInterval, renders
+# config/launchd/com.claude-os.digest.plist.template per job into ~/Library/LaunchAgents/,
+# and (re)loads each via launchctl — idempotently (no double-load on a clean re-run).
+# Replaces the old session-only `/schedule` CronCreate path that died on session exit.
+
+echo "--- Step 9.5: Digest launchd jobs ---"
+
+DIGEST_INSTALLER="$REPO_DIR/bin/digest-launchd-install.js"
+# Same nvm/fnm caveat as the sampler: ask node for its own absolute path.
+DIGEST_NODE="$(node -e 'process.stdout.write(process.execPath)' 2>/dev/null || true)"
+
+if [ ! -f "$DIGEST_INSTALLER" ]; then
+    skip "No digest launchd installer — skipping"
+elif [ -z "$DIGEST_NODE" ] || [ ! -x "$DIGEST_NODE" ]; then
+    warn "Could not resolve an absolute node path — skipping digest launchd install"
+else
+    # The installer self-reports per-job [OK]/[SKIP]/[!!] lines and fails safe (writes
+    # nothing) if it cannot resolve the real `claude` binary. A non-zero exit means a
+    # config/cron error, which we surface as a warning rather than aborting the whole update.
+    if "$DIGEST_NODE" "$DIGEST_INSTALLER"; then
+        ok "Digest launchd jobs reconciled"
+    else
+        warn "Digest launchd install reported a config error — fix config/scheduled-jobs.json, then re-run update.sh"
+    fi
+fi
+
+echo ""
+
 # ── Step 10: Resource-sample rotation ────────────────────────────────────────
 
 echo "--- Step 10: Resource-sample rotation ---"

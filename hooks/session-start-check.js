@@ -206,8 +206,16 @@ function main() {
   const { cwd } = parseStdinInput(input);
   const parts = [];
 
-  const jobsContext = buildJobsContext();
-  if (jobsContext) parts.push(jobsContext);
+  // The background digests are now provisioned as TRUE launchd LaunchAgents (see
+  // bin/digest-launchd-install.js + update.sh Step 9.5), so they fire headless on their
+  // cron schedule whether or not a session is open. Injecting the old `[Background jobs
+  // — register each session]` block here would tell the agent to ALSO `/schedule` them
+  // in-session (CronCreate), double-scheduling each job — duplicate digest-queue entries
+  // and, worse, double Jira transitions from merge-progression. So the injection is
+  // intentionally suppressed. buildJobsContext is retained (with its unit tests) because the
+  // routing of scheduled-jobs.json is owned by the broader scheduler work (#53); this
+  // change only stops the conflicting session-time path. jobs.json remains the single
+  // source of truth — launchd reads it via the generator.
 
   const digestEntries = deliverAndClearQueue();
   const digestContext = digestEntries ? buildDigestContext(digestEntries) : null;
