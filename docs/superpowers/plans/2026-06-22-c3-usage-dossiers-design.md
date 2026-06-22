@@ -80,10 +80,14 @@
   ```ts
   export const getUsageDossierDefinition; // name: "get_usage_dossier", read-only
   export function getUsageDossier(db, rawArgs): UsageDossier[];
-  // args (all optional filters), snake_case to match every existing MCP tool input
-  // (cf. search_memory's source_filter/project_filter, scan_experience's max_episodes —
-  //  do NOT use camelCase, it would make the public tool API inconsistent):
-  //   { source_type?, project?, path_prefix?, limit? }
+  // args (all optional filters) — REUSE the EXACT established input names from
+  // search_memory's zod schema (search_memory.ts:8-13), not new ones: `source_filter`
+  // (string[], filters the source_type column — search_memory.ts:11/:104) and
+  // `project_filter` (string — :12). Do NOT invent `source_type`/`project`: `source_type`
+  // is the DB COLUMN name, `source_filter` is the public INPUT name, and consumers/wiring
+  // expect the input name. `path_prefix` is C3-specific (no existing analog); `limit`
+  // matches search_memory's `limit`:
+  //   { source_filter?: string[], project_filter?: string, path_prefix?: string, limit?: number }
   // each result row (the JSON the tool returns) — field naming follows the existing
   // tool-result convention; keep it consistent with neighbouring tools:
   //   { source_path, anchor, title, access_count, distinct_queries,
@@ -114,7 +118,7 @@
   `access_queries` (also LEFT JOIN; 0 for never-recalled rows); `decay_score` +
   `days_since_last_access` computed in TS off `effectiveLast = last_accessed ?? indexed_at`.
 
-- [ ] **Step 1: Write the failing tests** — (a) on a fixture corpus (seed observations + access_stats + access_queries), the dossier returns correct `access_count`, `distinct_queries` (the COUNT(DISTINCT) math), `days_since_last_access`, and `decay_score` — assert the decay against the exact `Math.exp(-ageDays / HALF_LIFE_DAYS)` value on a known last-accessed time (e.g. at 30 days ≈ 0.368, NOT 0.5). (b) badge true iff `access_count`≥3 AND `distinct_queries`≥3; false otherwise (test the boundary: 3/2 → false, 3/3 → true). (c) filters (`source_type` / `path_prefix`) narrow the result set. (d) **read-only contract** — call the tool, assert it performed NO writes (e.g. wrap db in a proxy that throws on `.run` of INSERT/UPDATE/DELETE, or snapshot row counts before/after). (e) **cold-start parity** — seed an observation with NO `access_stats` row and NO `access_queries` rows (never recalled), with a known `indexed_at`. Assert `access_count===0`, `distinct_queries===0`, and that `decay_score`/`days_since_last_access` are computed off `indexed_at` (the `effectiveLast` fallback) — NOT NaN/NULL — matching exactly what `reinforcementBonus(null, 0, indexedAt, now)` would produce for the recency term. This pins the divergence-from-reinforcement that a `last_accessed`-only implementation would introduce.
+- [ ] **Step 1: Write the failing tests** — (a) on a fixture corpus (seed observations + access_stats + access_queries), the dossier returns correct `access_count`, `distinct_queries` (the COUNT(DISTINCT) math), `days_since_last_access`, and `decay_score` — assert the decay against the exact `Math.exp(-ageDays / HALF_LIFE_DAYS)` value on a known last-accessed time (e.g. at 30 days ≈ 0.368, NOT 0.5). (b) badge true iff `access_count`≥3 AND `distinct_queries`≥3; false otherwise (test the boundary: 3/2 → false, 3/3 → true). (c) filters (`source_filter` / `path_prefix`) narrow the result set. (d) **read-only contract** — call the tool, assert it performed NO writes (e.g. wrap db in a proxy that throws on `.run` of INSERT/UPDATE/DELETE, or snapshot row counts before/after). (e) **cold-start parity** — seed an observation with NO `access_stats` row and NO `access_queries` rows (never recalled), with a known `indexed_at`. Assert `access_count===0`, `distinct_queries===0`, and that `decay_score`/`days_since_last_access` are computed off `indexed_at` (the `effectiveLast` fallback) — NOT NaN/NULL — matching exactly what `reinforcementBonus(null, 0, indexedAt, now)` would produce for the recency term. This pins the divergence-from-reinforcement that a `last_accessed`-only implementation would introduce.
 - [ ] **Step 2: Run to verify they fail** — `npx vitest run test/tools.test.ts -t "get_usage_dossier"` → FAIL (tool not defined).
 - [ ] **Step 3: Implement** — write `get_usage_dossier.ts` mirroring `resolve_novelty_flag.ts`'s structure; the SELECT **LEFT JOINs** observations → access_stats and selects `observations.indexed_at` (needed for the cold-start fallback), plus a `COUNT(DISTINCT query_hash)` subquery on access_queries (also LEFT, 0 for never-recalled rows). Compute `decay_score` + `days_since_last_access` + badge in TS off `effectiveLast = last_accessed ?? indexed_at`. For decay, **import `HALF_LIFE_DAYS` from `search_config.ts`** and compute `Math.exp(-ageDays / HALF_LIFE_DAYS)` where `ageDays = max(0, (now - effectiveLast) / 86400)` — the identical formula AND cold-start fallback as `ranking.ts:48-50` — so the dossier and the re-ranker never diverge, including for never-accessed rows. Do not re-derive a constant, use a true-half-life formula, or key age off `last_accessed` alone.
 - [ ] **Step 4: Run to verify they pass** — same command → PASS.
@@ -125,13 +129,13 @@
 ### Task 4: Register the tool in the MCP server
 
 **Files:**
-- Modify: `mcp/src/index.ts` (3 steps: import, list, switch case — mirror `resolve_novelty_flag` at `:41-45`, `:201`, `:228-229`)
+- Modify: `mcp/src/index.ts` — 3 edits, mirroring the **`resolve_novelty_flag`** wiring (find it in each location rather than by line number; `index.ts` evolves, so describe the sites structurally): (1) the tool-imports block near the top, (2) the `tools: [...]` array in the `ListToolsRequestSchema` handler, (3) the `switch (name)` in the `CallToolRequestSchema` handler.
 
 **Interfaces:** Consumes Task 3's `getUsageDossier` + `getUsageDossierDefinition`.
 
 - [ ] **Step 1: Verification target** — like the index.ts wiring in #34, there is no isolated `main()` test; the verifying evidence is `npm run build` (tsc) + the tool appearing in the ListTools response + the green suite. Disclose this (no faked test).
 - [ ] **Step 2: Baseline** — `npm run build` clean before the change.
-- [ ] **Step 3: Implement** — (1) import `getUsageDossier, getUsageDossierDefinition` (`index.ts:~45`); (2) add `getUsageDossierDefinition` to the `tools:[]` array (`index.ts:~206`); (3) add `case "get_usage_dossier": return jsonResult(getUsageDossier(db, args ?? {}));` to the switch (`index.ts:~234`).
+- [ ] **Step 3: Implement** — three edits in `index.ts`, each placed alongside the existing `resolve_novelty_flag` wiring (locate by symbol, not line number, since the file shifts as features land): (1) in the **tool-imports block**, add `import { getUsageDossier, getUsageDossierDefinition } from "./tools/get_usage_dossier.js";`; (2) in the **`ListToolsRequestSchema` handler's `tools: [...]` array**, add `getUsageDossierDefinition`; (3) in the **`CallToolRequestSchema` handler's `switch (name)`**, add `case "get_usage_dossier": return jsonResult(getUsageDossier(db, args ?? {}));`.
 - [ ] **Step 4: Verify** — `npm run build && npm test` → build clean, suite green (+ the new db/tool tests).
 - [ ] **Step 5: Commit** — `Feat: register get_usage_dossier in the MCP server (C3)`.
 
