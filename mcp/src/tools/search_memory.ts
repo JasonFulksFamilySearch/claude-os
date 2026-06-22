@@ -237,6 +237,8 @@ export async function searchMemory(
          last_accessed = excluded.last_accessed,
          access_count = access_count + 1`,
     );
+    // Per-query access telemetry (C3): one (observation_id, query_hash) pair per returned
+    // row, riding the SAME best-effort transaction so it can never fail the read.
     const upsertQuery = db.prepare(
       `INSERT INTO access_queries(observation_id, query_hash, access_count, first_seen, last_seen)
        VALUES (?, ?, 1, ?, ?)
