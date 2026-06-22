@@ -7,6 +7,7 @@ import {
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import type { FSWatcher } from "chokidar";
 
 import { openDb } from "./db.js";
 import {
@@ -16,6 +17,12 @@ import {
   type IndexerConfig,
   type WatchedProject,
 } from "./indexer.js";
+import {
+  elect,
+  defaultLockPath,
+  HEARTBEAT_REFRESH_MS,
+  type ElectionHandle,
+} from "./election.js";
 import { log } from "./logger.js";
 
 import { searchMemory, searchMemoryDefinition } from "./tools/search_memory.js";
@@ -93,10 +100,16 @@ async function main(): Promise<void> {
   const db = openDb();
   const config = buildConfig();
 
+  // Index-maintenance state. These are forward-declared so the shutdown closure
+  // can reference them; Task 6 assigns them inside the holder branch. A
+  // non-holder leaves watcher/election undefined — shutdown handles that.
+  let watcher: FSWatcher | undefined;
+  let election: ElectionHandle | undefined;
+
   const startupSummary = await fullReindex(db, config);
   log("info", "startup reindex complete", { ...startupSummary });
 
-  const watcher = watchAll(db, config);
+  watcher = watchAll(db, config);
   log("info", "file watcher started", {
     watched: config.watchedProjects.length,
   });
@@ -172,7 +185,10 @@ async function main(): Promise<void> {
 
   const shutdown = (signal: string) => {
     log("info", "shutting down", { signal });
-    void watcher.close().finally(() => {
+    // Null-safe: a non-holder never started a watcher. Release the lock if held
+    // (no-op when undefined or not the holder), then close the db.
+    void (watcher?.close() ?? Promise.resolve()).finally(() => {
+      election?.release();
       try {
         db.close();
       } catch {
