@@ -27,7 +27,9 @@ import { scanNovelty } from "../src/tools/scan_novelty.js";
 import { resolveNoveltyFlag } from "../src/tools/resolve_novelty_flag.js";
 import { scanExperience } from "../src/tools/scan_experience.js";
 import { validateExperienceProposal } from "../src/tools/validate_experience_proposal.js";
+import { getUsageDossier } from "../src/tools/get_usage_dossier.js";
 import { embedDocument, serializeVector } from "../src/embedder.js";
+import { HALF_LIFE_DAYS } from "../src/search_config.js";
 
 let workDir: string;
 let dataRoot: string;
@@ -1422,5 +1424,207 @@ describe("validate_experience_proposal (B1, gate 1)", () => {
     );
     expect(r.valid).toBe(false);
     expect(r.errors.join(" ")).toMatch(/category/);
+  });
+});
+
+describe("get_usage_dossier (C3)", () => {
+  // Frozen instant: 2023-11-14T22:13:20Z (Unix seconds = 1_700_000_000)
+  const FROZEN_NOW_SEC = 1_700_000_000;
+  const FROZEN_MS = FROZEN_NOW_SEC * 1000;
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // Helper: seed an observation row and return its id.
+  function seedObservation(opts: {
+    source_type?: string;
+    source_path: string;
+    anchor?: string;
+    project?: string;
+    title?: string;
+    indexed_at: number;
+  }): number {
+    const r = db
+      .prepare(
+        `INSERT INTO observations
+           (source_type, source_path, anchor, project, topic, title, content, content_hash, file_mtime, indexed_at)
+         VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        opts.source_type ?? "learning",
+        opts.source_path,
+        opts.anchor ?? "",
+        opts.project ?? null,
+        opts.title ?? "Test Entry",
+        `content for ${opts.source_path}`,
+        `hash-${opts.source_path}`,
+        opts.indexed_at,
+        opts.indexed_at,
+      );
+    return Number(r.lastInsertRowid);
+  }
+
+  // Helper: seed access_stats for an observation.
+  function seedAccessStats(obsId: number, accessCount: number, lastAccessed: number): void {
+    db.prepare(
+      `INSERT OR REPLACE INTO access_stats (observation_id, access_count, last_accessed) VALUES (?, ?, ?)`,
+    ).run(obsId, accessCount, lastAccessed);
+  }
+
+  // Helper: seed a single access_queries row.
+  function seedAccessQuery(obsId: number, queryHash: string, accessCount = 1): void {
+    db.prepare(
+      `INSERT OR REPLACE INTO access_queries
+         (observation_id, query_hash, access_count, first_seen, last_seen)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(obsId, queryHash, accessCount, FROZEN_NOW_SEC, FROZEN_NOW_SEC);
+  }
+
+  it("(a) returns correct access_count, distinct_queries, days_since_last_access, and decay_score", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(FROZEN_MS));
+
+    // Last accessed exactly 30 days before frozen now.
+    const THIRTY_DAYS_SEC = 30 * 86400;
+    const lastAccessed = FROZEN_NOW_SEC - THIRTY_DAYS_SEC;
+    const indexedAt = FROZEN_NOW_SEC - 60 * 86400; // irrelevant — last_accessed takes priority
+
+    const obsId = seedObservation({ source_path: "/test/dossier-a.md", indexed_at: indexedAt });
+    seedAccessStats(obsId, 5, lastAccessed);
+    // Two distinct query hashes → distinct_queries = 2
+    seedAccessQuery(obsId, "hash-alpha", 3);
+    seedAccessQuery(obsId, "hash-beta", 2);
+
+    const results = getUsageDossier(db, {});
+    const row = results.find((r) => r.source_path === "/test/dossier-a.md");
+    expect(row).toBeDefined();
+
+    expect(row!.access_count).toBe(5);
+    expect(row!.distinct_queries).toBe(2);
+    // days_since_last_access rounded off effectiveLast = lastAccessed = 30 days ago
+    expect(row!.days_since_last_access).toBe(30);
+
+    // decay_score = exp(-30 / 30) = exp(-1) ≈ 0.3679 (NOT 0.5)
+    const expectedDecay = Math.exp(-THIRTY_DAYS_SEC / 86400 / HALF_LIFE_DAYS);
+    expect(row!.decay_score).toBeCloseTo(expectedDecay, 10);
+    expect(row!.decay_score).toBeCloseTo(0.3679, 3);
+    // Explicitly verify it is NOT 0.5 (which would indicate true half-life formula)
+    expect(Math.abs(row!.decay_score - 0.5)).toBeGreaterThan(0.1);
+  });
+
+  it("(b) badge = true iff access_count >= 3 AND distinct_queries >= 3; boundary 3/2 → false, 3/3 → true", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(FROZEN_MS));
+
+    const indexedAt = FROZEN_NOW_SEC - 10 * 86400;
+    const lastAccessed = FROZEN_NOW_SEC - 5 * 86400;
+
+    // 3 accesses, only 2 distinct queries → badge must be FALSE
+    const id32 = seedObservation({ source_path: "/test/badge-3-2.md", indexed_at: indexedAt });
+    seedAccessStats(id32, 3, lastAccessed);
+    seedAccessQuery(id32, "hash-q1");
+    seedAccessQuery(id32, "hash-q2");
+
+    // 3 accesses, 3 distinct queries → badge must be TRUE
+    const id33 = seedObservation({ source_path: "/test/badge-3-3.md", indexed_at: indexedAt });
+    seedAccessStats(id33, 3, lastAccessed);
+    seedAccessQuery(id33, "hash-q1");
+    seedAccessQuery(id33, "hash-q2");
+    seedAccessQuery(id33, "hash-q3");
+
+    const results = getUsageDossier(db, {});
+    const row32 = results.find((r) => r.source_path === "/test/badge-3-2.md");
+    const row33 = results.find((r) => r.source_path === "/test/badge-3-3.md");
+
+    expect(row32).toBeDefined();
+    expect(row33).toBeDefined();
+    expect(row32!.badge).toBe(false);
+    expect(row33!.badge).toBe(true);
+  });
+
+  it("(c) source_filter narrows results by source_type", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(FROZEN_MS));
+
+    const indexedAt = FROZEN_NOW_SEC - 5 * 86400;
+    seedObservation({ source_path: "/test/filter-ctx.md", source_type: "context", indexed_at: indexedAt });
+    seedObservation({ source_path: "/test/filter-learning.md", source_type: "learning", indexed_at: indexedAt });
+
+    const all = getUsageDossier(db, {});
+    const contextOnly = getUsageDossier(db, { source_filter: ["context"] });
+
+    expect(all.length).toBeGreaterThan(contextOnly.length);
+    expect(contextOnly.every((r) => r.source_path === "/test/filter-ctx.md" || r.source_path.includes("context"))).toBe(true);
+    // learning row must not be in contextOnly
+    expect(contextOnly.some((r) => r.source_path === "/test/filter-learning.md")).toBe(false);
+  });
+
+  it("(c) path_prefix narrows results by source_path prefix", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(FROZEN_MS));
+
+    const indexedAt = FROZEN_NOW_SEC - 5 * 86400;
+    seedObservation({ source_path: "/prefix/match-1.md", indexed_at: indexedAt });
+    seedObservation({ source_path: "/prefix/match-2.md", indexed_at: indexedAt });
+    seedObservation({ source_path: "/other/nomatch.md", indexed_at: indexedAt });
+
+    const prefixResults = getUsageDossier(db, { path_prefix: "/prefix/" });
+
+    expect(prefixResults.length).toBe(2);
+    expect(prefixResults.every((r) => r.source_path.startsWith("/prefix/"))).toBe(true);
+    expect(prefixResults.some((r) => r.source_path === "/other/nomatch.md")).toBe(false);
+  });
+
+  it("(d) read-only contract — call performs NO writes (access_stats/access_queries/observations row counts unchanged)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(FROZEN_MS));
+
+    const indexedAt = FROZEN_NOW_SEC - 7 * 86400;
+    const obsId = seedObservation({ source_path: "/test/readonly-check.md", indexed_at: indexedAt });
+    seedAccessStats(obsId, 2, FROZEN_NOW_SEC - 86400);
+    seedAccessQuery(obsId, "hash-ro");
+
+    const countRows = (table: string): number =>
+      (db.prepare(`SELECT COUNT(*) AS c FROM ${table}`).get() as { c: number }).c;
+
+    const beforeObs = countRows("observations");
+    const beforeStats = countRows("access_stats");
+    const beforeQueries = countRows("access_queries");
+
+    getUsageDossier(db, {});
+
+    expect(countRows("observations")).toBe(beforeObs);
+    expect(countRows("access_stats")).toBe(beforeStats);
+    expect(countRows("access_queries")).toBe(beforeQueries);
+  });
+
+  it("(e) cold-start parity — never-accessed row uses indexed_at for decay, not NaN/null", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(FROZEN_MS));
+
+    // Indexed 15 days before the frozen now; never accessed (no access_stats or access_queries rows).
+    const FIFTEEN_DAYS_SEC = 15 * 86400;
+    const indexedAt = FROZEN_NOW_SEC - FIFTEEN_DAYS_SEC;
+
+    seedObservation({ source_path: "/test/cold-start.md", indexed_at: indexedAt });
+
+    const results = getUsageDossier(db, { path_prefix: "/test/cold-start.md" });
+    expect(results.length).toBe(1);
+    const row = results[0];
+
+    // access_count and distinct_queries must be 0 — confirms no access_stats/access_queries rows
+    expect(row.access_count).toBe(0);
+    expect(row.distinct_queries).toBe(0);
+
+    // effectiveLast = indexed_at (since last_accessed IS NULL)
+    // ageDays = 15 days
+    // decay_score must match exp(-15/30) = exp(-0.5) — NOT NaN
+    const expectedDecay = Math.exp(-FIFTEEN_DAYS_SEC / 86400 / HALF_LIFE_DAYS);
+    expect(typeof row.decay_score).toBe("number");
+    expect(isNaN(row.decay_score)).toBe(false);
+    expect(row.decay_score).toBeCloseTo(expectedDecay, 10);
+    // days_since_last_access = days since indexed (cold-start)
+    expect(row.days_since_last_access).toBe(15);
   });
 });
