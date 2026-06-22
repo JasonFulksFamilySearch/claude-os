@@ -7,6 +7,7 @@ import {
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import type { FSWatcher } from "chokidar";
 
 import { openDb } from "./db.js";
 import {
@@ -16,6 +17,12 @@ import {
   type IndexerConfig,
   type WatchedProject,
 } from "./indexer.js";
+import {
+  elect,
+  defaultLockPath,
+  HEARTBEAT_REFRESH_MS,
+  type ElectionHandle,
+} from "./election.js";
 import { log } from "./logger.js";
 
 import { searchMemory, searchMemoryDefinition } from "./tools/search_memory.js";
@@ -93,22 +100,115 @@ async function main(): Promise<void> {
   const db = openDb();
   const config = buildConfig();
 
-  const startupSummary = await fullReindex(db, config);
-  log("info", "startup reindex complete", { ...startupSummary });
+  // Index-maintenance state. Only the elected holder runs the three maintenance
+  // ops (startup reindex, file watcher, backstop reindex); non-holders skip them
+  // and poll to take over if the holder dies. The shutdown closure reads
+  // watcher/election, so they are declared at function scope.
+  let watcher: FSWatcher | undefined;
+  let election: ElectionHandle | undefined;
+  let backstop: ReturnType<typeof setInterval> | undefined;
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  let poll: ReturnType<typeof setInterval> | undefined;
 
-  const watcher = watchAll(db, config);
-  log("info", "file watcher started", {
-    watched: config.watchedProjects.length,
-  });
+  // Tear down all maintenance timers + the watcher. Used both on losing the
+  // lock to a takeover and as a building block for the holder transition.
+  const stopMaintenance = (): void => {
+    if (backstop) { clearInterval(backstop); backstop = undefined; }
+    if (heartbeat) { clearInterval(heartbeat); heartbeat = undefined; }
+    // Catch a possible close() rejection — discarding the promise with `void` alone
+    // would surface a chokidar close() failure as an unhandled rejection.
+    void watcher?.close().catch(err => log("warn", "watcher close failed on stop", {
+      error: err instanceof Error ? err.message : String(err),
+    }));
+    watcher = undefined;
+  };
 
-  const backstop = setInterval(() => {
-    void fullReindex(db, config)
-      .then(summary => log("info", "backstop reindex complete", { ...summary }))
-      .catch(err => log("error", "backstop reindex failed", {
-        error: err instanceof Error ? err.message : String(err),
-      }));
-  }, REINDEX_INTERVAL_MS);
-  backstop.unref();
+  // Start the watcher + backstop + heartbeat. Called by the holder (initial
+  // election) and by a non-holder that later wins the lock via the poll.
+  const startMaintenance = (): void => {
+    watcher = watchAll(db, config);
+    log("info", "file watcher started", {
+      watched: config.watchedProjects.length,
+    });
+
+    backstop = setInterval(() => {
+      void fullReindex(db, config)
+        .then(summary => log("info", "backstop reindex complete", { ...summary }))
+        .catch(err => log("error", "backstop reindex failed", {
+          error: err instanceof Error ? err.message : String(err),
+        }));
+    }, REINDEX_INTERVAL_MS);
+    backstop.unref();
+
+    // Heartbeat: keep the lock warm. If refresh() self-heals isHolder to false
+    // (a takeover removed our lock dir), tear down maintenance and revert to the
+    // non-holder poll — bounding the two-holder window to <= one refresh tick.
+    // refresh() can also THROW on a non-ENOENT fs error (a transient stat/utimes
+    // failure): catch it here so it logs and falls back to polling rather than
+    // bubbling out of setInterval and crashing the process. A failed refresh means
+    // we can no longer prove we hold the lock, so the safe move is to step down and
+    // re-elect on the next poll.
+    heartbeat = setInterval(() => {
+      try {
+        election!.refresh();
+      } catch (err) {
+        log("error", "heartbeat refresh failed; stepping down to non-holder poll", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        election!.isHolder = false;
+      }
+      if (!election!.isHolder) {
+        log("warn", "lost the writer lock; reverting to non-holder poll");
+        stopMaintenance();
+        startPoll();
+      }
+    }, HEARTBEAT_REFRESH_MS);
+    heartbeat.unref();
+  };
+
+  // Non-holder poll: periodically re-elect; on winning, run the catch-up reindex
+  // (we skipped the startup one) and start maintenance.
+  // yagni: a single re-election cadence is enough; no exponential backoff until
+  // a real thundering-herd problem shows up.
+  const startPoll = (): void => {
+    poll = setInterval(() => {
+      election = elect(defaultLockPath(), Date.now());
+      if (!election.isHolder) return;
+      // Won the lock. Stop polling, then run the catch-up reindex AND AWAIT it
+      // before starting the watcher/backstop — mirroring the startup-holder flow
+      // (which awaits fullReindex before startMaintenance). Awaiting prevents the
+      // catch-up reindex from running concurrently with live maintenance against
+      // the same DB (avoidable lock contention + interleaved mutations the awaited
+      // startup path never produces).
+      if (poll) { clearInterval(poll); poll = undefined; }
+      void (async () => {
+        log("info", "won the writer lock; running catch-up reindex");
+        try {
+          const summary = await fullReindex(db, config);
+          log("info", "catch-up reindex complete", { ...summary });
+        } catch (err) {
+          log("error", "catch-up reindex failed", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        startMaintenance();
+      })();
+    }, HEARTBEAT_REFRESH_MS);
+    poll.unref();
+  };
+
+  election = elect(defaultLockPath(), Date.now());
+  if (election.isHolder) {
+    log("info", "elected as the index-maintenance holder", { pid: process.pid });
+    const startupSummary = await fullReindex(db, config);
+    log("info", "startup reindex complete", { ...startupSummary });
+    startMaintenance();
+  } else {
+    log("info", "another instance holds the writer lock; serving tools only", {
+      pid: process.pid,
+    });
+    startPoll();
+  }
 
   const server = new Server(
     { name: "claude-os-mcp", version: "0.1.0" },
@@ -172,14 +272,21 @@ async function main(): Promise<void> {
 
   const shutdown = (signal: string) => {
     log("info", "shutting down", { signal });
-    void watcher.close().finally(() => {
-      try {
-        db.close();
-      } catch {
-        /* ignore */
-      }
-      process.exit(0);
-    });
+    // Null-safe: a non-holder never started a watcher. Release the lock if held
+    // (no-op when undefined or not the holder), then close the db. The trailing
+    // .catch handles a possible watcher.close() rejection so it does not surface as
+    // an unhandled rejection during shutdown (cleanup still runs in .finally first).
+    void (watcher?.close() ?? Promise.resolve())
+      .finally(() => {
+        election?.release();
+        try {
+          db.close();
+        } catch {
+          /* ignore */
+        }
+        process.exit(0);
+      })
+      .catch(() => process.exit(0));
   };
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
