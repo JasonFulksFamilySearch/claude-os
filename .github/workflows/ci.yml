@@ -1,20 +1,26 @@
 name: CI
 
-# The MCP server (mcp/) is the only compiled, tested code in this repo — the rest
-# is markdown + shell with no build step. This gate verifies that subproject:
-# reproducible install (npm ci) -> typecheck/build (tsc) -> tests (vitest).
-# Scoped to mcp/** so edits to skills, agents, hooks, or docs don't spin up a Node job.
+# Two test surfaces gate this repo, both behind one path filter so neither spins up
+# on a pure skills/agents/docs edit:
+#   - mcp/    — the compiled TypeScript MCP server: npm ci -> tsc build -> vitest.
+#   - hooks/  — zero-dependency CommonJS hook scripts with a node:test suite (no
+#               package.json, no install): node --test over the test glob.
+# The filter is workflow-level, so a change under either path runs BOTH jobs. The
+# off-target job is cheap and passes untouched (its sources didn't change), so the
+# wasted run isn't worth per-job path guards (paths-filter actions / separate files).
 
 on:
   pull_request:
     paths:
       - "mcp/**"
+      - "hooks/**"
       - ".github/workflows/ci.yml"
   push:
     branches:
       - master
     paths:
       - "mcp/**"
+      - "hooks/**"
       - ".github/workflows/ci.yml"
 
 permissions:
@@ -50,3 +56,20 @@ jobs:
 
       - name: Test
         run: npm test
+
+  hooks:
+    name: hooks test suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same floor-pin rationale as the mcp job: node:test is stable on >=20.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # hooks/ is zero-dependency CommonJS — no package.json, so no install step.
+      # Use the test glob, not the bare directory: `node --test hooks/test/`
+      # has a directory-arg quirk that reports a spurious failure.
+      - name: Test
+        run: node --test hooks/test/*.test.js
