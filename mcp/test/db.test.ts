@@ -166,6 +166,37 @@ describe("v3 schema", () => {
   });
 });
 
+describe("access_queries", () => {
+  it("creates the access_queries table with the correct 5 columns", () => {
+    db.close();
+    db = openDb(dbPath);
+    const cols = db.prepare("PRAGMA table_info(access_queries)").all() as { name: string }[];
+    const names = cols.map((c) => c.name);
+    expect(names).toContain("observation_id");
+    expect(names).toContain("query_hash");
+    expect(names).toContain("access_count");
+    expect(names).toContain("first_seen");
+    expect(names).toContain("last_seen");
+    expect(names).toHaveLength(5);
+  });
+
+  it("cascades delete: removing an observation drops its access_queries rows", () => {
+    const id = insertObservation({ source_path: "/tmp/aq-cascade.md" });
+    db.prepare(
+      "INSERT INTO access_queries(observation_id, query_hash, access_count, first_seen, last_seen) VALUES (?, ?, ?, ?, ?)",
+    ).run(id, "sha256-abc", 1, 1000, 1001);
+    expect(
+      db.prepare("SELECT 1 FROM access_queries WHERE observation_id = ?").get(id),
+    ).toBeTruthy();
+
+    db.prepare("DELETE FROM observations WHERE id = ?").run(id);
+
+    expect(
+      db.prepare("SELECT 1 FROM access_queries WHERE observation_id = ?").get(id),
+    ).toBeUndefined();
+  });
+});
+
 describe("novelty_flags", () => {
   const insertFlag = (over: Record<string, unknown> = {}) =>
     db
