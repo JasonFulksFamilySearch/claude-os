@@ -143,10 +143,22 @@ async function main(): Promise<void> {
     // Heartbeat: keep the lock warm. If refresh() self-heals isHolder to false
     // (a takeover removed our lock dir), tear down maintenance and revert to the
     // non-holder poll — bounding the two-holder window to <= one refresh tick.
+    // refresh() can also THROW on a non-ENOENT fs error (a transient stat/utimes
+    // failure): catch it here so it logs and falls back to polling rather than
+    // bubbling out of setInterval and crashing the process. A failed refresh means
+    // we can no longer prove we hold the lock, so the safe move is to step down and
+    // re-elect on the next poll.
     heartbeat = setInterval(() => {
-      election!.refresh();
+      try {
+        election!.refresh();
+      } catch (err) {
+        log("error", "heartbeat refresh failed; stepping down to non-holder poll", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        election!.isHolder = false;
+      }
       if (!election!.isHolder) {
-        log("warn", "lost the writer lock to a takeover; reverting to non-holder poll");
+        log("warn", "lost the writer lock; reverting to non-holder poll");
         stopMaintenance();
         startPoll();
       }
@@ -161,16 +173,26 @@ async function main(): Promise<void> {
   const startPoll = (): void => {
     poll = setInterval(() => {
       election = elect(defaultLockPath(), Date.now());
-      if (election.isHolder) {
-        if (poll) { clearInterval(poll); poll = undefined; }
+      if (!election.isHolder) return;
+      // Won the lock. Stop polling, then run the catch-up reindex AND AWAIT it
+      // before starting the watcher/backstop — mirroring the startup-holder flow
+      // (which awaits fullReindex before startMaintenance). Awaiting prevents the
+      // catch-up reindex from running concurrently with live maintenance against
+      // the same DB (avoidable lock contention + interleaved mutations the awaited
+      // startup path never produces).
+      if (poll) { clearInterval(poll); poll = undefined; }
+      void (async () => {
         log("info", "won the writer lock; running catch-up reindex");
-        void fullReindex(db, config)
-          .then(summary => log("info", "catch-up reindex complete", { ...summary }))
-          .catch(err => log("error", "catch-up reindex failed", {
+        try {
+          const summary = await fullReindex(db, config);
+          log("info", "catch-up reindex complete", { ...summary });
+        } catch (err) {
+          log("error", "catch-up reindex failed", {
             error: err instanceof Error ? err.message : String(err),
-          }));
+          });
+        }
         startMaintenance();
-      }
+      })();
     }, HEARTBEAT_REFRESH_MS);
     poll.unref();
   };

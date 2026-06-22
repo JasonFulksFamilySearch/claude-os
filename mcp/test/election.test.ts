@@ -138,13 +138,15 @@ describe("takeover", () => {
     // so a stable, stale, abandoned lock stays reclaimable. (The prior sameIdentity
     // guard returned false on undefined and would have left maintenance stuck.)
     mkdirSync(lockPath);
-    // No meta file written — readMeta returns undefined.
+    // No meta file written. (election.ts's INTERNAL readMeta swallows the read error
+    // and returns undefined; this test's own readMeta helper below would THROW on a
+    // missing file — so it is only called AFTER takeover, when a meta exists.)
     const staleTime = (Date.now() - (STALENESS_MULTIPLE * HEARTBEAT_REFRESH_MS + 1000)) / 1000;
     utimesSync(lockPath, staleTime, staleTime);
 
     const handle = elect(lockPath, Date.now());
     expect(handle.isHolder).toBe(true);            // reclaimed, not deadlocked
-    expect(readMeta(lockPath).pid).toBe(process.pid);
+    expect(readMeta(lockPath).pid).toBe(process.pid); // meta now exists (we took over)
   });
 
   it("does NOT reclaim a stale-but-corrupt lock if a fresh holder writes valid meta in the race window (the change is what blocks takeover)", () => {
