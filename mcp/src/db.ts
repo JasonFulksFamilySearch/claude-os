@@ -12,6 +12,13 @@ export function openDb(dbPath: string = DEFAULT_DB_PATH): Database.Database {
   const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
+  // Wait up to 5s for a held write lock before throwing SQLITE_BUSY. With the
+  // single-writer election, residual concurrent writes (a non-holder's own
+  // indexFile/embed, access-stat bumps) serialize against the holder instead of
+  // erroring. Set explicitly so the behavior does not depend on the driver's
+  // default (better-sqlite3 happens to default to 5000, but the SQLite C
+  // default is 0 — pin it).
+  db.pragma("busy_timeout = 5000");
   sqliteVec.load(db);
 
   // Fail fast if observations already exists but is pre-C2 (no anchor column).

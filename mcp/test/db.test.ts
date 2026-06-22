@@ -57,6 +57,13 @@ function ftsSearch(query: string): { rowid: number }[] {
 }
 
 describe("db", () => {
+  it("openDb sets a non-zero busy_timeout so a concurrent writer waits instead of throwing SQLITE_BUSY", () => {
+    // Pins openDb's contract against driver-default drift: the SQLite C-library
+    // default is 0 (no wait), and openDb must guarantee a 5s wait regardless of
+    // what better-sqlite3's wrapper happens to default to.
+    expect(db.pragma("busy_timeout", { simple: true })).toBe(5000);
+  });
+
   it("openDb is idempotent", () => {
     db.close();
     db = openDb(dbPath);
