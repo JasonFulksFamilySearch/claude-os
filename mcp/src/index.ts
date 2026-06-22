@@ -43,6 +43,7 @@ import {
   resolveNoveltyFlag,
   resolveNoveltyFlagDefinition,
 } from "./tools/resolve_novelty_flag.js";
+import { getUsageDossier, getUsageDossierDefinition } from "./tools/get_usage_dossier.js";
 import { scanExperience, scanExperienceDefinition } from "./tools/scan_experience.js";
 import {
   validateExperienceProposal,
@@ -226,6 +227,7 @@ async function main(): Promise<void> {
       markEpisodePromotedDefinition,
       scanNoveltyDefinition,
       resolveNoveltyFlagDefinition,
+      getUsageDossierDefinition,
       scanExperienceDefinition,
       validateExperienceProposalDefinition,
     ],
@@ -253,6 +255,8 @@ async function main(): Promise<void> {
           return jsonResult(await scanNovelty(db, args ?? {}, config));
         case "resolve_novelty_flag":
           return jsonResult(resolveNoveltyFlag(db, args ?? {}));
+        case "get_usage_dossier":
+          return jsonResult(getUsageDossier(db, args ?? {}));
         case "scan_experience":
           return jsonResult(scanExperience(db, args ?? {}, config));
         case "validate_experience_proposal":
