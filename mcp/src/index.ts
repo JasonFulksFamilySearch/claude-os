@@ -100,28 +100,89 @@ async function main(): Promise<void> {
   const db = openDb();
   const config = buildConfig();
 
-  // Index-maintenance state. These are forward-declared so the shutdown closure
-  // can reference them; Task 6 assigns them inside the holder branch. A
-  // non-holder leaves watcher/election undefined — shutdown handles that.
+  // Index-maintenance state. Only the elected holder runs the three maintenance
+  // ops (startup reindex, file watcher, backstop reindex); non-holders skip them
+  // and poll to take over if the holder dies. The shutdown closure reads
+  // watcher/election, so they are declared at function scope.
   let watcher: FSWatcher | undefined;
   let election: ElectionHandle | undefined;
+  let backstop: ReturnType<typeof setInterval> | undefined;
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  let poll: ReturnType<typeof setInterval> | undefined;
 
-  const startupSummary = await fullReindex(db, config);
-  log("info", "startup reindex complete", { ...startupSummary });
+  // Tear down all maintenance timers + the watcher. Used both on losing the
+  // lock to a takeover and as a building block for the holder transition.
+  const stopMaintenance = (): void => {
+    if (backstop) { clearInterval(backstop); backstop = undefined; }
+    if (heartbeat) { clearInterval(heartbeat); heartbeat = undefined; }
+    void watcher?.close();
+    watcher = undefined;
+  };
 
-  watcher = watchAll(db, config);
-  log("info", "file watcher started", {
-    watched: config.watchedProjects.length,
-  });
+  // Start the watcher + backstop + heartbeat. Called by the holder (initial
+  // election) and by a non-holder that later wins the lock via the poll.
+  const startMaintenance = (): void => {
+    watcher = watchAll(db, config);
+    log("info", "file watcher started", {
+      watched: config.watchedProjects.length,
+    });
 
-  const backstop = setInterval(() => {
-    void fullReindex(db, config)
-      .then(summary => log("info", "backstop reindex complete", { ...summary }))
-      .catch(err => log("error", "backstop reindex failed", {
-        error: err instanceof Error ? err.message : String(err),
-      }));
-  }, REINDEX_INTERVAL_MS);
-  backstop.unref();
+    backstop = setInterval(() => {
+      void fullReindex(db, config)
+        .then(summary => log("info", "backstop reindex complete", { ...summary }))
+        .catch(err => log("error", "backstop reindex failed", {
+          error: err instanceof Error ? err.message : String(err),
+        }));
+    }, REINDEX_INTERVAL_MS);
+    backstop.unref();
+
+    // Heartbeat: keep the lock warm. If refresh() self-heals isHolder to false
+    // (a takeover removed our lock dir), tear down maintenance and revert to the
+    // non-holder poll — bounding the two-holder window to <= one refresh tick.
+    heartbeat = setInterval(() => {
+      election!.refresh();
+      if (!election!.isHolder) {
+        log("warn", "lost the writer lock to a takeover; reverting to non-holder poll");
+        stopMaintenance();
+        startPoll();
+      }
+    }, HEARTBEAT_REFRESH_MS);
+    heartbeat.unref();
+  };
+
+  // Non-holder poll: periodically re-elect; on winning, run the catch-up reindex
+  // (we skipped the startup one) and start maintenance.
+  // yagni: a single re-election cadence is enough; no exponential backoff until
+  // a real thundering-herd problem shows up.
+  const startPoll = (): void => {
+    poll = setInterval(() => {
+      election = elect(defaultLockPath(), Date.now());
+      if (election.isHolder) {
+        if (poll) { clearInterval(poll); poll = undefined; }
+        log("info", "won the writer lock; running catch-up reindex");
+        void fullReindex(db, config)
+          .then(summary => log("info", "catch-up reindex complete", { ...summary }))
+          .catch(err => log("error", "catch-up reindex failed", {
+            error: err instanceof Error ? err.message : String(err),
+          }));
+        startMaintenance();
+      }
+    }, HEARTBEAT_REFRESH_MS);
+    poll.unref();
+  };
+
+  election = elect(defaultLockPath(), Date.now());
+  if (election.isHolder) {
+    log("info", "elected as the index-maintenance holder", { pid: process.pid });
+    const startupSummary = await fullReindex(db, config);
+    log("info", "startup reindex complete", { ...startupSummary });
+    startMaintenance();
+  } else {
+    log("info", "another instance holds the writer lock; serving tools only", {
+      pid: process.pid,
+    });
+    startPoll();
+  }
 
   const server = new Server(
     { name: "claude-os-mcp", version: "0.1.0" },
