@@ -45,18 +45,30 @@ function metaPathFor(lockPath: string): string {
   return join(lockPath, "meta");
 }
 
-function holderHandle(lockPath: string): ElectionHandle {
+function holderHandle(lockPath: string, own: LockMeta): ElectionHandle {
+  // `own` is THIS handle's identity, stamped into the lock dir's meta at acquire.
+  // refresh()/release() verify the on-disk meta STILL matches `own` before acting —
+  // detecting loss by IDENTITY, not merely by the dir's existence. A takeover that
+  // does rmdir+mkdir between two heartbeats leaves a dir that exists but whose meta
+  // is a different identity; existence-only checks (utimesSync succeeds) would miss
+  // that and leave a permanent dual-holder. Reading the meta closes it.
+  const stillOurs = (): boolean => sameIdentity(readMeta(lockPath), own);
   return {
     isHolder: true,
     refresh(now: number = Date.now()): void {
       if (!this.isHolder) return;
+      // Lost the lock if the dir is gone (ENOENT) OR if it now carries a different
+      // identity (a takeover re-created it). Either way, self-heal: stop being the
+      // holder so the next heartbeat tick tears down maintenance.
+      if (!stillOurs()) {
+        this.isHolder = false;
+        return;
+      }
       const t = now / 1000;
       try {
         utimesSync(lockPath, t, t);
       } catch (err) {
-        // ENOENT: the lock dir was removed by a takeover — we no longer hold it.
-        // Self-heal so the next heartbeat tick stops running maintenance,
-        // bounding the two-holder window to <= one refresh interval.
+        // Race: the dir vanished between the meta read and the utimes. Treat as loss.
         if ((err as NodeJS.ErrnoException).code === "ENOENT") {
           this.isHolder = false;
           return;
@@ -66,9 +78,12 @@ function holderHandle(lockPath: string): ElectionHandle {
     },
     release(): void {
       if (!this.isHolder) return;
-      // Remove meta + dir in one shot; force so a partially-removed lock is benign.
-      rmSync(lockPath, { recursive: true, force: true });
       this.isHolder = false;
+      // Only remove the lock if it is STILL ours — never rmdir a lock a successor
+      // claimed after a takeover. force:true keeps a concurrent removal benign.
+      if (stillOurs()) {
+        rmSync(lockPath, { recursive: true, force: true });
+      }
     },
   };
 }
@@ -102,7 +117,7 @@ export function tryAcquire(lockPath: string, now: number): ElectionHandle {
   }
   const meta: LockMeta = { pid: process.pid, startedAt: now };
   writeFileSync(metaPathFor(lockPath), JSON.stringify(meta));
-  return holderHandle(lockPath);
+  return holderHandle(lockPath, meta);
 }
 
 /**
@@ -126,6 +141,17 @@ function readMeta(lockPath: string): LockMeta | undefined {
 
 function sameIdentity(a: LockMeta | undefined, b: LockMeta | undefined): boolean {
   return !!a && !!b && a.pid === b.pid && a.startedAt === b.startedAt;
+}
+
+// True when the meta did NOT change between two reads — either the same valid
+// identity, OR consistently absent/corrupt (both undefined). Used by the takeover
+// guard: an unchanged-but-stale lock is reclaimable (including a stably-abandoned
+// lock with missing meta); a CHANGED meta means a fresh holder claimed it, so we
+// must stand down. (Distinct from sameIdentity, which requires BOTH sides valid —
+// correct for "is this still MY lock?" but wrong for "is this stale lock reclaimable?".)
+function metaUnchanged(a: LockMeta | undefined, b: LockMeta | undefined): boolean {
+  if (a === undefined && b === undefined) return true;
+  return sameIdentity(a, b);
 }
 
 /**
@@ -164,11 +190,15 @@ export function elect(
 
   beforeRmdir?.();
 
-  // Identity-guarded takeover: re-read meta immediately before the rmdir and
-  // only remove the lock if it STILL belongs to the stale identity we observed.
-  // If a new holder claimed it in the meantime (different identity), stand down.
+  // Identity-guarded takeover: re-read meta immediately before the rmdir and take
+  // over only if it is UNCHANGED since we observed it stale. "Unchanged" includes
+  // a consistently absent/corrupt meta (a stably-abandoned lock — still reclaimable)
+  // as well as the same valid identity. We stand down only if the meta CHANGED —
+  // i.e. a different holder freshly claimed it in the window — which is the case the
+  // guard exists to protect. (Using sameIdentity() alone would wrongly refuse to
+  // reclaim a stale lock whose meta is missing/corrupt, deadlocking maintenance.)
   const current = readMeta(lockPath);
-  if (!sameIdentity(current, observed)) return nonHolderHandle();
+  if (!metaUnchanged(observed, current)) return nonHolderHandle();
 
   // Remove the abandoned lock dir (and its inner meta) so the atomic acquire
   // below can re-create it. force:true makes a concurrent reaper's prior

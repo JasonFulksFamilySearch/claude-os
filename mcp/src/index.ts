@@ -115,7 +115,11 @@ async function main(): Promise<void> {
   const stopMaintenance = (): void => {
     if (backstop) { clearInterval(backstop); backstop = undefined; }
     if (heartbeat) { clearInterval(heartbeat); heartbeat = undefined; }
-    void watcher?.close();
+    // Catch a possible close() rejection — discarding the promise with `void` alone
+    // would surface a chokidar close() failure as an unhandled rejection.
+    void watcher?.close().catch(err => log("warn", "watcher close failed on stop", {
+      error: err instanceof Error ? err.message : String(err),
+    }));
     watcher = undefined;
   };
 
@@ -247,16 +251,20 @@ async function main(): Promise<void> {
   const shutdown = (signal: string) => {
     log("info", "shutting down", { signal });
     // Null-safe: a non-holder never started a watcher. Release the lock if held
-    // (no-op when undefined or not the holder), then close the db.
-    void (watcher?.close() ?? Promise.resolve()).finally(() => {
-      election?.release();
-      try {
-        db.close();
-      } catch {
-        /* ignore */
-      }
-      process.exit(0);
-    });
+    // (no-op when undefined or not the holder), then close the db. The trailing
+    // .catch handles a possible watcher.close() rejection so it does not surface as
+    // an unhandled rejection during shutdown (cleanup still runs in .finally first).
+    void (watcher?.close() ?? Promise.resolve())
+      .finally(() => {
+        election?.release();
+        try {
+          db.close();
+        } catch {
+          /* ignore */
+        }
+        process.exit(0);
+      })
+      .catch(() => process.exit(0));
   };
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
