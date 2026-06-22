@@ -1,6 +1,6 @@
 # Daily Metrics Contract
 
-Shared definitions and write protocol for the daily snapshot file produced by `/standup`, `/daily-action`, and Perch. Every writer MUST read this document before emitting a snapshot. Primitives, ownership rules, and the merge protocol are authoritative here; skills and services reference this file rather than redefining locally.
+Shared definitions and write protocol for the daily snapshot file produced by the `perch-agent` poller, `/daily-action`, and Perch. Every writer MUST read this document before emitting a snapshot. Primitives, ownership rules, and the merge protocol are authoritative here; skills and services reference this file rather than redefining locally. (`/standup` is a **reader/renderer** of the snapshot, not a writer — it produces its markdown from the snapshot plus live CLI, governed by its SKILL.md per §10.)
 
 ## 1. Shared primitives
 
@@ -30,15 +30,15 @@ Any change to a primitive definition requires same-commit updates in every consu
 
 ## 3. Schema
 
-Every file conforms to `schemaVersion: 1` below. All fields except `schemaVersion`, `date`, `sources`, and `updatedAt` are optional — absence means "not observed," not "zero."
+Every file conforms to `schemaVersion: 2` below. All fields except `schemaVersion`, `date`, `sources`, and `updatedAt` are optional — absence means "not observed," not "zero."
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "date": "YYYY-MM-DD",
   "dayOfWeek": "Thursday",
   "updatedAt": "ISO-8601 with offset",
-  "sources": ["daily-action", "standup", "perch"],
+  "sources": ["daily-action", "perch-agent", "perch"],
   "warnings": [],
 
   "activity": {
@@ -57,7 +57,6 @@ Every file conforms to `schemaVersion: 1` below. All fields except `schemaVersio
   "jira": {
     "sprintAssignedTotal": 0,
     "sprintAssignedNotDone": 0,
-    "sprintCompletedToday": 0,
     "transitionsToday": 0,
     "commentsLeft": 0,
     "downloadIssuesOpen": 0,
@@ -66,9 +65,6 @@ Every file conforms to `schemaVersion: 1` below. All fields except `schemaVersio
 
   "plan": {
     "itemsPlanned": 0,
-    "itemsCompleted": 0,
-    "completionRate": 0.0,
-    "carryoverFromPrev": 0,
     "priorityStackSize": 0
   },
 
@@ -86,9 +82,29 @@ Every file conforms to `schemaVersion: 1` below. All fields except `schemaVersio
     "sonarQualityGateFailures": 0,
     "sonarProjectsTotal": 0,
     "sonarFailingProjects": []
+  },
+
+  "retrospective": {
+    "planDate": "YYYY-MM-DD",
+    "asOf": "ISO-8601 with offset",
+    "derived": {
+      "itemsCompleted": 0,
+      "completionRate": 0.0,
+      "carryoverFromPrev": [],
+      "sprintCompletedToday": 0
+    },
+    "rawInputs": {
+      "yesterdayPlanKeys": [],
+      "jiraDoneKeys": [],
+      "githubMergedPRs": [],
+      "sprintDoneKeys": [],
+      "sourceFreshness": { "jira": "ok", "github": "ok" }
+    }
   }
 }
 ```
+
+`retrospective.derived.completionRate` is `null` (not `0`/`NaN`) when `itemsPlanned === 0`. `retrospective.derived.carryoverFromPrev` is an **array of plan keys** (not a count). The four `derived.*` figures formerly lived at the flat `plan.itemsCompleted/completionRate/carryoverFromPrev` and `jira.sprintCompletedToday` paths (schemaVersion 1); they were relocated here in v2 — see §4 and §9.
 
 Free-text fields (e.g., `plan.dayGoal`, per-signal notes, ticket lists) live only in the markdown outputs — they are not part of the snapshot. Signal blocks keep a `status` plus one scalar (`defectPercent`, `ticketCount`, etc.) so they are chartable.
 
@@ -104,10 +120,12 @@ Every field has exactly one owner. No co-ownership. This is what makes re-runs i
 - `jira.sprintAssignedTotal`, `jira.sprintAssignedNotDone`
 - `jira.downloadIssuesOpen`, `jira.unassignedDefectsOpen`
 
-### `/standup` owns (observation — what the workday actually contained)
-- `activity.*` — commits, PRs, CI, Confluence
-- `jira.transitionsToday`, `jira.commentsLeft`, `jira.sprintCompletedToday`
-- `plan.itemsCompleted`, `plan.completionRate`, `plan.carryoverFromPrev` (derived from counting `[x]` / `[ ]` in the day's action-plan markdown)
+### `perch-agent` owns (observation + retrospective — derived from polled source systems)
+- `activity.*` — commits, PRs, CI, Confluence (emitted by the poller's deterministic reducer; `agent/snapshotMerger.js`)
+- `jira.transitionsToday`, `jira.commentsLeft` (`jira.commentsLeft` is currently a hardcoded `0` placeholder — not yet derived; not displayed)
+- `retrospective` — a single object scoring a plan-day's Perch-issued plan against that work's source-system outcomes: `retrospective.derived.{itemsCompleted, completionRate, carryoverFromPrev, sprintCompletedToday}` plus `retrospective.{planDate, asOf, rawInputs}`. **Derived by source-correlation** — current Jira `statusCategory` for the plan keys, merged-PR-by-key, and the resolution-windowed sprint query — NOT by counting `[x]`/`[ ]` in markdown. Recomputable from `rawInputs`; a failed poll omits the affected figure and records `sourceFreshness: failed` rather than asserting a stale value.
+
+> **Supersession note (2026-06, ratified by Jason):** the four completion figures formerly lived at the flat `plan.itemsCompleted/completionRate/carryoverFromPrev` and `jira.sprintCompletedToday` paths and were assigned to `/standup`, "derived from counting `[x]`/`[ ]` in the day's action-plan markdown." That design was never implemented (checkbox-counting is not recomputable from source). It is superseded: **owner** (`/standup` → `perch-agent`), **method** (checkbox-counting → source-correlation), and **location** (flat `plan.*`/`jira.*` → `retrospective.derived.*`) all change. Full design + phasing: Perch `docs/2026-06-18-standup-retrospective-redesign.md`.
 
 ### Perch owns (live externally-observed state)
 - `quality.sonarQualityGateFailures`, `quality.sonarProjectsTotal`, `quality.sonarFailingProjects[]`
@@ -116,6 +134,8 @@ Every field has exactly one owner. No co-ownership. This is what makes re-runs i
 - `schemaVersion`, `date`, `dayOfWeek` — any writer (idempotent; value is deterministic for the date)
 - `updatedAt`, `sources` — merge protocol (see §5)
 - `warnings[]` — any writer appends; no writer overwrites
+
+**`/standup` is not a snapshot writer** — it reads the snapshot and renders markdown (governed by its SKILL.md, §10); it owns no snapshot field. The three disjoint snapshot owners are `/daily-action`, `perch-agent`, and Perch.
 
 **Rule:** a writer MUST NOT emit any field it does not own. Silence is valid; a wrong assertion is not.
 
@@ -156,9 +176,9 @@ A crash between steps 7 and 8 leaves the prior state intact. A crash between 8 a
 
 Every writer is re-runnable any number of times per activity date. Because ownership is disjoint, a re-run never corrupts another writer's slice.
 
-- **`/daily-action` re-run** (e.g., re-plan after a new assignment): overwrites `plan.itemsPlanned`, `plan.priorityStackSize`, `signals.*`, JIRA open-state counts with fresh values. Does NOT touch `activity.*`, `plan.itemsCompleted`, `plan.completionRate`, `plan.carryoverFromPrev`, or `quality.*`.
+- **`/daily-action` re-run** (e.g., re-plan after a new assignment): overwrites `plan.itemsPlanned`, `plan.priorityStackSize`, `signals.*`, JIRA open-state counts with fresh values. Does NOT touch `activity.*`, the `retrospective` object, or `quality.*`.
 
-- **`/standup` re-run** (e.g., late PR merge after the first run): re-reads git/GitHub/Jira for the workday and overwrites its owned fields. Does NOT touch `plan.itemsPlanned`, `signals.*`, or `quality.*`.
+- **`perch-agent` re-run** (continuous poll; the `retrospective` recomputes each morning until fresh): overwrites `activity.*`, `jira.transitionsToday`/`commentsLeft`, and the `retrospective` object (point-in-time recompute from source — current Jira status, merged PRs, resolution-windowed sprint). Does NOT touch `plan.itemsPlanned`, `signals.*`, `jira.sprint*`, or `quality.*`.
 
 - **Perch writes on every successful Sonar fetch**: idempotent overwrite of `quality.*` only. Later writes reflect newer Sonar state; earlier writes are lost on purpose.
 
@@ -171,7 +191,7 @@ Every writer is re-runnable any number of times per activity date. Because owner
 When a writer tries to gather a data source and fails (JIRA timeout, GitHub rate limit, Sonar 5xx), it SHOULD append a short string to `warnings[]` and continue emitting what it has. Format: `"<writer>: <what failed>"`.
 
 Examples:
-- `"standup: jira transitions query failed"`
+- `"perch-agent: jira transitions query failed"`
 - `"daily-action: github cli not authenticated for arc-orch-service"`
 - `"perch: sonar 503 for arc-record-exchange"`
 
@@ -185,10 +205,10 @@ Snapshot `date` strings are opaque to downstream readers — no reader should re
 
 ## 9. Versioning
 
-`schemaVersion: 1` on every snapshot. Future schema changes follow semver-ish rules:
+`schemaVersion: 2` on every snapshot — bumped from 1 when the four completion figures were relocated into the `retrospective` object and `carryoverFromPrev` changed from a count to a key array (a relocation + type change per the rule below; Perch code already writes `2` at `server/utils/snapshotWriter.ts`). Future schema changes follow semver-ish rules:
 
-- **Additive, backward-compatible** (add an optional field): keep `schemaVersion: 1`. Old readers ignore the new field.
-- **Renames, removes, or type changes**: bump to `schemaVersion: 2`. Readers switch behavior on the version. Existing snapshots stay at version 1 unless an explicit migration script is run.
+- **Additive, backward-compatible** (add an optional field): keep the current `schemaVersion`. Old readers ignore the new field.
+- **Renames, removes, relocations, or type changes**: bump the `schemaVersion`. Readers switch behavior on the version. Existing snapshots stay at their written version unless an explicit migration script is run.
 
 Readers MUST check `schemaVersion` and either handle it or warn.
 
