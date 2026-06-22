@@ -6,7 +6,7 @@
 
 **Goal:** Give the monthly memory-merger (and experience-synthesis) human gate usage evidence — recall count, distinct-query count, recency, decay score, and an advisory graduation badge — for every graduate/keep/prune proposal, so the human decides on evidence instead of intuition. Evidence in, human decision out — always.
 
-**Architecture:** A new `access_queries` side table (mirroring `access_stats`) tracks per-(observation, SHA-256 query-hash) access, written best-effort inside the existing post-search transaction. A new read-only MCP tool `get_usage_dossier` returns per-observation evidence including a server-side decay score (30-day half-life, the existing reinforcement convention — defined ONCE in the tool, not duplicated across skills). The memory-merger + experience-synthesis skills gain the tool in their allowed-tools and present its evidence with an advisory badge (recall≥3 AND distinct-queries≥3). Nothing auto-acts; retrieval scoring (the ≤0.01 reinforcement cap) is untouched.
+**Architecture:** A new `access_queries` side table (mirroring `access_stats`) tracks per-(observation, SHA-256 query-hash) access, written best-effort inside the existing post-search transaction. A new read-only MCP tool `get_usage_dossier` returns per-observation evidence including a server-side decay score (the exact existing reinforcement recency convention — `exp(-ageDays / HALF_LIFE_DAYS)`, `HALF_LIFE_DAYS = 30`, imported from `search_config.ts`, not re-derived — defined ONCE in the tool, not duplicated across skills). The memory-merger + experience-synthesis skills gain the tool in their allowed-tools and present its evidence with an advisory badge (recall≥3 AND distinct-queries≥3). Nothing auto-acts; retrieval scoring (the ≤0.01 reinforcement cap) is untouched.
 
 **Tech Stack:** TypeScript, better-sqlite3, `node:crypto` (SHA-256, stdlib — no new dep), zod, vitest.
 
@@ -18,7 +18,7 @@
 - **Evidence in, human decision out** — no auto-promote/prune/demote driven by telemetry. The badge is advisory; the tool is read-only.
 - **No new npm dependency** — SHA-256 is `node:crypto` stdlib.
 - **The telemetry write is best-effort** — it rides the existing `try/catch` post-search transaction; a telemetry write must NEVER fail a search (read-path isolation).
-- **Decay score lives server-side** (in the tool), reusing the 30-day half-life convention — one definition, both skills consume it consistently (the repo's "define once" convention, cf. shared `parseEntries`).
+- **Decay score lives server-side** (in the tool), reusing the exact reinforcement recency formula `exp(-ageDays / HALF_LIFE_DAYS)` (`HALF_LIFE_DAYS = 30`, imported from `search_config.ts`) — one definition, both skills consume it consistently (the repo's "define once" convention, cf. shared `parseEntries`). NOT a true half-life (`exp(-ln2·age/30)`) — that would diverge from `ranking.ts:50`.
 
 ---
 
@@ -60,7 +60,7 @@
 - Consumes: the `access_queries` table (Task 1); `results` + `now` already in scope (`search_memory.ts:191`); `args.query`.
 - Produces: a `query_hash` helper — `sha256(query.trim().toLowerCase())` via `node:crypto`. Writes one UPSERT per (observation_id, query_hash) inside the SAME `db.transaction(...)` closure as the `access_stats` bump.
 
-- [ ] **Step 1: Write the failing tests** — (a) after `searchMemory(db, {query})`, `access_queries` has one row per returned observation, all sharing the SHA-256 of the normalized query, `access_count=1`, `first_seen=last_seen=now`. (b) re-querying with the SAME query increments `access_count` and bumps `last_seen` (not `first_seen`). (c) a DIFFERENT query for an overlapping observation adds a SECOND (obs, hash) row → `COUNT(DISTINCT query_hash)` for that obs is 2. (d) raw query text is NEVER stored — assert no column contains the literal query string (only the hash). (e) read-path isolation — an injected telemetry-write failure does NOT fail the search (mirror the best-effort `catch`).
+- [ ] **Step 1: Write the failing tests** — `now` is computed inside `searchMemory` (`Math.floor(Date.now()/1000)`) and the existing tests do NOT freeze time, so **freeze it** before asserting timestamps: `vi.useFakeTimers(); vi.setSystemTime(new Date(FIXED_MS))` in the test (restore with `vi.useRealTimers()` in teardown), OR assert a bounded range (`first_seen` within `[t0, t1]` captured around the call) instead of exact equality — never assert `=== now` against an unfrozen clock (flaky). Tests: (a) after `searchMemory(db, {query})`, `access_queries` has one row per returned observation, all sharing the SHA-256 of the normalized query, `access_count=1`, and `first_seen === last_seen` equal to the frozen time. (b) re-querying with the SAME query (advance the fake clock first) increments `access_count` and bumps `last_seen` to the new time while `first_seen` is unchanged. (c) a DIFFERENT query for an overlapping observation adds a SECOND (obs, hash) row → `COUNT(DISTINCT query_hash)` for that obs is 2. (d) raw query text is NEVER stored — assert no column contains the literal query string (only the hash). (e) read-path isolation — an injected telemetry-write failure does NOT fail the search (mirror the best-effort `catch`).
 - [ ] **Step 2: Run to verify they fail** — `npx vitest run test/tools.test.ts -t "access_queries"` → FAIL.
 - [ ] **Step 3: Implement** — add a `query_hash` const (sha256 of normalized `args.query`) and a second prepared UPSERT inside the existing `db.transaction((rows)=>{...})` closure (`search_memory.ts:~232`), looping the returned rows. Keep it inside the same best-effort `try/catch` so it never fails the read.
 - [ ] **Step 4: Run to verify they pass** — same command → PASS.
@@ -72,7 +72,7 @@
 
 **Files:**
 - Create: `mcp/src/tools/get_usage_dossier.ts` (mirror `resolve_novelty_flag.ts` — zod `*Input`, `*Definition`, exported fn)
-- Test: `mcp/test/tools.test.ts` (mirror the A2 read-only tool block at `:890-913`)
+- Test: `mcp/test/tools.test.ts` (mirror an existing **pure-SELECT, write-free** tool test — e.g. the `get_recent_learnings` / `list_episodes` read-only blocks. NOTE: do NOT mirror the `scan_novelty + resolve_novelty_flag` block at `:890-913` as a "read-only" pattern — `scan_novelty` performs INSERTs into `novelty_flags`, so it is not write-free; using it as the read-only template would mislead. The read-only contract test (Step 1d) is the authority for the no-writes assertion.)
 
 **Interfaces:**
 - Consumes: `access_stats`, `access_queries`, `observations` (joins). Takes `db` + zod-validated args.
@@ -80,17 +80,26 @@
   ```ts
   export const getUsageDossierDefinition; // name: "get_usage_dossier", read-only
   export function getUsageDossier(db, rawArgs): UsageDossier[];
-  // args (all optional filters): { sourceType?, project?, pathPrefix?, limit? }
-  // each row: { sourcePath, anchor, title, accessCount, distinctQueries,
-  //             daysSinceLastAccess, decayScore, badge: boolean }
-  // decayScore: 30-day half-life on daysSinceLastAccess (reuse the reinforcement
-  //   convention — one decay definition). badge = accessCount>=3 && distinctQueries>=3.
+  // args (all optional filters), snake_case to match every existing MCP tool input
+  // (cf. search_memory's source_filter/project_filter, scan_experience's max_episodes —
+  //  do NOT use camelCase, it would make the public tool API inconsistent):
+  //   { source_type?, project?, path_prefix?, limit? }
+  // each result row (the JSON the tool returns) — field naming follows the existing
+  // tool-result convention; keep it consistent with neighbouring tools:
+  //   { source_path, anchor, title, access_count, distinct_queries,
+  //     days_since_last_access, decay_score, badge: boolean }
+  // decay_score: REUSE the exact reinforcement recency convention so the dossier and
+  //   the re-ranker never diverge — exp(-ageDays / HALF_LIFE_DAYS), where
+  //   HALF_LIFE_DAYS = 30 (import it from search_config.ts; do NOT re-derive). This is
+  //   an exponential decay with a 30-day *e-folding* constant, NOT a true half-life:
+  //   at 30 days the score is e^-1 ≈ 0.368, not 0.5. Do NOT write exp(-ln(2)*age/30) —
+  //   that would diverge from ranking.ts:50. badge = access_count>=3 && distinct_queries>=3.
   ```
-  Pure SELECT — performs NO writes (read-only contract). `accessCount`/`last_accessed` from `access_stats`; `distinctQueries` = `COUNT(DISTINCT query_hash)` from `access_queries`; `decayScore` computed in TS.
+  Pure SELECT — performs NO writes (read-only contract). `access_count`/`last_accessed` from `access_stats`; `distinct_queries` = `COUNT(DISTINCT query_hash)` from `access_queries`; `decay_score` computed in TS.
 
-- [ ] **Step 1: Write the failing tests** — (a) on a fixture corpus (seed observations + access_stats + access_queries), the dossier returns correct accessCount, distinctQueries (the COUNT(DISTINCT) math), daysSinceLastAccess, and decayScore (assert the 30-day half-life formula on a known mtime). (b) badge true iff accessCount≥3 AND distinctQueries≥3; false otherwise (test the boundary: 3/2 → false, 3/3 → true). (c) filters (sourceType / pathPrefix) narrow the result set. (d) **read-only contract** — call the tool, assert it performed NO writes (e.g. wrap db in a proxy that throws on `.run` of INSERT/UPDATE/DELETE, or snapshot row counts before/after).
+- [ ] **Step 1: Write the failing tests** — (a) on a fixture corpus (seed observations + access_stats + access_queries), the dossier returns correct `access_count`, `distinct_queries` (the COUNT(DISTINCT) math), `days_since_last_access`, and `decay_score` — assert the decay against the exact `Math.exp(-ageDays / HALF_LIFE_DAYS)` value on a known last-accessed time (e.g. at 30 days ≈ 0.368, NOT 0.5). (b) badge true iff `access_count`≥3 AND `distinct_queries`≥3; false otherwise (test the boundary: 3/2 → false, 3/3 → true). (c) filters (`source_type` / `path_prefix`) narrow the result set. (d) **read-only contract** — call the tool, assert it performed NO writes (e.g. wrap db in a proxy that throws on `.run` of INSERT/UPDATE/DELETE, or snapshot row counts before/after).
 - [ ] **Step 2: Run to verify they fail** — `npx vitest run test/tools.test.ts -t "get_usage_dossier"` → FAIL (tool not defined).
-- [ ] **Step 3: Implement** — write `get_usage_dossier.ts` mirroring `resolve_novelty_flag.ts`'s structure; the SELECT joins observations + access_stats + a `COUNT(DISTINCT query_hash)` subquery on access_queries; compute decayScore + badge in TS. Define the decay half-life as a named const reused from / consistent with the reinforcement convention.
+- [ ] **Step 3: Implement** — write `get_usage_dossier.ts` mirroring `resolve_novelty_flag.ts`'s structure; the SELECT joins observations + access_stats + a `COUNT(DISTINCT query_hash)` subquery on access_queries; compute `decay_score` + badge in TS. For decay, **import `HALF_LIFE_DAYS` from `search_config.ts`** and compute `Math.exp(-ageDays / HALF_LIFE_DAYS)` — the identical formula as `ranking.ts:50` — so the dossier and the re-ranker never diverge. Do not re-derive a constant or use a true-half-life formula.
 - [ ] **Step 4: Run to verify they pass** — same command → PASS.
 - [ ] **Step 5: Commit** — `Feat: add read-only get_usage_dossier tool with server-side decay + badge (C3)`.
 
