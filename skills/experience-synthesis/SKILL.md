@@ -120,9 +120,10 @@ Proposed learning (→ [agent|project] learnings):
   [content]
 ```
 
-**Episode usage evidence:** for each source episode cited in the proposal, call
-`get_usage_dossier` with `path_prefix` set to the episode's `source_path`, then pick the
-returned row whose `anchor` matches the episode (a file may hold several anchored rows).
+**Episode usage evidence:** for each UNIQUE `source_path` among the cited episodes, call
+`get_usage_dossier` once with `path_prefix` set to that `source_path`, then pick the returned
+row whose `anchor` matches each episode (a file may hold several anchored rows — call once per
+file and reuse the rows, rather than re-calling per episode).
 Include a one-line evidence note beside the episode reference, e.g.:
 > "[path] — 4 recalls · 3 distinct queries · last access 5 days ago · decay 0.88 [BADGE]"
 The `[BADGE]` marker appears when `access_count ≥ 3 AND distinct_queries ≥ 3`. This

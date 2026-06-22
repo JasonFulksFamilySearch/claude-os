@@ -119,14 +119,12 @@ export function getUsageDossier(db: Database.Database, rawArgs: unknown): UsageD
       o.indexed_at,
       s.access_count,
       s.last_accessed,
-      COALESCE(
-        -- The (observation_id, query_hash) PK makes query_hash unique per observation,
-        -- so COUNT(*) per observation IS the distinct-query count (cf. db.ts:110).
-        (SELECT COUNT(*)
-           FROM access_queries q
-          WHERE q.observation_id = o.id),
-        0
-      ) AS distinct_queries
+      -- The (observation_id, query_hash) PK makes query_hash unique per observation,
+      -- so COUNT(*) per observation IS the distinct-query count (cf. db.ts:110). A scalar
+      -- COUNT(*) subquery returns 0 (never NULL) when no rows match, so no COALESCE is needed.
+      (SELECT COUNT(*)
+         FROM access_queries q
+        WHERE q.observation_id = o.id) AS distinct_queries
     FROM observations o
     LEFT JOIN access_stats s ON s.observation_id = o.id
     ${where}
