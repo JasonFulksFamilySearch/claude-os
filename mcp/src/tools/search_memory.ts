@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
 import { z } from "zod";
 import { embedQuery, serializeVector } from "../embedder.js";
@@ -226,6 +227,9 @@ export async function searchMemory(
   //    (not observations) so it never fires the FTS-sync triggers, and is wrapped so a
   //    transient write failure never fails the read.
   try {
+    const query_hash = createHash("sha256")
+      .update(args.query.trim().toLowerCase())
+      .digest("hex");
     const upsert = db.prepare(
       `INSERT INTO access_stats(observation_id, last_accessed, access_count)
        VALUES (?, ?, 1)
@@ -233,8 +237,18 @@ export async function searchMemory(
          last_accessed = excluded.last_accessed,
          access_count = access_count + 1`,
     );
+    const upsertQuery = db.prepare(
+      `INSERT INTO access_queries(observation_id, query_hash, access_count, first_seen, last_seen)
+       VALUES (?, ?, 1, ?, ?)
+       ON CONFLICT(observation_id, query_hash) DO UPDATE SET
+         access_count = access_count + 1,
+         last_seen = excluded.last_seen`,
+    );
     const bump = db.transaction((rows: SearchMemoryResult[]) => {
-      for (const r of rows) upsert.run(r.id, now);
+      for (const r of rows) {
+        upsert.run(r.id, now);
+        upsertQuery.run(r.id, query_hash, now, now);
+      }
     });
     bump(results);
   } catch {

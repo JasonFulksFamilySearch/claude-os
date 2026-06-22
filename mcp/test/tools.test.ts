@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { createHash } from "node:crypto";
 
 vi.mock("../src/embedder.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/embedder.js")>();
@@ -182,6 +183,147 @@ describe("search_memory", () => {
     // After the reinforcement write, the row is still found by FTS unchanged.
     const again = await searchMemory(db, { query: "checkstyle" });
     expect(again[0].id).toBe(topId);
+  });
+
+  describe("access_queries", () => {
+    const FIXED_MS = 1_700_000_000_000; // 2023-11-14T22:13:20Z — arbitrary frozen instant
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    // Helper: compute the expected hash the same way the implementation does.
+    const hash = (q: string) =>
+      createHash("sha256").update(q.trim().toLowerCase()).digest("hex");
+
+    it("(a) inserts one row per returned observation, all sharing the same query hash, access_count=1, first_seen===last_seen===frozen_time", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(FIXED_MS));
+
+      const query = "checkstyle";
+      const results = await searchMemory(db, { query });
+      expect(results.length).toBeGreaterThan(0);
+
+      const expectedHash = hash(query);
+      const expectedSec = Math.floor(FIXED_MS / 1000);
+
+      const rows = db
+        .prepare("SELECT * FROM access_queries WHERE query_hash = ?")
+        .all(expectedHash) as Array<{
+          observation_id: number;
+          query_hash: string;
+          access_count: number;
+          first_seen: number;
+          last_seen: number;
+        }>;
+
+      // One row per returned observation
+      expect(rows.length).toBe(results.length);
+      // All returned observation IDs must be in access_queries
+      const obsIds = new Set(rows.map((r) => r.observation_id));
+      for (const res of results) {
+        expect(obsIds.has(res.id)).toBe(true);
+      }
+      // All share the same hash, access_count=1, timestamps equal the frozen second
+      for (const row of rows) {
+        expect(row.query_hash).toBe(expectedHash);
+        expect(row.access_count).toBe(1);
+        expect(row.first_seen).toBe(expectedSec);
+        expect(row.last_seen).toBe(expectedSec);
+        expect(row.first_seen).toBe(row.last_seen);
+      }
+    });
+
+    it("(b) re-querying with the same query increments access_count and bumps last_seen, first_seen unchanged", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(FIXED_MS));
+
+      const query = "checkstyle";
+      const results = await searchMemory(db, { query });
+      expect(results.length).toBeGreaterThan(0);
+      const topId = results[0].id;
+      const firstSec = Math.floor(FIXED_MS / 1000);
+
+      // Advance the clock by 60 seconds for the second query
+      const SECOND_MS = FIXED_MS + 60_000;
+      vi.setSystemTime(new Date(SECOND_MS));
+      const secondSec = Math.floor(SECOND_MS / 1000);
+
+      await searchMemory(db, { query });
+
+      const row = db
+        .prepare("SELECT access_count, first_seen, last_seen FROM access_queries WHERE observation_id = ? AND query_hash = ?")
+        .get(topId, hash(query)) as { access_count: number; first_seen: number; last_seen: number };
+
+      expect(row.access_count).toBe(2);
+      expect(row.last_seen).toBe(secondSec);
+      expect(row.first_seen).toBe(firstSec); // unchanged
+      expect(row.first_seen).not.toBe(row.last_seen);
+    });
+
+    it("(c) a different query for an overlapping observation adds a second (obs, hash) row → COUNT(DISTINCT query_hash) = 2", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(FIXED_MS));
+
+      const queryA = "checkstyle";
+      const queryB = "maven";
+
+      const resA = await searchMemory(db, { query: queryA });
+      const resB = await searchMemory(db, { query: queryB });
+
+      // Find an observation that appeared in both result sets
+      const idsA = new Set(resA.map((r) => r.id));
+      const overlap = resB.filter((r) => idsA.has(r.id));
+      // The java.md fixture should match both "checkstyle" and "maven"
+      expect(overlap.length).toBeGreaterThan(0);
+
+      const sharedId = overlap[0].id;
+      const countRow = db
+        .prepare("SELECT COUNT(DISTINCT query_hash) AS c FROM access_queries WHERE observation_id = ?")
+        .get(sharedId) as { c: number };
+      expect(countRow.c).toBe(2);
+    });
+
+    it("(d) raw query text is never stored — no column in access_queries contains the literal query string", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(FIXED_MS));
+
+      const query = "checkstyle_unique_sentinel_xyzzy";
+      // Seed a row that will match — insert directly so we have content with our token
+      const nowSec = Math.floor(FIXED_MS / 1000);
+      const ins = db.prepare(
+        `INSERT INTO observations (source_type, source_path, anchor, project, topic, title, content, content_hash, file_mtime, indexed_at)
+         VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)`
+      );
+      ins.run("learning", "/fake/sentinel-test.md", "", "sentinel", query, `hash-sentinel-${query}`, nowSec, nowSec);
+
+      await searchMemory(db, { query });
+
+      const rows = db
+        .prepare("SELECT observation_id, query_hash, access_count, first_seen, last_seen FROM access_queries")
+        .all() as Array<{ observation_id: number; query_hash: string; access_count: number; first_seen: number; last_seen: number }>;
+
+      expect(rows.length).toBeGreaterThan(0);
+      for (const row of rows) {
+        // The literal query string must NOT appear in any column value
+        const colValues = [String(row.observation_id), row.query_hash, String(row.access_count), String(row.first_seen), String(row.last_seen)];
+        for (const val of colValues) {
+          expect(val).not.toContain(query);
+        }
+      }
+    });
+
+    it("(e) read-path isolation — a telemetry-write failure does not fail the search", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(FIXED_MS));
+
+      // Drop the access_queries table to force the UPSERT into it to throw
+      db.exec("DROP TABLE access_queries");
+
+      // searchMemory must still return results despite the telemetry failure
+      const results = await searchMemory(db, { query: "checkstyle" });
+      expect(results.length).toBeGreaterThan(0);
+    });
   });
 
   it("truncates to exactly limit when many candidates match", async () => {
