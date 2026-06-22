@@ -107,18 +107,25 @@ if [ -f "$DEPRECATED_LABELS" ]; then
     ok "Removed deprecated in-repo labeled set (now machine-local at ~/.claude-data/eval/)"
 fi
 
-# Arming the eval gate is a one-time, human-gated, PER-MACHINE step that cannot be
-# scripted — the labeled set must be curated against THIS machine's corpus, and the
-# baseline captured on THIS machine's index. Surface the reminder only while the gate
-# is unarmed (no baseline captured yet) so it stops nagging once done.
+# Arming the eval gate + running the C2 cutover are one-time, human-gated, PER-MACHINE
+# steps that cannot be scripted — the labeled set must be curated against THIS machine's
+# corpus, the baseline captured on THIS machine's index, and the cutover (one-way) run
+# only after a passing baseline. Surface the reminder only while the gate is unarmed
+# (no baseline captured yet) so it stops nagging once done.
 EVAL_BASELINE="$HOME/.claude-data/eval-baseline.json"
 if [ ! -f "$EVAL_BASELINE" ]; then
-    warn "Eval gate not yet armed on this machine — OPTIONAL follow-up:"
+    warn "Eval gate not yet armed on this machine — OPTIONAL human-gated follow-up:"
     echo "      1. Curate: draft ~20-30 candidate queries from THIS machine's corpus,"
     echo "         approve 15-25, write them into $LABELS_LIVE"
     echo "         (do NOT copy another machine's set — queries are corpus-specific)."
     echo "      2. Baseline: (cd $REPO_DIR/mcp && npm run eval -- --rebaseline)"
-    echo "      Do NOT run 'npm run cutover' — the C2 chunk-split is deferred pending hardening."
+    echo "      3. Cutover (C2 chunk-split → entry-granular rows; one-way, snapshot-backed):"
+    echo "         (cd $REPO_DIR/mcp && npm run cutover)"
+    echo "      4. Verify non-regression — PASS required before relying on it:"
+    echo "         (cd $REPO_DIR/mcp && npm run eval)   # expect VERDICT: PASS"
+    echo "      The cutover unblocks C3 usage-dossiers (entry-granular telemetry); it is"
+    echo "      armed per-machine AFTER this machine is activated (and, on the pilot Mac,"
+    echo "      after the pilot run). Sequence it yourself — never automate the cutover."
 fi
 
 echo ""
