@@ -1560,7 +1560,7 @@ describe("get_usage_dossier (C3)", () => {
     expect(contextOnly.some((r) => r.source_path === "/test/filter-learning.md")).toBe(false);
   });
 
-  it("(c) path_prefix narrows results by source_path prefix", () => {
+  it("(d) path_prefix narrows results by source_path prefix", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(FROZEN_MS));
 
@@ -1576,7 +1576,7 @@ describe("get_usage_dossier (C3)", () => {
     expect(prefixResults.some((r) => r.source_path === "/other/nomatch.md")).toBe(false);
   });
 
-  it("(d) read-only contract — call performs NO writes (access_stats/access_queries/observations row counts unchanged)", () => {
+  it("(e) read-only contract — call performs NO writes (access_stats/access_queries/observations row counts unchanged)", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(FROZEN_MS));
 
@@ -1599,7 +1599,7 @@ describe("get_usage_dossier (C3)", () => {
     expect(countRows("access_queries")).toBe(beforeQueries);
   });
 
-  it("(e) cold-start parity — never-accessed row uses indexed_at for decay, not NaN/null", () => {
+  it("(f) cold-start parity — never-accessed row uses indexed_at for decay, not NaN/null", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(FROZEN_MS));
 
@@ -1626,5 +1626,22 @@ describe("get_usage_dossier (C3)", () => {
     expect(row.decay_score).toBeCloseTo(expectedDecay, 10);
     // days_since_last_access = days since indexed (cold-start)
     expect(row.days_since_last_access).toBe(15);
+  });
+
+  it("(g) path_prefix treats '_' as a literal, not a LIKE wildcard", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(FROZEN_MS));
+
+    const indexedAt = FROZEN_NOW_SEC - 5 * 86400;
+    // The intended match (literal underscore) and a decoy that an UNescaped '_'
+    // wildcard would also match (any char in that position, e.g. 'x').
+    seedObservation({ source_path: "/ctx/_index.md", indexed_at: indexedAt });
+    seedObservation({ source_path: "/ctx/xindex.md", indexed_at: indexedAt });
+
+    const results = getUsageDossier(db, { path_prefix: "/ctx/_index" });
+
+    // Only the literal "_index" path matches; the decoy must NOT leak in.
+    expect(results.length).toBe(1);
+    expect(results[0].source_path).toBe("/ctx/_index.md");
   });
 });

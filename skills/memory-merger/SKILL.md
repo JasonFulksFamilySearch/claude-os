@@ -125,7 +125,9 @@ Then read all of the following:
   not to auto-fix. Surface it in the Step 4 proposals as an informational note; do not take
   any remediation action without explicit approval.
 - **Capture usage evidence (C3):** for each entry you have identified as a GRADUATE, KEEP, or PRUNE
-  candidate, call `get_usage_dossier` with its `source_path`. This is read-only reporting, no writes.
+  candidate, call `get_usage_dossier` with `path_prefix` set to the entry's `source_path`. The tool
+  returns one row per anchored entry in that file (post-cutover a file holds several); pick the row
+  whose `anchor` matches the entry you are judging. This is read-only reporting, no writes.
   Report as a single evidence line beside the entry, e.g.:
   > "Usage: 5 recalls · 4 distinct queries · last access 3 days ago · decay 0.92 [BADGE]"
   The `[BADGE]` marker appears when `access_count ≥ 3 AND distinct_queries ≥ 3` — it is advisory

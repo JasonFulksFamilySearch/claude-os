@@ -102,8 +102,11 @@ export function getUsageDossier(db: Database.Database, rawArgs: unknown): UsageD
     bindings.push(args.project_filter);
   }
   if (args.path_prefix !== undefined) {
-    conditions.push("o.source_path LIKE ? || '%'");
-    bindings.push(args.path_prefix);
+    // Treat path_prefix as a LITERAL prefix: escape LIKE's wildcards (% and _) so a
+    // path containing them (e.g. "_index.md") matches verbatim, not as a pattern.
+    const literalPrefix = args.path_prefix.replace(/([\\%_])/g, "\\$1");
+    conditions.push("o.source_path LIKE ? || '%' ESCAPE '\\'");
+    bindings.push(literalPrefix);
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -117,7 +120,9 @@ export function getUsageDossier(db: Database.Database, rawArgs: unknown): UsageD
       s.access_count,
       s.last_accessed,
       COALESCE(
-        (SELECT COUNT(DISTINCT q.query_hash)
+        -- The (observation_id, query_hash) PK makes query_hash unique per observation,
+        -- so COUNT(*) per observation IS the distinct-query count (cf. db.ts:110).
+        (SELECT COUNT(*)
            FROM access_queries q
           WHERE q.observation_id = o.id),
         0

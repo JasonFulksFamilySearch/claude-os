@@ -121,8 +121,9 @@ Proposed learning (→ [agent|project] learnings):
 ```
 
 **Episode usage evidence:** for each source episode cited in the proposal, call
-`get_usage_dossier` with the episode's `source_path` and include a one-line evidence
-note beside the episode reference, e.g.:
+`get_usage_dossier` with `path_prefix` set to the episode's `source_path`, then pick the
+returned row whose `anchor` matches the episode (a file may hold several anchored rows).
+Include a one-line evidence note beside the episode reference, e.g.:
 > "[path] — 4 recalls · 3 distinct queries · last access 5 days ago · decay 0.88 [BADGE]"
 The `[BADGE]` marker appears when `access_count ≥ 3 AND distinct_queries ≥ 3`. This
 is read-only reporting — surface it so the human can see whether the cluster's episodes
