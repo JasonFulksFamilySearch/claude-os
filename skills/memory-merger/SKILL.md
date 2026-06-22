@@ -7,7 +7,7 @@ description: >
   "merge my memories", "clean up memory", "graduate memories", or "memory maintenance".
   Run monthly or when MEMORY.md starts to feel noisy.
 argument-hint: "(no arguments)"
-allowed-tools: Read Glob Grep Write Edit Bash(cd *) Bash(npm *) mcp__claude-os-mcp__append_learning mcp__claude-os-mcp__list_topics mcp__claude-os-mcp__search_memory mcp__claude-os-mcp__scan_novelty mcp__claude-os-mcp__resolve_novelty_flag
+allowed-tools: Read Glob Grep Write Edit Bash(cd *) Bash(npm *) mcp__claude-os-mcp__append_learning mcp__claude-os-mcp__list_topics mcp__claude-os-mcp__search_memory mcp__claude-os-mcp__scan_novelty mcp__claude-os-mcp__resolve_novelty_flag mcp__claude-os-mcp__get_usage_dossier
 ---
 
 <role>
@@ -124,6 +124,17 @@ Then read all of the following:
   A non-zero dead-letter count or a persistently growing queue is a signal to **surface to Sir**,
   not to auto-fix. Surface it in the Step 4 proposals as an informational note; do not take
   any remediation action without explicit approval.
+- **Capture usage evidence (C3):** for each UNIQUE `source_path` among your GRADUATE, KEEP, or PRUNE
+  candidates, call `get_usage_dossier` once with `path_prefix` set to that `source_path`. The tool
+  returns one row per anchored entry in that file (post-cutover a file holds several); for each
+  candidate from that file, pick the row whose `anchor` matches the entry you are judging (call once
+  per file, reuse the rows — do not re-call per candidate). This is read-only reporting, no writes.
+  Report as a single evidence line beside the entry, e.g.:
+  > "Usage: 5 recalls · 4 distinct queries · last access 3 days ago · decay 0.92 [BADGE]"
+  The `[BADGE]` marker appears when `access_count ≥ 3 AND distinct_queries ≥ 3` — it is advisory
+  only. Surface the evidence in the Step 4 proposals so Sir can see each candidate's actual recall
+  history; do not auto-act, auto-prune, or change any classification based on the dossier alone.
+  A zero-recall entry is informational — the decision stays Sir's.
 
 ---
 

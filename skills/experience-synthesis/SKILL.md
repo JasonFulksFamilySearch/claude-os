@@ -8,7 +8,7 @@ description: >
   invokes /experience-synthesis, "synthesize experience", "synthesize my episodes", or as Phase 4
   of /memory-merger. Nothing is ever written without approval.
 argument-hint: "(no arguments) | optional project slug"
-allowed-tools: Read Glob Grep Agent mcp__claude-os-mcp__scan_experience mcp__claude-os-mcp__validate_experience_proposal mcp__claude-os-mcp__append_learning mcp__claude-os-mcp__mark_episode_promoted mcp__claude-os-mcp__list_episodes
+allowed-tools: Read Glob Grep Agent mcp__claude-os-mcp__scan_experience mcp__claude-os-mcp__validate_experience_proposal mcp__claude-os-mcp__append_learning mcp__claude-os-mcp__mark_episode_promoted mcp__claude-os-mcp__list_episodes mcp__claude-os-mcp__get_usage_dossier
 ---
 
 <role>
@@ -115,9 +115,22 @@ Present every proposal that cleared all three gates:
 
 ### P001 — [title]   (grade NN/100, gate verdict CLEAN, cohesion 0.NN)
 Source episodes: [session_id · date] × N
+Episode usage: [per-episode evidence line — see below]
 Proposed learning (→ [agent|project] learnings):
   [content]
 ```
+
+**Episode usage evidence:** for each UNIQUE `source_path` among the cited episodes, call
+`get_usage_dossier` once with `path_prefix` set to that `source_path`, then pick the returned
+row whose `anchor` matches each episode (a file may hold several anchored rows — call once per
+file and reuse the rows, rather than re-calling per episode).
+Include a one-line evidence note beside the episode reference, e.g.:
+> "[path] — 4 recalls · 3 distinct queries · last access 5 days ago · decay 0.88 [BADGE]"
+The `[BADGE]` marker appears when `access_count ≥ 3 AND distinct_queries ≥ 3`. This
+is read-only reporting — surface it so the human can see whether the cluster's episodes
+were ever actually recalled. The badge informs; it never filters, auto-promotes, or
+auto-acts. If a dossier returns zero recalls for every episode in a cluster, note that
+explicitly so the human can weigh it; the decision is theirs.
 
 List any clusters discarded or proposals dropped at each gate (one line each) so the human sees what
 was filtered and why.

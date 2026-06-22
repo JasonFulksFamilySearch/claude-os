@@ -106,6 +106,18 @@ export function initSchema(db: Database.Database): void {
       access_count   INTEGER NOT NULL DEFAULT 0
     );
 
+    -- C3 usage-evidence dossiers: per-observation, per-query-hash telemetry.
+    -- Composite PK gives distinct-query count via COUNT(*) per observation.
+    -- FK-cascade to observations mirrors access_stats; FTS-trigger-free side table.
+    CREATE TABLE IF NOT EXISTS access_queries (
+      observation_id INTEGER NOT NULL REFERENCES observations(id) ON DELETE CASCADE,
+      query_hash     TEXT    NOT NULL,
+      access_count   INTEGER NOT NULL DEFAULT 0,
+      first_seen     INTEGER,
+      last_seen      INTEGER,
+      PRIMARY KEY (observation_id, query_hash)
+    );
+
     -- A2 novelty flags: candidate duplicate/contradiction pairs of dated learning entries,
     -- awaiting human-gated supersession in /memory-merger. Standalone (own PK, NO foreign key
     -- to observations) because it references ENTRIES, not observation rows — so its writes
