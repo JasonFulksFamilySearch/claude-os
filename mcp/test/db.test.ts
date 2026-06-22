@@ -57,11 +57,18 @@ function ftsSearch(query: string): { rowid: number }[] {
 }
 
 describe("db", () => {
-  it("openDb sets a non-zero busy_timeout so a concurrent writer waits instead of throwing SQLITE_BUSY", () => {
-    // Pins openDb's contract against driver-default drift: the SQLite C-library
-    // default is 0 (no wait), and openDb must guarantee a 5s wait regardless of
-    // what better-sqlite3's wrapper happens to default to.
-    expect(db.pragma("busy_timeout", { simple: true })).toBe(5000);
+  it("openDb sets busy_timeout to a value distinct from the driver default so a concurrent writer waits", () => {
+    // Anti-tautological pin: assert openDb's value differs from a RAW connection's
+    // default. openDb sets 10000; better-sqlite3 defaults a bare connection to
+    // 5000. Asserting both — distinct from the raw default AND equal to our pin —
+    // means removing openDb's `busy_timeout = 10000` line makes the connection
+    // fall back to 5000 and this test goes RED. (A test asserting only "=== 5000"
+    // would survive that revert, since 5000 is also the driver default.)
+    const raw = new Database(":memory:");
+    const driverDefault = raw.pragma("busy_timeout", { simple: true });
+    raw.close();
+    expect(db.pragma("busy_timeout", { simple: true })).toBe(10000);
+    expect(db.pragma("busy_timeout", { simple: true })).not.toBe(driverDefault);
   });
 
   it("openDb is idempotent", () => {
