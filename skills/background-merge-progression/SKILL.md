@@ -87,7 +87,7 @@ tell them apart:
   immediately.** No `gh`/`jira`, no transition. The local digest queue is also unreachable, so there
   is nowhere to write an entry; the run simply aborts. This is the intended outcome: a write-capable
   skill that finds itself outside its local home does nothing.
-- `$CLOUD_OK` is `true` is currently impossible (the contract test forbids it), and the `if` would
+- A `$CLOUD_OK` of `true` is currently impossible (the contract test forbids it), and the `if` would
   abort on it anyway — `true != false`. If a future cloud-portable write variant ever sets it, that
   variant — not this skill — owns the cloud path.
 
