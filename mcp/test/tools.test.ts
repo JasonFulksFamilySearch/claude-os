@@ -340,6 +340,79 @@ describe("search_memory", () => {
     await expect(searchMemory(db, { query: '"unbalanced' })).resolves.toBeDefined();
   });
 
+  it("a logger write failure in the FTS fallback path does not fail the search", async () => {
+    // The FTS fallback catches now LOG the swallowed failure (so the bug can't recur silently).
+    // But logger.log uses appendFileSync, which can throw — and it sits INSIDE the catch whose
+    // whole job is to tolerate a malformed query. If that log write throws unguarded, search
+    // fails in exactly the scenario the catch exists to absorb. Force the log write to throw
+    // (point the log path at a directory → EISDIR on append) and assert search still returns.
+    setLogPath(workDir); // a directory — appendFileSync to it throws EISDIR
+    try {
+      // A comma-laden query throws on raw MATCH → enters the warn-catch → triggers log().
+      const results = await searchMemory(db, {
+        query: "maven clean test, checkstyle pre-commit gate",
+      });
+      expect(results.some((r) => r.topic === "java")).toBe(true);
+    } finally {
+      setLogPath(join(workDir, "test.log")); // restore for subsequent tests
+    }
+  });
+
+  it("falls back for a comma-laden NL query that throws as-written, surfacing the answer file", async () => {
+    // "maven clean test, checkstyle pre-commit gate" — the bare comma is FTS5 syntax, so
+    // as-written it throws (no such column / syntax error) and the keyword retriever goes
+    // silent. The fallback sanitizes it (commas/hyphens stripped, OR-combined) so java.md —
+    // which contains "clean", "test", "checkstyle" — is retrieved via the keyword side.
+    const results = await searchMemory(db, {
+      query: "maven clean test, checkstyle pre-commit gate",
+    });
+    expect(results.some((r) => r.topic === "java")).toBe(true);
+    // The FTS snippet (only present when the keyword retriever contributed) proves the
+    // fallback fired rather than the result riding on the vector side alone.
+    expect(results.find((r) => r.topic === "java")?.snippet).toContain("<mark>");
+  });
+
+  it("falls back for a bare-NL query that returns ZERO hits via implicit-AND (no throw), surfacing the answer file", async () => {
+    // The second #82 failure mode (distinct from the throwing comma query above): a clean
+    // multi-word query with no FTS5 punctuation does not throw, but implicit-AND requires ONE
+    // row to contain EVERY token. "java maven jira sprint" spans two files (java/maven live in
+    // java.md; jira/sprint in jira.md), so no single row matches all four → zero hits, silent.
+    // The fallback fires only because the query is bare NL (isIntentionalFts5 === false), and
+    // OR-combines the tokens so the strong partial match (java.md on java+maven) is retrieved.
+    // This is the implicit-AND regression repro and the positive test for the zero-hit branch —
+    // reverting that branch (search_memory.ts: the `ftsRows.length === 0 && !isIntentionalFts5`
+    // clause) makes the <mark> assertion below fail.
+    const results = await searchMemory(db, { query: "java maven jira sprint" });
+    expect(results.some((r) => r.topic === "java")).toBe(true);
+    // The FTS snippet (only present when the keyword retriever contributed) proves the OR
+    // fallback fired — without it the zero-hit query leaves the keyword side silent and the
+    // result would ride on the vector side alone (no <mark>).
+    expect(results.find((r) => r.topic === "java")?.snippet).toContain("<mark>");
+  });
+
+  it("does NOT flatten an intentional boolean query that legitimately matches nothing", async () => {
+    // "checkstyle NOT java" is valid FTS5 with an UPPERCASE operator → isIntentionalFts5 is
+    // true. In this corpus "checkstyle" only ever co-occurs with "java" (same java.md row),
+    // so the boolean correctly matches zero keyword rows. The zero-hit fallback must NOT fire
+    // and flatten it into "checkstyle OR not OR java" — that would wrongly surface java.md.
+    // (Guards the RBJ cycle-2 S4 catch.)
+    const flattened = await searchMemory(db, { query: "checkstyle OR not OR java" });
+    const intentional = await searchMemory(db, { query: "checkstyle NOT java" });
+    // The flattened form DOES surface java.md (proving the corpus would expose the bug)…
+    expect(flattened.some((r) => r.topic === "java")).toBe(true);
+    // …but the intentional boolean must NOT get the same treatment via the fallback: its
+    // keyword retriever stays empty, so java.md is not surfaced by a flattened keyword hit.
+    expect(intentional.find((r) => r.topic === "java")?.snippet ?? "").not.toContain("<mark>");
+  });
+
+  it("a query with FTS hits never enters the fallback (byte-identical path)", async () => {
+    // "checkstyle" returns FTS hits as-written, so the fallback is never consulted — the
+    // result is exactly today's behavior (java.md #1 with a marked snippet).
+    const results = await searchMemory(db, { query: "checkstyle" });
+    expect(results[0].topic).toBe("java");
+    expect(results[0].snippet).toContain("<mark>checkstyle</mark>");
+  });
+
   it("result objects include an anchor field", async () => {
     const results = await searchMemory(db, { query: "checkstyle" });
     expect(results.length).toBeGreaterThan(0);
