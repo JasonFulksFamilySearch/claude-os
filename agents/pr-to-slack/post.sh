@@ -163,8 +163,11 @@ if [ "${COPILOT_UNRESOLVED:-0}" -gt 0 ]; then
   fail "pre-flight failed: ${COPILOT_UNRESOLVED} unresolved Copilot review thread(s). Resolve them and try again."
 fi
 
+# The REST comments API returns the bot login with a "[bot]" suffix
+# (sonarqube-familysearch-integration[bot]); startswith matches with or without it.
+# An exact "== sonarqube-familysearch-integration" never matches, silently no-opping this gate.
 SONAR_LATEST="$(gh api "repos/${OWNER}/${REPO_NAME}/issues/${PR_NUMBER}/comments" \
-  --jq '[.[] | select(.user.login == "sonarqube-familysearch-integration")] | last | .body // empty' 2>/dev/null || printf '')"
+  --jq '[.[] | select(.user.login | startswith("sonarqube-familysearch-integration"))] | last | .body // empty' 2>/dev/null || printf '')"
 
 if [[ "$SONAR_LATEST" == *"Quality Gate failed"* ]]; then
   fail "pre-flight failed: SonarQube Quality Gate failed on the latest scan. Resolve and try again."
