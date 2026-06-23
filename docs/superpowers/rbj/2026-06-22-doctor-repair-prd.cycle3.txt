@@ -1,0 +1,25 @@
+# RBJ audit record — skill v1.0
+# utc: 2026-06-22T00:00:00Z   mode: prd   cycle: 3/2 (OVER CAP — confirmation run authorized by operator)
+# artifact: docs/2026-06-22-doctor-repair-prd.md   ground_truth: GitHub issue #83; live MCP source at mcp/src/
+
+=== RBJ-VERDICT v1.0 ===
+mode: prd
+cycle: 3/2
+verdict: ESCALATE
+escalation_kind: operational
+scores:
+- F1 PASS none :: All six #83 PROPOSED-SCOPE categories map to PRD check catalog sections.
+- F2 PASS none :: No capability beyond #83; new files expected for a feature; Out of Scope bounds it.
+- F3 PASS none :: Problem statement mirrors #83; sibling skills correctly distinguished.
+- F4 PASS none :: No ticket requirement silently omitted.
+- S1 FAIL technical :: Cutover-error check's comparison mechanism (set-equality of chunkFile(currentContent) anchors vs indexed anchor-set) is SOUND and verified — indexer.ts:218-291 reconciles each file by re-running the chunker and upserting by (source_path,anchor), so in steady state the index equals chunkFile(current). BUT the check's interpretive claim that a disagreement "means the index missed a split (a cutover failure)" over-attributes cause: an anchor-set disagreement also arises transiently when a file was edited after cutover and not yet reindexed (indexer.ts:158,289 hash-gate + skipped_unchanged confirm reindex is what converges the index). The check should reindex-gate / content_hash-gate the file before attributing disagreement to cutover failure. Mechanism sound; conclusion needs one more precondition.
+- S2 PASS none :: Every named existing file verified to exist and match claims (chunker.ts chunkFile:263, chunkByEntries:43-66, chunkByHeadings:239-261; indexer.ts reconcile/upsert; db.ts; election.ts; cutover.ts; eval.ts; update.sh; context-templates/). New files named with responsibility.
+- S3 PASS none :: Mirrors eval.ts/scripts/eval.ts seam, subprocess boundary, PASS/FAIL/INCONCLUSIVE vocabulary.
+- S4 PASS none :: Public APIs only; backup-before-mutate matches cutover.ts; subprocess isolation from embedder verified.
+- S5 NA applies-if :: Feature, not a bug ticket.
+red_challenge: landed:S1
+revise_lines: S1
+escalation_ask: "Cutover-error check (Index/cutover state) is sound in MECHANISM but over-attributes the CAUSE of an anchor-set disagreement. Across 3 cycles every landed FAIL has been on this one check's INTERPRETATION, never its comparison logic — the recurring signal is that 'doctor cannot, from index state alone, distinguish a cutover failure from a not-yet-reindexed edit.' Human decision needed: (a) reindex/content_hash-gate the file before flagging (then a disagreement on a fresh file = genuine cutover error), OR (b) re-scope the check to report 'N files whose indexed shape diverges from current chunker output' WITHOUT claiming the cause is cutover-failure, leaving cause attribution to a fresh `npm run cutover`/freshness check. Cap (max_revise_cycles=2) reached; gate stops here by contract."
+=== END RBJ-VERDICT ===
+
+Human summary: 8/9 rubric lines PASS across three cycles; the PRD is faithful to #83 and accurate about the codebase. The single recurring defect is one check — the cutover-errored-files re-derivation. The comparison mechanism (run chunkFile on current content, compare anchor-sets) is now verified sound against indexer.ts (the index converges to chunkFile output via reconcile/upsert + hash-gate). What keeps failing is the INTERPRETATION: an anchor-set disagreement is attributed to "cutover missed a split," but it can equally be a file edited after cutover and not yet reindexed. The gate reached its 2-revision cap; this 3rd run was an operator-authorized over-cap confirmation. Per the RBJ contract a remaining grounded FAIL at the cap is ESCALATE (operational — cap reached): stop revising, a human decides between gating the check on freshness (option a) or re-scoping it to report divergence without claiming cause (option b). Note: this defect is confined to ONE bullet of ONE check; the other ~17 checks and the entire doctor/repair architecture passed the gate cleanly.
