@@ -1,0 +1,25 @@
+# RBJ audit record — skill v1.0
+# utc: 2026-06-22T00:00:00Z   mode: prd   cycle: 1/2
+# artifact: docs/2026-06-22-doctor-repair-prd.md   ground_truth: GitHub issue #83; live MCP source at mcp/src/
+
+=== RBJ-VERDICT v1.0 ===
+mode: prd
+cycle: 1/2
+verdict: REVISE
+escalation_kind: none
+scores:
+- F1 PASS none :: All six #83 PROPOSED-SCOPE categories map to PRD check catalog sections (eval-gate, index/cutover, corpus integrity, single-writer, dep/build, backups, advisory).
+- F2 PASS none :: No capability beyond #83; new files (doctor.ts, scripts/doctor.ts, skills/doctor) expected for a feature; Out of Scope section explicitly bounds (--quick, auto-apply, MCP surface, cron all excluded).
+- F3 PASS none :: Problem statement mirrors #83 motivation; correctly distinguishes sibling skills (audit-claude-os/mcp-health-audit/resource-report) as not memory-engine-state-focused (verified against their SKILL.md).
+- F4 PASS none :: No ticket requirement silently omitted; PRD fully scopes the checklist.
+- S1 FAIL technical :: Cutover-error check (PRD "re-derive from index state": flag c2_chunking_enabled='1' files with only an anchor='' row) is unsound — chunker.ts:290-292 makes episode/agent always whole-file and chunker.ts:240-241,257 makes context files <=2000 chars or heading-less whole-file, so the check false-positives on every legitimately-whole-file file (the same #82 single-row files the PRD classifies ADVISORY). Needs a source_type + size/heading filter to distinguish "should-have-chunked" from "correctly whole-file".
+- S2 PASS none :: Every named existing file verified to exist and say what the PRD claims: db.ts (v3 schema, anchor col, meta table), migrations.ts (isV3Schema, backupDb via VACUUM INTO), election.ts (isStale, HEARTBEAT_REFRESH_MS=60000, STALENESS_MULTIPLE=3), cutover.ts (c2_chunking_enabled flip, timestamped backup, erroredPaths returned-not-persisted), eval.ts/scripts (temp-DB-copy, no process.exit), indexer.ts (orphan-vector probe, vectorCoverageSweep), context-templates/ + update.sh Step 7.
+- S3 PASS none :: Mirrors eval.ts (pure logic) + scripts/eval.ts (runner) seam; subprocess-not-import boundary matches reembed.ts onnxruntime-cleanup rationale; reuses PASS/FAIL/INCONCLUSIVE vocabulary from eval.ts.
+- S4 PASS none :: Imports public APIs only; read-only except per-fix backup+apply matching cutover.ts VACUUM-INTO-before-mutate; no adjacent module obviously broken.
+- S5 NA applies-if :: Feature, not a bug ticket — no failing-test-to-pass clause applies. (Testing strategy is nonetheless specified: honesty invariant proven first, per-check fixtures, repair idempotence/backup tests.)
+red_challenge: landed:S1
+revise_lines: S1
+escalation_ask: none
+=== END RBJ-VERDICT ===
+
+Human summary: The PRD is faithful to #83 and accurate about the codebase on 8 of 9 lines. One technical defect: the cutover-errored-files check, as specified, would false-positive on every legitimately whole-file file (episodes, agent files, small/heading-less context docs) because it keys only on "single anchor='' row under chunking-enabled" without filtering by source_type and size. Fix: add the chunker's own routing predicate (only learning/decision files, and context/project files > SPLIT_THRESHOLD_CHARS with H2+ headings, are expected to carry anchor!='' rows) so the check flags genuine non-chunked failures, not correct whole-file rows.

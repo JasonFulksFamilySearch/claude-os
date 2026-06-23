@@ -1,0 +1,25 @@
+# RBJ audit record — skill v1.0
+# utc: 2026-06-22T00:00:00Z   mode: prd   cycle: 2/2
+# artifact: docs/2026-06-22-doctor-repair-prd.md   ground_truth: GitHub issue #83; live MCP source at mcp/src/
+
+=== RBJ-VERDICT v1.0 ===
+mode: prd
+cycle: 2/2
+verdict: REVISE
+escalation_kind: none
+scores:
+- F1 PASS none :: All six #83 PROPOSED-SCOPE categories map to PRD check catalog sections.
+- F2 PASS none :: No capability beyond #83; new files expected for a feature; Out of Scope explicitly bounds.
+- F3 PASS none :: Problem statement mirrors #83 motivation; sibling skills correctly distinguished.
+- F4 PASS none :: No ticket requirement silently omitted.
+- S1 PASS none :: Root cause/integration point named with concrete file:line citations (db.ts, migrations.ts, election.ts, cutover.ts, eval.ts, indexer.ts, update.sh Step 7).
+- S2 FAIL technical :: Revised cutover-error check still unsound for learning/decision: chunker.ts:43-47 (chunkByEntries) returns [wholeFileChunk] with anchor='' when a learning/decision file has NO dated entries — comment chunker.ts:42 confirms this is intended, not a failure. The PRD (revised) asserts learning/decision files are always expected to carry anchor!='' rows, so the check false-positives on a correctly-whole-file entry-less learning/decision file. chunkByEntries has no "should-split" predicate (unlike chunkByHeadings which guards on size + H1), so "reuse the chunker's predicate" is not implementable for that source type as stated.
+- S3 PASS none :: Mirrors eval.ts/scripts/eval.ts seam, subprocess boundary, PASS/FAIL/INCONCLUSIVE vocabulary.
+- S4 PASS none :: Public APIs only; backup-before-mutate matches cutover.ts; subprocess isolation from embedder verified.
+- S5 NA applies-if :: Feature, not a bug ticket.
+red_challenge: landed:S2
+revise_lines: S2
+escalation_ask: none
+=== END RBJ-VERDICT ===
+
+Human summary: Cycle-1's S1 fix narrowed the cutover-error check to the chunker's routing rule, which fixed the episode/agent/small-context false-positives. But a second hole remains: chunkByEntries (chunker.ts:43-47) legitimately returns a whole-file chunk (anchor='') for a learning/decision file with no dated entries, and that is correct, intended behavior (comment at :42) — yet the revised check still treats all learning/decision files as "expected to chunk," so it would flag those entry-less files as cutover errors. The check cannot distinguish "failed to chunk" from "correctly fell back to whole-file" using anchor-shape alone. NOTE: cycle 2/2 reached the max_revise_cycles cap. A third REVISE is not permitted by the gate; the next state on a remaining FAIL would be ESCALATE (operational — cap reached). The fix itself is narrow and known (see recommendation), so the practical path is to apply it and treat a clean cycle-3 as out-of-band confirmation, OR re-scope the check. Recommended fix: detect cutover errors by COMPARING the index against a fresh dry-run of chunkFile per source_path (does chunkFile(content) yield >1 chunk or a non-empty anchor while the index holds only one anchor='' row?), rather than asserting by source_type. That uses the chunker's ACTUAL output as the oracle, so an entry-less learning file (chunkFile yields one whole-file chunk) is correctly NOT flagged, and a file the chunker WOULD split but the index left single is flagged. Equivalently: a file is a cutover error iff chunkFile(currentContent) disagrees with the file's current indexed chunk-shape.

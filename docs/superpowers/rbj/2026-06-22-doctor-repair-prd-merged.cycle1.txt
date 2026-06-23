@@ -1,0 +1,25 @@
+# RBJ audit record — skill v1.0
+# utc: 2026-06-22T00:00:00Z   mode: prd   cycle: 1/2
+# artifact: docs/2026-06-22-doctor-repair-prd.md (merged canonical, PR #86 branch)   ground_truth: GitHub issue #83; live MCP source at mcp/src/
+
+=== RBJ-VERDICT v1.0 ===
+mode: prd
+cycle: 1/2
+verdict: CLEAN
+escalation_kind: none
+scores:
+- F1 PASS none :: Stories A–J cover every #83 category (diagnosis, eval-gate, index/cutover, corpus integrity, single-writer, dep/build, backups, repair, wiring); Gherkin acceptance criteria per story.
+- F2 PASS none :: No capability beyond #83; out-of-scope set explicit (vitest #84, --json, headless repair, audit --force); verdict vocabulary PASS/FAIL/INCONCLUSIVE/ADVISORY consistent incl. Gherkin stories; no dangling reference to the removed index-coverage/errored-files check; no agent names.
+- F3 PASS none :: Problem statement matches #83 — operator lacks a unified post-update health diagnostic; C2 cutover is the canonical example.
+- F4 PASS none :: No requirement silently omitted; --json deferred, audit --force refused, headless repair session-gated — all surfaced explicitly.
+- S1 PASS none :: Integration points named with file:line (chunker.ts:263 chunkFile oracle, db.ts schema, eval.ts:81-83 verdict model, election.ts:16-17 lock thresholds, indexer.ts orphan probe, migrations.ts:10 isV3Schema, update.sh Step 7).
+- S2 PASS none :: Every named existing file verified to exist and match claims: chunkFile signature, episode/agent whole-file (chunker.ts:290-292), HEARTBEAT_REFRESH_MS=60000/STALENESS_MULTIPLE=3, isV3Schema/backupDb VACUUM INTO, baseline.corpus.chunking_enabled field (scripts/eval.ts:76), context-templates/ provisioning. New files named with responsibility.
+- S3 PASS none :: Mirrors eval.ts pure-logic + scripts/eval.ts runner seam, temp-DB-copy isolation, backup-before-mutate (cutover.ts/migrations.ts), baseline-capture gate; no unjustified new pattern.
+- S4 PASS none :: Chunk-shape divergence check is SOUND — reports divergence only, defers cause; indexer persists anchors exactly as chunkFile produces them, check runs post-cutover; no legitimately-whole-file false-positive (challenger verified the H1-only edge case reasons correctly). No adjacent module broken.
+- S5 NA applies-if :: Feature, not a bug ticket; testing strategy specified separately (honesty-invariant-first, per-check fixtures, repair idempotence).
+red_challenge: no-grounded-fail
+revise_lines: none
+escalation_ask: none
+=== END RBJ-VERDICT ===
+
+Human summary: The merged canonical doctor/repair PRD passes the gate CLEAN on cycle 1. The reconciliation is faithful and internally consistent — Willis's structural depth (26 Gherkin stories, DoR/DoD, raw-DB-open decision, eval-inspector extraction, /assimilate-claude-os hook) is preserved while Walter's RBJ-hardened soundness (honesty invariant, chunk-shape divergence rescope replacing the unsound index-coverage check, subprocess boundary, ADVISORY-excluded composition) is grafted in. The challenger ran a hostile pass specifically at the merge seams (vocabulary drift in the Gherkin stories, dangling references to the removed check, anchor-string persistence mismatch, the H1-only chunker edge case) and could land no grounded FAIL. Provenance is project-owned (no agent names). This is the canonical spec.
