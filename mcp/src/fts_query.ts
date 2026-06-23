@@ -52,6 +52,10 @@ export function buildFallbackQuery(raw: string): string | null {
     .split(/[^a-z0-9]+/)
     .filter((t) => t.length > 1);
 
-  if (tokens.length === 0) return null;
-  return tokens.join(" OR ");
+  // Dedupe (a Set preserves first-occurrence order): a repeated input word would otherwise
+  // emit redundant OR-terms (e.g. "java java" → "java OR java"), which are valid but wasteful
+  // and could perturb bm25/parse edge-cases. Semantics are unchanged.
+  const unique = [...new Set(tokens)];
+  if (unique.length === 0) return null;
+  return unique.join(" OR ");
 }

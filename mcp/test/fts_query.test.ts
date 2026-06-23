@@ -59,6 +59,13 @@ describe("buildFallbackQuery — produces a valid, OR-combined FTS5 expression",
     const out = buildFallbackQuery("background agents scheduled cron jobs");
     expect(out).toBe("background OR agents OR scheduled OR cron OR jobs");
   });
+
+  it("dedupes repeated tokens, preserving first-occurrence order", () => {
+    // A repeated word (e.g. "java java maven") should yield each term once — repeated
+    // OR-terms are valid FTS5 but redundant and could perturb bm25/parse edge-cases.
+    const out = buildFallbackQuery("java java maven java");
+    expect(out).toBe("java OR maven");
+  });
 });
 
 describe("buildFallbackQuery — degenerate input signals 'no FTS query'", () => {

@@ -90,6 +90,17 @@ function wordSnippet(content: string): string {
   return words.length < content.length ? words + "…" : words;
 }
 
+// Best-effort logging for the FTS fallback catches: logger.log uses appendFileSync and can
+// throw (full disk, bad path). These log calls sit INSIDE catches whose contract is "never
+// fail the read", so a log-write failure must be swallowed, not propagated.
+function safeLog(...args: Parameters<typeof log>): void {
+  try {
+    log(...args);
+  } catch {
+    // Logging is diagnostic; its failure must never break the search read path.
+  }
+}
+
 export async function searchMemory(
   db: Database.Database,
   rawArgs: unknown,
@@ -148,8 +159,10 @@ export async function searchMemory(
   } catch (err) {
     // The as-written query is invalid FTS5 (e.g. an unescaped comma/em-dash/hyphen). This is
     // why the bug stayed invisible: the catch silently disabled the keyword retriever. Log it
-    // (Decision 6) so a future regression is diagnosable, then fall back below.
-    log("warn", "FTS as-written query failed; attempting sanitized fallback", {
+    // (Decision 6) so a future regression is diagnosable, then fall back below. The log itself
+    // is best-effort — logger.log uses appendFileSync and can throw; it must NOT break the read
+    // path inside the very catch whose job is to tolerate a malformed query.
+    safeLog("warn", "FTS as-written query failed; attempting sanitized fallback", {
       query: args.query,
       error: err instanceof Error ? err.message : String(err),
     });
@@ -168,8 +181,8 @@ export async function searchMemory(
       } catch (err) {
         // buildFallbackQuery only emits bare alphanumeric terms joined by OR, so this cannot
         // throw on a valid FTS index — but keep the safety net so a malformed query can never
-        // fail the read. Log it; the keyword retriever simply contributes nothing this call.
-        log("error", "sanitized FTS fallback unexpectedly failed", {
+        // fail the read. Log it (best-effort) and contribute nothing this call.
+        safeLog("error", "sanitized FTS fallback unexpectedly failed", {
           fallback: fallbackExpr,
           error: err instanceof Error ? err.message : String(err),
         });

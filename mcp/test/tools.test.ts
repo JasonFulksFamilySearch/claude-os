@@ -340,6 +340,24 @@ describe("search_memory", () => {
     await expect(searchMemory(db, { query: '"unbalanced' })).resolves.toBeDefined();
   });
 
+  it("a logger write failure in the FTS fallback path does not fail the search", async () => {
+    // The FTS fallback catches now LOG the swallowed failure (so the bug can't recur silently).
+    // But logger.log uses appendFileSync, which can throw — and it sits INSIDE the catch whose
+    // whole job is to tolerate a malformed query. If that log write throws unguarded, search
+    // fails in exactly the scenario the catch exists to absorb. Force the log write to throw
+    // (point the log path at a directory → EISDIR on append) and assert search still returns.
+    setLogPath(workDir); // a directory — appendFileSync to it throws EISDIR
+    try {
+      // A comma-laden query throws on raw MATCH → enters the warn-catch → triggers log().
+      const results = await searchMemory(db, {
+        query: "maven clean test, checkstyle pre-commit gate",
+      });
+      expect(results.some((r) => r.topic === "java")).toBe(true);
+    } finally {
+      setLogPath(join(workDir, "test.log")); // restore for subsequent tests
+    }
+  });
+
   it("falls back for a comma-laden NL query that throws as-written, surfacing the answer file", async () => {
     // "maven clean test, checkstyle pre-commit gate" — the bare comma is FTS5 syntax, so
     // as-written it throws (no such column / syntax error) and the keyword retriever goes
