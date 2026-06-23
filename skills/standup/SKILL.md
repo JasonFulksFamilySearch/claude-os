@@ -5,7 +5,7 @@ description: >
   analyzing git commits, GitHub PRs, and JIRA activity. Use when the user
   types /standup, asks "generate my standup", "what's my standup for today",
   "prepare standup notes", or requests a daily status summary. Default to
-  yesterday when no date is given.
+  today when no date is given.
 argument-hint: <date> (e.g., "yesterday", "2026-03-20", "Friday")
 allowed-tools: Bash(git *) Bash(gh *) Bash(jira *) Read
 ---
@@ -21,7 +21,7 @@ reading the actual data sources in this session.
 
 <task>
 Generate a standup script for the date specified in $ARGUMENTS (resolve to
-YYYY-MM-DD; default to yesterday if no date is given). The script must answer
+YYYY-MM-DD; default to today if no date is given). The script must answer
 the three Scrum standup questions:
 
 1. **Yesterday** — What did I complete or progress?
@@ -67,7 +67,8 @@ Parse `$ARGUMENTS` to a concrete YYYY-MM-DD date:
 - `"today"` → current date
 - Day name (`"Friday"`) → most recent occurrence of that day
 - ISO date (`"2026-03-20"`) → use as-is
-- No argument → default to yesterday
+- No argument → default to today (a standup is named for the day it is given; the prior
+  business day it reports on is derived below as `D`)
 
 Set `PLAN_DATE` (the standup date) and `YESTERDAY_DATE` (the prior business
 day — the window for "what did I do yesterday").
