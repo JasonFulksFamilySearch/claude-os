@@ -51,7 +51,9 @@ single markdown file to `~/Documents/WorkDay/Standups/` (reversible — overwrit
 prior day's file if same date) and prints to the conversation. It does not post
 externally, transition tickets, or modify any source system.
 
-**Scope discipline:** Include only items present in the collected CLI data.
+**Scope discipline:** Include only items present in the collected CLI data (`fallback`
+mode) or in the `retrospective` snapshot (`fresh` mode) — both are verified factual
+sources; in `fresh` mode do not discard the snapshot's figures as out-of-scope.
 Do not add aspirational items, infer ticket status from branch names, or
 summarize work that was not committed/merged/transitioned in the window.
 Do not introduce new sections or restructure the output format beyond what
@@ -88,7 +90,7 @@ Set `RENDER_MODE`:
   AND `retrospective.rawInputs.sourceFreshness.github === "ok"`.
 - **`fallback`** — otherwise. Record the reason, for the honest note in Step 3:
   - no file / no `retrospective` / `planDate` ≠ `D` → "retrospective not tracked yet."
-  - one or more sources `sourceFreshness` ≠ `"ok"` → for **each** non-ok source (Jira, GitHub, or both — name every one): "Perch's {jira and/or github} poll was behind; re-gathering from source." If the live re-gather of a named source in Step 2 ALSO fails, say "not tracked — {that source} unreachable" for it instead — never claim a re-gather that did not happen.
+  - one or more sources `sourceFreshness` ≠ `"ok"` → for **each** non-ok source (Jira, GitHub, or both — name every one): "Perch's {jira and/or github} retrospective was unavailable; re-gathering from source." (`sourceFreshness` is the literal `"failed"` for a failed poll — keep the wording neutral; do not assert mere "lateness" when the poll actually failed.) If the live re-gather of a named source in Step 2 ALSO fails, say "not tracked — {that source} unreachable" for it instead — never claim a re-gather that did not happen.
 
 The gate keys on `planDate` (the right plan-day) and per-source freshness — never on the
 age of the `asOf` timestamp. A retrospective computed from a failed poll is never
@@ -210,8 +212,8 @@ then render the full Completed / Worked-on / PRs format below from the Step-2 da
 ARC-4522). ARC-4536 and ARC-4612 carry forward. Closed 3 sprint items.
 
 **Today:** [Forward-looking prose, highest priority first, drawn from TWO verified sources
-only: the live open-sprint query (Step 2) and the retrospective's `carryoverFromPrev` keys
-(verified incomplete plan items — legitimate forward work even if not in the current
+only: the live open-sprint query (Step 2) and the retrospective's `derived.carryoverFromPrev`
+keys (verified incomplete plan items — legitimate forward work even if not in the current
 sprint). Do not name tickets outside those two. Name specific tickets and the next action.]
 
 **Blockers & risks:** [Named blockers AND at-risk items, as in fallback mode below.]
