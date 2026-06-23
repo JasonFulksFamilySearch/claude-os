@@ -65,6 +65,14 @@ CFG="$HOME/.claude-data/config/digest-config.json"
 # deterministic null, not a jq parse error that 2>/dev/null would hide (which would still
 # fail closed, but via a silent syntax error rather than clean logic).
 CLOUD_OK=$(jq -r --arg agent "$AGENT" '.digests["merge-progression"][$agent].cloud_allowed' "$CFG" 2>/dev/null)
+
+# ENFORCE, don't just describe: the early-exit IS the gate. Anything other than the literal
+# "false" (empty/null = sandbox, "true" = a contract violation) aborts before any gh/jira/write.
+# A headless run executes this block, not the prose below — so the refusal must live in code.
+if [ "$CLOUD_OK" != "false" ]; then
+  echo "merge-progression: cloud_allowed did not resolve to false (got '${CLOUD_OK:-<empty>}') — refusing to run outside local home." >&2
+  exit 1
+fi
 ```
 
 The **cloud signal** is the inability to resolve that local block: a cloud sandbox cannot reach
@@ -73,14 +81,15 @@ reads the committed `cloud_allowed: false`. So the two states the gate distingui
 "cloud-allowed vs not" — they are **"local home reachable" vs "sandbox"**, and `$CLOUD_OK` is how we
 tell them apart:
 
-- If `$CLOUD_OK` is exactly `false` → the local config resolved, i.e. this is the expected LOCAL
-  run. Continue to the auth checks below.
-- If `$CLOUD_OK` is empty/`null` (config unreadable — the sandbox fingerprint) → **stop immediately.**
-  Do not run `gh`/`jira`, do not transition anything. The local digest queue is also unreachable, so
-  there is nowhere to write an entry; the run simply aborts. This is the intended outcome: a
-  write-capable skill that finds itself outside its local home does nothing.
-- `$CLOUD_OK` is `true` is currently impossible (the contract test forbids it). If a future
-  cloud-portable write variant ever sets it, that variant — not this skill — owns the cloud path.
+- `$CLOUD_OK` is exactly `false` → the local config resolved, i.e. this is the expected LOCAL run.
+  The `if` above falls through and execution continues to the auth checks below.
+- `$CLOUD_OK` is empty/`null` (config unreadable — the sandbox fingerprint) → the `if` **exits 1
+  immediately.** No `gh`/`jira`, no transition. The local digest queue is also unreachable, so there
+  is nowhere to write an entry; the run simply aborts. This is the intended outcome: a write-capable
+  skill that finds itself outside its local home does nothing.
+- `$CLOUD_OK` is `true` is currently impossible (the contract test forbids it), and the `if` would
+  abort on it anyway — `true != false`. If a future cloud-portable write variant ever sets it, that
+  variant — not this skill — owns the cloud path.
 
 The pure classifier behind this rule is `bin/digest-cloud-guard.js` (`isCloudSchedulable` /
 `assertCloudSchedulable`), unit-tested in `bin/test/digest-cloud-guard.test.js`.
@@ -109,7 +118,8 @@ The refusal gate above already resolved `$AGENT` and `$CFG` and confirmed this i
 run. Read this skill's repo list from the same block:
 
 ```bash
-SLUGS=$(jq -r ".digests.\"merge-progression\".$AGENT.repos[]" "$CFG")
+# Same --arg + bracket-indexing discipline as the refusal gate above — never interpolate $AGENT.
+SLUGS=$(jq -r --arg agent "$AGENT" '.digests["merge-progression"][$agent].repos[]' "$CFG")
 ```
 
 If `$AGENT` is empty or the block is missing, write an error entry (`error: 'agent/config
