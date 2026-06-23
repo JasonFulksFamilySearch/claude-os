@@ -61,16 +61,20 @@ Read the skill's own `cloud_allowed` from config and refuse a cloud run before a
 ```bash
 AGENT="${AGENT:-$(jq -r '.agent_name' "$HOME/.claude-data/agent/identity.json" 2>/dev/null | tr '[:upper:]' '[:lower:]')}"
 CFG="$HOME/.claude-data/config/digest-config.json"
-CLOUD_OK=$(jq -r ".digests.\"merge-progression\".$AGENT.cloud_allowed" "$CFG" 2>/dev/null)
+# --arg + bracket indexing, never string interpolation: an empty/odd $AGENT must yield a
+# deterministic null, not a jq parse error that 2>/dev/null would hide (which would still
+# fail closed, but via a silent syntax error rather than clean logic).
+CLOUD_OK=$(jq -r --arg agent "$AGENT" '.digests["merge-progression"][$agent].cloud_allowed' "$CFG" 2>/dev/null)
 ```
 
 The **cloud signal** is the inability to resolve that local block: a cloud sandbox cannot reach
-`~/.claude-data/`, so `$CFG` is absent and `$CLOUD_OK` is empty/`null`. A local run reads
-`cloud_allowed: false`. The rule is therefore fail-closed — proceed **only** when the block resolves
-AND explicitly permits cloud (`true`); in every other case (`false`, `null`, empty, file missing)
-treat it as a refused cloud run when no local sink is reachable:
+`~/.claude-data/`, so `$CFG` is absent and `$CLOUD_OK` is empty/`null`. A local run, by contrast,
+reads the committed `cloud_allowed: false`. So the two states the gate distinguishes are **not**
+"cloud-allowed vs not" — they are **"local home reachable" vs "sandbox"**, and `$CLOUD_OK` is how we
+tell them apart:
 
-- If `$CLOUD_OK` is `false` → this is the expected LOCAL run. Continue to the auth checks below.
+- If `$CLOUD_OK` is exactly `false` → the local config resolved, i.e. this is the expected LOCAL
+  run. Continue to the auth checks below.
 - If `$CLOUD_OK` is empty/`null` (config unreadable — the sandbox fingerprint) → **stop immediately.**
   Do not run `gh`/`jira`, do not transition anything. The local digest queue is also unreachable, so
   there is nowhere to write an entry; the run simply aborts. This is the intended outcome: a
