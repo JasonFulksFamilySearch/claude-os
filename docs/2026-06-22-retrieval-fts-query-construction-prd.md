@@ -1,7 +1,7 @@
 # PRD — Retrieval fix: FTS query construction for natural-language queries
 
 **Status:** Draft for review — revised after RBJ cycles 1–3 (cycle 1 ESCALATE→product, resolved; cycle 2 REVISE→S4 contract break; cycle 3 ESCALATE→cap, S1 root-cause overclaim — corrected here, fix unchanged)
-**Author:** Willis (with Jason Fulks)
+**Provenance:** Authored through the claude-os PRD process and verified by the red-blue-judge gate (cycles 1–3, see Status above). Project-owned spec; pending Jason's approval.
 **Date:** 2026-06-22
 **Tracking issue:** [#82](https://github.com/JasonFulksFamilySearch/claude-os/issues/82) (retrieval gap — root cause confirmed here)
 **Related:** [#85](https://github.com/JasonFulksFamilySearch/claude-os/issues/85) (single-retriever / reinforcement imbalance — out of scope) · [#83](https://github.com/JasonFulksFamilySearch/claude-os/issues/83) (doctor detects zero-recall labels)
