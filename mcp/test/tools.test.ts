@@ -197,20 +197,23 @@ describe("search_memory", () => {
       (db.prepare("SELECT COUNT(*) AS c FROM access_queries").get() as { c: number }).c;
 
     it("reinforce:false mutates no access_stats or access_queries row, and returns the same rows", async () => {
-      // Establish identical retrieval; the only difference is the reinforce flag.
-      const reference = await searchMemory(db, { query: "checkstyle" });
-      expect(reference.length).toBeGreaterThan(0);
-      // Reset the side-tables so we measure ONLY the reinforce:false call's writes.
+      // Clear the side-tables so BOTH calls below observe identical (empty) reinforcement
+      // state. Ranking reads access_stats, so comparing against a reference taken under a
+      // different pre-state would be flaky. Running reinforce:false FIRST is safe precisely
+      // because it writes nothing — the state stays empty for the default call that follows.
       db.prepare("DELETE FROM access_stats").run();
       db.prepare("DELETE FROM access_queries").run();
 
-      const results = await searchMemory(db, { query: "checkstyle", reinforce: false });
-
-      // Same retrieval surface — gating reinforcement does not change which rows return.
-      expect(results.map((r) => r.id)).toEqual(reference.map((r) => r.id));
-      // No recall was recorded on either side-table.
+      const gated = await searchMemory(db, { query: "checkstyle", reinforce: false });
+      expect(gated.length).toBeGreaterThan(0);
+      // No recall was recorded on either side-table — the state is still empty.
       expect(statsCount()).toBe(0);
       expect(queriesCount()).toBe(0);
+
+      // The default call observes that SAME empty pre-state, so gating reinforcement does
+      // not change which rows return.
+      const reference = await searchMemory(db, { query: "checkstyle" });
+      expect(gated.map((r) => r.id)).toEqual(reference.map((r) => r.id));
     });
 
     it("the default (reinforce omitted) still bumps both side-tables", async () => {

@@ -17,8 +17,9 @@ export const searchMemoryInput = z.object({
   // access_stats and the access_queries telemetry). Defaults to true — the human-recall
   // behavior. A machine-originated retrieval (graph selection / enrich / graph-auditor)
   // must pass reinforce:false so its access is NOT counted as recall. This is a function-
-  // level parameter for internal callers; it is intentionally NOT advertised on the MCP
-  // tool surface, so the model-facing search is always human recall.
+  // level parameter for INTERNAL programmatic callers only: the MCP tool handler
+  // (index.ts) force-overrides reinforce:true on every model-facing call, so a client
+  // cannot set it and the model-facing search is always human recall.
   reinforce: z.boolean().optional(),
 });
 
