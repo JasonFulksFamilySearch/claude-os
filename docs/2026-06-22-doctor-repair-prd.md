@@ -11,7 +11,7 @@
 
 When a `claude-os` (Dioscuri) update or a memory-engine migration lands, the operator has no single, fast way to answer the question *"is my installation actually healthy?"* The C2 chunk-split cutover that prompted this PRD is the canonical example: the eval gate returned `INCONCLUSIVE`, the `npm audit` output flashed `1 critical / 1 high`, and the corpus observation count had drifted from what the labeled set recorded — and **every one of those signals turned out to be benign**, but distinguishing benign from broken took an expert a chain of manual steps:
 
-- cross-checking all 22 held-out labels against the live DB to find the single one that pointed at a pruned episode (the real cause of `INCONCLUSIVE`);
+- cross-checking every held-out presence label against the live DB to find the single one that pointed at a pruned episode (the real cause of `INCONCLUSIVE`);
 - confirming the cutover *succeeded* (file set preserved, 0 errored files, recall 0.27 → 0.76) rather than regressed;
 - re-capturing the baseline on the chunked index to retire the cutover-boundary shape guard;
 - triaging the `npm audit` chain as dev-only and *not* running `npm audit fix --force` (which would have broken the toolchain);
@@ -99,7 +99,7 @@ And marks it fixable by the recompute-corpus-snapshot remediation
 
 **8. As the operator, I want doctor to report the most recent composed eval verdict, so that I know whether the gate currently passes.**
 ```
-Given doctor can run the eval in read-only mode against a throwaway DB copy
+Given doctor can run the eval against an isolated throwaway DB copy (so the eval's best-effort reinforcement writes never touch the live store)
 When doctor runs the verdict check
 Then it reports the composed verdict (PASS / FAIL / INCONCLUSIVE) as OK / FAIL / WARN respectively
 And, if eval cannot be composed, reports WARN with the reason rather than failing hard
