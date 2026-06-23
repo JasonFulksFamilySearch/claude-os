@@ -4,6 +4,8 @@ import { z } from "zod";
 import { embedQuery, serializeVector } from "../embedder.js";
 import { rankCandidates, type RankCandidate } from "../ranking.js";
 import { shapeResults } from "../result_shaper.js";
+import { buildFallbackQuery, isIntentionalFts5 } from "../fts_query.js";
+import { log } from "../logger.js";
 import { CANDIDATE_MULTIPLIER, CANDIDATE_CAP } from "../search_config.js";
 
 export const searchMemoryInput = z.object({
@@ -112,10 +114,17 @@ export async function searchMemory(
   const filterClause = filterSql.length > 0 ? " AND " + filterSql.join(" AND ") : "";
 
   // 1. FTS keyword retriever, bm25 order. 1-based position = array index + 1.
+  //
+  // Fallback strategy (see fts_query.ts): the raw query runs against MATCH as-written first,
+  // preserving the advertised FTS5 contract (phrase quoting, boolean operators) for callers
+  // who send valid syntax. The keyword retriever falls back to a sanitized, OR-combined query
+  // ONLY when the as-written query (a) throws, or (b) returns zero rows AND is bare natural
+  // language. A valid FTS5 query — quoted or boolean — that legitimately returns zero rows is
+  // a correct empty result, not a construction failure, so it is left as-is.
   const ftsPos = new Map<number, number>();
   const ftsSnippet = new Map<number, string>();
-  try {
-    const ftsRows = db
+  const runFts = (matchExpr: string): FtsHit[] =>
+    db
       .prepare(
         `SELECT o.id AS id,
                 snippet(observations_fts, 1, '<mark>', '</mark>', '…', 32) AS snippet
@@ -125,14 +134,51 @@ export async function searchMemory(
          ORDER BY bm25(observations_fts)
          LIMIT ?`,
       )
-      .all(args.query, ...filterParams, poolSize) as FtsHit[];
-    ftsRows.forEach((r, i) => {
+      .all(matchExpr, ...filterParams, poolSize) as FtsHit[];
+  const recordFts = (rows: FtsHit[]): void => {
+    rows.forEach((r, i) => {
       ftsPos.set(r.id, i + 1);
       ftsSnippet.set(r.id, r.snippet);
     });
-  } catch {
-    // Malformed FTS query — the keyword retriever contributes nothing this call.
+  };
+
+  let ftsRows: FtsHit[] | null = null;
+  try {
+    ftsRows = runFts(args.query);
+  } catch (err) {
+    // The as-written query is invalid FTS5 (e.g. an unescaped comma/em-dash/hyphen). This is
+    // why the bug stayed invisible: the catch silently disabled the keyword retriever. Log it
+    // (Decision 6) so a future regression is diagnosable, then fall back below.
+    log("warn", "FTS as-written query failed; attempting sanitized fallback", {
+      query: args.query,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
+
+  // Trigger the sanitized fallback on a throw (ftsRows still null), or on a zero-hit result
+  // ONLY when the query is bare natural language — never flatten an intentional FTS5 query
+  // (quoted phrase / boolean / column filter) that legitimately matched nothing.
+  if (ftsRows === null || (ftsRows.length === 0 && !isIntentionalFts5(args.query))) {
+    const fallbackExpr = buildFallbackQuery(args.query);
+    // A null fallback means the input reduced to zero usable terms — skip FTS entirely and
+    // let the search proceed on the vector retriever alone (never throws).
+    if (fallbackExpr !== null) {
+      try {
+        ftsRows = runFts(fallbackExpr);
+      } catch (err) {
+        // buildFallbackQuery only emits bare alphanumeric terms joined by OR, so this cannot
+        // throw on a valid FTS index — but keep the safety net so a malformed query can never
+        // fail the read. Log it; the keyword retriever simply contributes nothing this call.
+        log("error", "sanitized FTS fallback unexpectedly failed", {
+          fallback: fallbackExpr,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        ftsRows = null;
+      }
+    }
+  }
+
+  if (ftsRows !== null) recordFts(ftsRows);
 
   // 2. Vector semantic retriever, distance order.
   const vecOrder: number[] = [];
