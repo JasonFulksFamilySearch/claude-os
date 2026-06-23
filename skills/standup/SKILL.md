@@ -88,7 +88,7 @@ Set `RENDER_MODE`:
   AND `retrospective.rawInputs.sourceFreshness.github === "ok"`.
 - **`fallback`** — otherwise. Record the reason, for the honest note in Step 3:
   - no file / no `retrospective` / `planDate` ≠ `D` → "retrospective not tracked yet."
-  - a source's `sourceFreshness` ≠ `"ok"` → "Perch's {jira|github} poll was behind; re-gathering from source." If the live `{jira|github}` re-gather in Step 2 ALSO fails, say instead "not tracked — {jira|github} unreachable" for that source — never claim a re-gather that did not happen.
+  - one or more sources `sourceFreshness` ≠ `"ok"` → for **each** non-ok source (Jira, GitHub, or both — name every one): "Perch's {jira and/or github} poll was behind; re-gathering from source." If the live re-gather of a named source in Step 2 ALSO fails, say "not tracked — {that source} unreachable" for it instead — never claim a re-gather that did not happen.
 
 The gate keys on `planDate` (the right plan-day) and per-source freshness — never on the
 age of the `asOf` timestamp. A retrospective computed from a failed poll is never
@@ -183,7 +183,10 @@ from source; the single set difference below is the only derivation permitted) f
   `|closedKeys|` equals `derived.itemsCompleted`).
 - "Perch flagged {N} items; you closed {itemsCompleted} ({comma-separated closedKeys})."
   — where **N = `retrospective.rawInputs.yesterdayPlanKeys.length`** (the same plan-key
-  set that is the rate denominator; do not use a raw `plan.items` count).
+  set that is the rate denominator; do not use a raw `plan.items` count). If
+  `itemsCompleted` is 0 (a plan existed but nothing closed — `completionRate` is `0`, not
+  `null`), OMIT the parenthetical and write "you closed none of the {N}" — never an empty
+  "()". This is an honest 0%, distinct from the no-plan `null` case below.
 - If `derived.carryoverFromPrev` is non-empty, name those keys: "{keys} carry forward."
 - If `derived.sprintCompletedToday` is a number, add "Closed {sprintCompletedToday}
   sprint item(s)." Omit this line when it is `null`.
@@ -206,8 +209,10 @@ then render the full Completed / Worked-on / PRs format below from the Step-2 da
 **Yesterday:** Perch flagged 6 items; you closed 4 (ARC-4684, ARC-4590, ARC-4567,
 ARC-4522). ARC-4536 and ARC-4612 carry forward. Closed 3 sprint items.
 
-**Today:** [Forward-looking prose, highest priority first — from the open-sprint query
-and the retrospective's carryover keys. Name specific tickets and the next concrete action.]
+**Today:** [Forward-looking prose, highest priority first, drawn from TWO verified sources
+only: the live open-sprint query (Step 2) and the retrospective's `carryoverFromPrev` keys
+(verified incomplete plan items — legitimate forward work even if not in the current
+sprint). Do not name tickets outside those two. Name specific tickets and the next action.]
 
 **Blockers & risks:** [Named blockers AND at-risk items, as in fallback mode below.]
 ```
