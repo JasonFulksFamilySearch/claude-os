@@ -47,9 +47,43 @@ Read the argument first, because it selects write vs no-write behavior: if it co
 instead report the transition that WOULD happen, so the skill can be exercised safely. With no
 argument (the scheduler default), run live.
 
+## Cloud-routine refusal gate (run FIRST, before anything else)
+
+This skill is **write-capable** — it transitions Jira tickets — so it must **never** run as an
+unattended cloud routine. Its config block declares `cloud_allowed: false`, and that declaration is
+enforced here at runtime. (It cannot be enforced at the cloud `/schedule` create path: `/schedule`
+is Claude Code's built-in skill, which this repo does not own and cannot add a pre-check to. So the
+contract is enforced at the two layers this repo owns — this self-guard, plus the config-shape test
+`bin/test/digest-config-contract.test.js` that pins the flag to `false`.)
+
+Read the skill's own `cloud_allowed` from config and refuse a cloud run before any auth or write:
+
+```bash
+AGENT="${AGENT:-$(jq -r '.agent_name' "$HOME/.claude-data/agent/identity.json" 2>/dev/null | tr '[:upper:]' '[:lower:]')}"
+CFG="$HOME/.claude-data/config/digest-config.json"
+CLOUD_OK=$(jq -r ".digests.\"merge-progression\".$AGENT.cloud_allowed" "$CFG" 2>/dev/null)
+```
+
+The **cloud signal** is the inability to resolve that local block: a cloud sandbox cannot reach
+`~/.claude-data/`, so `$CFG` is absent and `$CLOUD_OK` is empty/`null`. A local run reads
+`cloud_allowed: false`. The rule is therefore fail-closed — proceed **only** when the block resolves
+AND explicitly permits cloud (`true`); in every other case (`false`, `null`, empty, file missing)
+treat it as a refused cloud run when no local sink is reachable:
+
+- If `$CLOUD_OK` is `false` → this is the expected LOCAL run. Continue to the auth checks below.
+- If `$CLOUD_OK` is empty/`null` (config unreadable — the sandbox fingerprint) → **stop immediately.**
+  Do not run `gh`/`jira`, do not transition anything. The local digest queue is also unreachable, so
+  there is nowhere to write an entry; the run simply aborts. This is the intended outcome: a
+  write-capable skill that finds itself outside its local home does nothing.
+- `$CLOUD_OK` is `true` is currently impossible (the contract test forbids it). If a future
+  cloud-portable write variant ever sets it, that variant — not this skill — owns the cloud path.
+
+The pure classifier behind this rule is `bin/digest-cloud-guard.js` (`isCloudSchedulable` /
+`assertCloudSchedulable`), unit-tested in `bin/test/digest-cloud-guard.test.js`.
+
 ## Health check
 
-Run the auth checks first, because a half-authenticated run would misreport real work as "nothing
+Run the auth checks next, because a half-authenticated run would misreport real work as "nothing
 to do":
 
 ```bash
@@ -65,14 +99,12 @@ const { appendDigestEntry } = require(require('os').homedir() + '/.claude-os/hoo
 appendDigestEntry({ agent: 'merge-progression', status: 'error', error: 'auth check failed' });
 ```
 
-## Step 0 — Resolve agent + load config
+## Step 0 — Load config
 
-This skill is **write-capable** (it transitions Jira tickets) and runs **LOCAL only**
-(`cloud_allowed: false`). Resolve the agent and read its repo list from config:
+The refusal gate above already resolved `$AGENT` and `$CFG` and confirmed this is a permitted local
+run. Read this skill's repo list from the same block:
 
 ```bash
-AGENT="${AGENT:-$(jq -r '.agent_name' "$HOME/.claude-data/agent/identity.json" 2>/dev/null | tr '[:upper:]' '[:lower:]')}"
-CFG="$HOME/.claude-data/config/digest-config.json"
 SLUGS=$(jq -r ".digests.\"merge-progression\".$AGENT.repos[]" "$CFG")
 ```
 
