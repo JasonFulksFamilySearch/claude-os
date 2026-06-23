@@ -187,6 +187,69 @@ describe("search_memory", () => {
     expect(again[0].id).toBe(topId);
   });
 
+  // AC-4 gate (issue #55): a machine-originated retrieval passes reinforce:false, which
+  // must leave the recall side-tables untouched — neither access_stats (the ranking
+  // tie-breaker) nor the access_queries telemetry — while the default still reinforces.
+  describe("reinforce:false gate", () => {
+    const statsCount = () =>
+      (db.prepare("SELECT COUNT(*) AS c FROM access_stats").get() as { c: number }).c;
+    const queriesCount = () =>
+      (db.prepare("SELECT COUNT(*) AS c FROM access_queries").get() as { c: number }).c;
+
+    it("reinforce:false mutates no access_stats or access_queries row, and returns the same rows", async () => {
+      // Clear the side-tables so BOTH calls below observe identical (empty) reinforcement
+      // state. Ranking reads access_stats, so comparing against a reference taken under a
+      // different pre-state would be flaky. Running reinforce:false FIRST is safe precisely
+      // because it writes nothing — the state stays empty for the default call that follows.
+      db.prepare("DELETE FROM access_stats").run();
+      db.prepare("DELETE FROM access_queries").run();
+
+      const gated = await searchMemory(db, { query: "checkstyle", reinforce: false });
+      expect(gated.length).toBeGreaterThan(0);
+      // No recall was recorded on either side-table — the state is still empty.
+      expect(statsCount()).toBe(0);
+      expect(queriesCount()).toBe(0);
+
+      // The default call observes that SAME empty pre-state, so gating reinforcement does
+      // not change which rows return.
+      const reference = await searchMemory(db, { query: "checkstyle" });
+      expect(gated.map((r) => r.id)).toEqual(reference.map((r) => r.id));
+    });
+
+    it("the default (reinforce omitted) still bumps both side-tables", async () => {
+      db.prepare("DELETE FROM access_stats").run();
+      db.prepare("DELETE FROM access_queries").run();
+
+      const results = await searchMemory(db, { query: "checkstyle" });
+      expect(results.length).toBeGreaterThan(0);
+      expect(statsCount()).toBe(results.length);
+      expect(queriesCount()).toBe(results.length);
+    });
+
+    it("reinforce:false still BENEFITS from prior organic reinforcement (read-back unchanged)", async () => {
+      // Reset, then reinforce organically several times so access_stats carries real signal.
+      db.prepare("DELETE FROM access_stats").run();
+      db.prepare("DELETE FROM access_queries").run();
+      const seeded = await searchMemory(db, { query: "checkstyle" });
+      const topId = seeded[0].id;
+      const before = (
+        db
+          .prepare("SELECT access_count FROM access_stats WHERE observation_id = ?")
+          .get(topId) as { access_count: number }
+      ).access_count;
+
+      // A reinforce:false search reads that prior signal but writes none of its own.
+      await searchMemory(db, { query: "checkstyle", reinforce: false });
+
+      const after = (
+        db
+          .prepare("SELECT access_count FROM access_stats WHERE observation_id = ?")
+          .get(topId) as { access_count: number }
+      ).access_count;
+      expect(after).toBe(before); // unchanged — no new reinforcement written
+    });
+  });
+
   describe("access_queries", () => {
     const FIXED_MS = 1_700_000_000_000; // 2023-11-14T22:13:20Z — arbitrary frozen instant
 
