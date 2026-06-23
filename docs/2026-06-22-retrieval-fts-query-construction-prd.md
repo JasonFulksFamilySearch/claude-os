@@ -132,7 +132,7 @@ So that a future malformed-query regression is diagnosable
 ```
 Given the held-out presence queries that already retrieve correctly
 When the fix is applied
-Then a per-query before/after comparison across ALL 21 queries shows none regressed
+Then a per-query before/after comparison across the FULL held-out set (currently 7 queries in ~/.claude-data/eval/labeled-queries.json) shows none regressed
 And (by construction) passing queries never entered the fallback path
 ```
 
@@ -149,7 +149,7 @@ And the only behavioral change is in how the FTS query string is built
 Given the fix is complete and tests pass
 When `npm run eval` is run once as the non-regression gate
 Then it composes a PASS verdict (mean recall/MRR >= baseline)
-And a per-query before/after diff confirms each of the 21 individually held or improved
+And a per-query before/after diff confirms each held-out query (the full set, currently 7) individually held or improved
   (the eval verdict is MEAN-based — eval.ts presenceVerdict — so the per-query diff is required, not the mean alone)
 ```
 
@@ -188,7 +188,7 @@ And that robustness question is tracked separately (#85), not addressed in this 
 - **Tested (new):** the pure FTS query-builder module. Inputs deliberately include the strings that currently throw or under-match — comma-laden, em-dash, hyphenated (`pre-commit`, `claude-os`), many-token, and **operator-keyword-as-data** (`OR`, `NEAR`) — asserting (a) never throws, (b) produces a hit against a fixture doc, (c) degenerate input yields the explicit "no FTS query" signal. These dev/test queries are a **disjoint/synthetic set**, deliberately **not** the held-out labeled queries.
 - **Tested (contract preservation):** a valid quoted-phrase query and a valid boolean query (`A NOT B`) are passed through **as written** and NOT flattened — **including the case where the valid boolean query legitimately returns zero rows** (the zero-hit fallback must not fire on it; it fires only on bare-NL zero-hit input) — directly guarding the RBJ cycle-2 S4 catch.
 - **Tested (extend existing):** the search orchestrator's behavior via the existing tools suite — a punctuation-laden query returns results end-to-end, and a query with hits does not enter the fallback.
-- **Acceptance bar (RBJ F4):** a **per-query before/after diff across all 21** held-out queries is the real acceptance check — each must individually hold or improve. The composed `npm run eval` PASS is the floor, but because `presenceVerdict` is **mean-based** (`eval.ts`), the per-query diff is required to rule out a masked swap.
+- **Acceptance bar (RBJ F4):** a **per-query before/after diff across the full held-out set** (currently 7 queries in `~/.claude-data/eval/labeled-queries.json` — the set is curated per-machine, so verify against its actual size, not a fixed count) is the real acceptance check — each must individually hold or improve. The composed `npm run eval` PASS is the floor, but because `presenceVerdict` is **mean-based** (`eval.ts`), the per-query diff is required to rule out a masked swap.
 - **Anti-leakage protocol:** the builder is developed against the principled rules + the synthetic set + unit tests; the held-out eval is run **once** at the end as the non-regression gate — never iterated against.
 - **Out of test scope:** `search_config.ts` (unchanged), the vector retriever (unchanged), the ranking model (unchanged).
 
@@ -205,7 +205,7 @@ And that robustness question is tracked separately (#85), not addressed in this 
 - All acceptance criteria pass
 - Code review approved (Copilot requested on the PR, per repo rule)
 - Query-builder module unit-tested (incl. contract-preservation + operator-keyword cases); tools-suite wiring case added; full `npm test` green
-- Per-query before/after across all 21 shows no regression; `npm run eval` composes PASS
+- Per-query before/after across the full held-out set (currently 7) shows no regression; `npm run eval` composes PASS
 - No `search_config.ts` weight changes in the diff
 - Documentation updated where retrieval behavior is described
 
@@ -224,6 +224,8 @@ And that robustness question is tracked separately (#85), not addressed in this 
 ### Investigation evidence (root cause, ~95% confidence)
 
 Measured 2026-06-22 against a copy of the live corpus (487 observation rows, 222 distinct files), instrumenting the two retrievers and the final ranked output.
+
+> **Note — two distinct query sets (do not conflate):** the **investigation/measurement set** below is the ~21 hand-run queries (5 failing + 16 then-passing) used to prove the root cause against a corpus copy — these counts are historical and describe the investigation, not the gate. The **held-out eval set** that `npm run eval` scores against is the curated, machine-local `~/.claude-data/eval/labeled-queries.json` — **currently 7 queries**, the actual acceptance corpus referenced in Testing Decisions / Definition of Done above. The held-out set is curated per-machine; verify the per-query diff against its real size, not the historical "21." (Notably, the held-out set contains only one of the five #82 files, so the eval PASS proves *non-regression*; the reproducible fix-demonstration lives in the synthetic wiring test, not the gate.)
 
 **Before — raw query passed to FTS5 `MATCH` (`search_memory.ts:124`):**
 
