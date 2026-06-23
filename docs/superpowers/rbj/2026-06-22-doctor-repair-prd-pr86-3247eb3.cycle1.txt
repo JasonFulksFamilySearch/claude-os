@@ -1,0 +1,26 @@
+# RBJ audit record — skill v1.0
+# utc: 2026-06-23T00:00:00Z   mode: prd   cycle: 1/2
+# artifact: PR #86 branch chore/issue-82-83-prds @ 3247eb3 :: docs/2026-06-22-doctor-repair-prd.md
+# ground_truth: GitHub issue #83; live MCP source at /Users/jasonmfulks/.claude-os/mcp/src
+
+=== RBJ-VERDICT v1.0 ===
+mode: prd
+cycle: 1/2
+verdict: CLEAN
+escalation_kind: none
+scores:
+- F1 PASS none :: Every #83 PROPOSED-SCOPE item maps to a story (A–J) or check-catalog entry.
+- F2 PASS none :: No scope creep; refinement verified — verdict vocabulary is PASS/FAIL/INCONCLUSIVE/ADVISORY only (no stray status word incl. no "DIVERGENCE" as a status), divergence is FAIL>0/PASS=0 with "divergence not cause" as a finding-property, ADVISORY(deliberately-skipped)-vs-INCONCLUSIVE(couldn't-run) coherent, no agent names.
+- F3 PASS none :: Problem statement matches #83's recovery motivation; not reinterpreted.
+- F4 PASS none :: #83's "cutover errored-files count" surfaced transparently as chunk-shape divergence (the provable superset), naming the limit and deferring cause to `npm run cutover`.
+- S1 PASS none :: Root cause / integration points named with concrete file:line (eval.ts/scripts/eval.ts, db.ts raw-open, migrations.ts isV3Schema, election.ts isStale, chunker.ts chunkFile, indexer.ts countMissingVectors).
+- S2 PASS none :: All named files exist and match claims — chunker.ts (chunkFile, entry-less anchor='' fallback :43-47), election.ts (isStale :128, HEARTBEAT_REFRESH_MS=60000, STALENESS_MULTIPLE=3 :16-17), db.ts/migrations.ts/eval.ts/indexer.ts/update.sh Step 7/context-templates all verified.
+- S3 PASS none :: Mirrors eval.ts pure-function registry + scripts/eval.ts runner + skill seam; subprocess boundary matches cutover/migrate; no novel pattern.
+- S4 PASS none :: Chunk-shape divergence check sound — chunkFile oracle, FAIL>0/PASS=0, no false-positive on whole-file source types (chunker.ts:43-47, 239-261, 290-292); adjacent modules unmodified.
+- S5 NA applies-if :: Feature, not a bug ticket.
+red_challenge: no-grounded-fail
+revise_lines: none
+escalation_ask: none
+=== END RBJ-VERDICT ===
+
+Human summary: The doctor/repair PRD at PR #86 HEAD (commit 3247eb3) passes the gate CLEAN on the first cycle. All nine rubric lines PASS/NA, each cited. The three Copilot round-2 fixes baked into 3247eb3 were independently verified sound: (1) "DIVERGENCE" is no longer a status — the divergence check is FAIL when divergenceCount>0 else PASS, with "reports divergence, not cause" preserved as a property of the finding; (2) the ADVISORY (deliberately-skipped, e.g. build/test without --full) vs INCONCLUSIVE (supposed-to-run-but-couldn't) distinction is coherent and consistent with the honesty invariant; (3) no stray status word survives anywhere including the Gherkin stories. An independent adversarial challenger attacked the refinement seams (vocabulary residue story-by-story, a FAIL-vs-advisory contradiction, ADVISORY/INCONCLUSIVE coherence, code-claim drift, #83 coverage) and could not land a grounded FAIL. The reconciled, Copilot-refined canonical PRD on the PR is gate-verified.
