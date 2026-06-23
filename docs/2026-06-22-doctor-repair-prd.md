@@ -136,7 +136,8 @@ Given c2_chunking_enabled = '1'
 When doctor runs the chunk-shape divergence check
 Then for each distinct source_path it runs chunkFile({ sourceType, content: <current file content>, chunkingEnabled: true }) and compares the produced anchor-set against the indexed anchor-set
 And it reports the count of files whose two anchor-sets diverge (set-inequality on anchors)
-And it reports DIVERGENCE only — not cause — since a not-yet-reindexed edit also diverges
+Then the check status is FAIL when divergenceCount > 0 and PASS when divergenceCount = 0 (divergence is the condition; the status stays in the PASS/FAIL/INCONCLUSIVE/ADVISORY vocabulary)
+And the reported finding describes divergence only — not its cause — since a not-yet-reindexed edit also diverges
 And it explicitly does NOT claim "cutover failed"; cause attribution defers to a fresh `npm run cutover`
 ```
 
@@ -198,8 +199,9 @@ And if `npm audit` itself fails (offline, registry down) the check reports INCON
 **17. As the operator, I want doctor to optionally verify the build and test suite, so that a broken toolchain is caught — without slowing the default run.**
 ```
 Given the build/test checks are expensive
-When I run `npm run doctor` without a deep flag
-Then build/test checks are skipped with an informational note
+When I run `npm run doctor` without the deep/`--full` flag
+Then the build/test checks report ADVISORY ("not run — pass --full to include them"), which is excluded from the composed verdict and the exit code by construction
+And this is distinct from INCONCLUSIVE: a deliberately-deferred check is ADVISORY (the operator chose to skip it), whereas a check that was supposed to run but could not is INCONCLUSIVE (which the honesty invariant forbids from reading as PASS)
 When I run doctor with the deep/`--full` flag
 Then tsc and the test suite run as subprocesses and report PASS / FAIL (report-only; never auto-fixed)
 And if either subprocess cannot run, that check reports INCONCLUSIVE, never PASS
