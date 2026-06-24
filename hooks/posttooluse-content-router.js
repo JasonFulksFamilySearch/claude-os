@@ -276,7 +276,7 @@ function route(input, { handlers = HANDLERS, env = process.env } = {}) {
 function captureSignal(
   input,
   payload,
-  { isArmedFn = isArmed, append, env = process.env, sessionId } = {},
+  { isArmedFn = isArmed, append, mkdir, env = process.env, sessionId } = {},
 ) {
   try {
     if (!isArmedFn('fr_b5_capture')) return { written: 0 };
@@ -296,7 +296,9 @@ function captureSignal(
       verdicts: d.verdicts,
       originalHash: d.originalHash,
     };
-    const opts = append ? { append } : {};
+    const opts = {};
+    if (append) opts.append = append;
+    if (mkdir) opts.mkdir = mkdir;
     return appendSignal(sessionId || 'noid', signal, opts);
   } catch {
     return { written: 0 }; // capture never breaks the tool call

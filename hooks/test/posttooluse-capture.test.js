@@ -26,7 +26,9 @@ test('flag OFF ⇒ no capture (default; byte-identical reversibility)', () => {
 test('flag ON + compressed envelope ⇒ one buffer line', () => {
   let appended = 0;
   const res = captureSignal(INPUT, PAYLOAD, {
-    isArmedFn: () => true, append: () => { appended++; return undefined; },
+    isArmedFn: () => true,
+    append: () => { appended++; return undefined; },
+    mkdir: () => undefined, // no-op — keeps test hermetic (no real mkdirSync against ~/.claude-data)
     sessionId: 's', env: {},
   });
   assert.deepEqual(res, { written: 1 });
@@ -56,7 +58,9 @@ test('flag ON but no compressed envelope (raw passthrough) ⇒ no capture', () =
 
 test('a capture error never throws', () => {
   const res = captureSignal(INPUT, PAYLOAD, {
-    isArmedFn: () => true, append: () => { throw new Error('boom'); },
+    isArmedFn: () => true,
+    mkdir: () => undefined, // no-op — keeps test hermetic (no real mkdirSync against ~/.claude-data)
+    append: () => { throw new Error('boom'); },
     sessionId: 's', env: {},
   });
   assert.deepEqual(res, { written: 0 });
