@@ -377,7 +377,7 @@ gh workflow list --repo fs-eng/arc-record-exchange-orch-service
 Post a separate Block Kit message for each repo directly to **#arc-team** via `mcp__slack__conversations_add_message`
 (load via ToolSearch if needed). Post all four messages — one per repo, in this order: ARC, REOS, DSS, GSS.
 
-Compose each message in the **Slack — team channel** (warm) register from `~/.claude-os/reference/writing-voice.md` — Jason's warm, direct team voice (NOT the formal *Slack — PR-announcement posts* register). The Block Kit structure and the required fields below win on any conflict.
+Compose each message in the **Slack — team channel** register from `~/.claude-os/reference/writing-voice.md` — Jason's warm, direct, casual team voice (NOT the formal *Slack — PR-announcement posts* register). The Block Kit structure and the required fields below win on any conflict.
 
 Each message should include:
 - Service name, version, and link to its GitHub release

@@ -7,7 +7,7 @@
 
 ## How to use this file
 
-1. **Grammar & Spelling** apply to *every* surface, always. The **Core Fingerprint** applies by default too — **except where a register below deliberately narrows it** (notably the *Commit messages* register, which drops the fingerprint to keep `git log` clean; see item 4).
+1. **Grammar & Spelling** apply to *every* surface, always. The **Core Fingerprint** applies by default too — **except where a register below deliberately narrows it** (notably the *Commit messages* register under "Register by surface", which drops the fingerprint to keep `git log` clean).
 2. **Register by surface** dials warmth, length, and formality up or down.
 3. The contract: reproduce the **voice** (rhythm, tells, word choice); always emit **clean
    grammar and spelling**. Samples are mined for voice, **never copied warts-and-all** — see
