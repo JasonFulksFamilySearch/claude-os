@@ -59,6 +59,29 @@ test('a write error never throws — returns { written: 0 }', () => {
   assert.deepEqual(appendSignal('s', SIGNAL, { dir: '/x', append: boom }), { written: 0 });
 });
 
+test('size cap: a buffer at/over the cap skips the append (no write), #58 AC', () => {
+  const MAX = 256 * 1024;
+  let appendCalls = 0;
+  const append = () => { appendCalls += 1; };
+  const stat = () => ({ size: MAX }); // already at the cap
+  assert.deepEqual(
+    appendSignal('s', SIGNAL, { dir: '/x', append, mkdir: () => {}, stat }),
+    { written: 0 },
+  );
+  assert.equal(appendCalls, 0); // the cap short-circuited before the append
+});
+
+test('size cap: under the cap still writes { written: 1 }', () => {
+  let appendCalls = 0;
+  const append = () => { appendCalls += 1; };
+  const stat = () => ({ size: 0 }); // empty / well under the cap
+  assert.deepEqual(
+    appendSignal('s', SIGNAL, { dir: '/x', append, mkdir: () => {}, stat }),
+    { written: 1 },
+  );
+  assert.equal(appendCalls, 1);
+});
+
 test('CAPTURE_BUFFER_DIR is a sibling of capture-queue (indexer-excluded)', () => {
   assert.ok(CAPTURE_BUFFER_DIR.endsWith(join('.claude-data', 'capture-buffer')));
 });

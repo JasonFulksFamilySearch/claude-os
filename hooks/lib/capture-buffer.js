@@ -20,7 +20,7 @@
  * originalHash → ccr_hash so the buffer honors the ticket's contract name.
  */
 
-const { appendFileSync, mkdirSync, existsSync, readFileSync } = require('node:fs');
+const { appendFileSync, mkdirSync, existsSync, readFileSync, statSync } = require('node:fs');
 const { join, dirname } = require('node:path');
 const { homedir } = require('node:os');
 const { safeString } = require('./observation.js');
@@ -28,6 +28,11 @@ const { safeString } = require('./observation.js');
 // Sibling of capture-queue/ — same indexer-excluded class. NEVER under episodes/,
 // context/, projects/, or agent/ (the only indexed subtrees).
 const CAPTURE_BUFFER_DIR = join(homedir(), '.claude-data', 'capture-buffer');
+
+// Size cap honoring #58's Producer AC ("...auto-evicted at session end, size-capped").
+// SIGNAL summaries are small compressed lines, so 256 KiB is generous per session yet
+// bounds a pathological long armed session (signals accumulate until the Stop evict).
+const MAX_BUFFER_BYTES = 256 * 1024;
 
 function safeId(sessionId) {
   return (String(sessionId).replace(/[^a-zA-Z0-9_-]/g, '') || 'noid').slice(0, 64);
@@ -77,10 +82,17 @@ function toSignalRecord(signal) {
 function appendSignal(
   sessionId,
   signal,
-  { dir = CAPTURE_BUFFER_DIR, append = appendFileSync, mkdir = mkdirSync } = {},
+  { dir = CAPTURE_BUFFER_DIR, append = appendFileSync, mkdir = mkdirSync, stat = statSync } = {},
 ) {
   const rec = toSignalRecord(signal);
   const path = bufferPath(sessionId, dir);
+  // Size cap (#58 AC): a buffer at/over MAX_BUFFER_BYTES stops accepting appends — the cap
+  // doing its job, NOT an error, so we skip and return { written: 0 } without throwing. The
+  // stat is best-effort disk-protection: on stat error (incl. file-not-yet-existing) we
+  // proceed with the append, since an unreadable size must not silently drop a signal.
+  try {
+    if (stat(path).size >= MAX_BUFFER_BYTES) return { written: 0 };
+  } catch { /* no size to read — proceed with the append */ }
   try {
     mkdir(dirname(path), { recursive: true });
     append(path, JSON.stringify(rec) + '\n', 'utf8');

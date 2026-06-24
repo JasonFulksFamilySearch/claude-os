@@ -1,6 +1,6 @@
 # PRD — DIO-18 / FR-B5: compressed tool output → episodic capture (the build)
 
-**Status:** Draft (pre-Gate-1). Project-owned source of truth for GitHub issue #58.
+**Status:** Gates 1–3 CLEAN; build implemented, in review as PR #98. Project-owned source of truth for GitHub issue #58.
 **Scope:** BUILD the FR-B5 capture path **default-OFF**. This PRD does **not** arm it — arming is #72; the fidelity harness is #59. Built ≠ armed.
 **Date:** 2026-06-24
 **Author:** Walter (AI), human-reviewed. Design rulings by system-architect; codebase facts verified file:line this session.
