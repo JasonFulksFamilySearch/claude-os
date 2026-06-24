@@ -50,7 +50,7 @@ Jason-flavored?* If the latter at any cost to clarity, revert to the clearer wor
 
 ---
 
-## Core Fingerprint — applies to every surface
+## Core Fingerprint — applies by default (a register below may narrow it)
 
 **Typography (the literal fingerprint):**
 - **Double space after periods.** Consistent across every sample.
