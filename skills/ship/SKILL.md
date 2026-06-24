@@ -567,6 +567,11 @@ Re-enter the Phase 4 polling block exactly — same 20-minute timeout, same poll
 Post a reply on each addressed inline comment, then a single summary comment for
 PR-level / issue comments. Read `helpers.md` for the verbatim `gh api` commands.
 
+Compose the replies and the summary comment in the **"PR posts / technical answers to the team"**
+register from `~/.claude-os/reference/writing-voice.md` (clarity dominates, voice light — specifics,
+directness, no hedging). Name that register explicitly: it is **not** the *Slack — PR-announcement
+posts* subsection (Slack-specific, owned by `pr-to-slack`).
+
 This closes the threads visibly so reviewers know the work was handled.
 
 ### Step 7 — Return to Phase 4b
