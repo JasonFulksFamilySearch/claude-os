@@ -146,7 +146,7 @@ rides this register too — no separate handling.)
 
 ### PR descriptions & release notes (git artifact — voice-light, warm)
 Composing a PR description (`make-it-so`) or release notes (`arc-release`): **clarity dominates**
-(as in the *PR posts* row of the intensity table above), but **voice may show**: conversational
+(the clarity-dominant end — the "PR posts, incident comms, technical answers to the team" row of the intensity table above), but **voice may show**: conversational
 confidence, self-aware brevity, the occasional dry aside. No emoji-prefixed headers, no corporate warm-ups. The
 artifact's own template / format spec (the PR-body required sections; the release-notes template)
 **wins on any conflict.** This register is warmer than the commit register above on purpose — a
