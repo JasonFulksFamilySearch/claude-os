@@ -2,6 +2,8 @@
 
 const smartCrusher = require('./lib/smart-crusher.js');
 const { createEnrichHandler } = require('./lib/injection-enrich.js');
+const { isArmed } = require('./lib/fr-b5-flag.js');
+const { appendSignal } = require('./lib/capture-buffer.js');
 
 /**
  * posttooluse-content-router.js — the single PostToolUse dispatch seam.
@@ -260,6 +262,55 @@ function route(input, { handlers = HANDLERS, env = process.env } = {}) {
 }
 
 /**
+ * FR-B5 producer side-effect (DIO-18). NOT a handler and NOT part of the frozen
+ * route() contract — a fail-safe write main() performs AFTER route(), gated by the
+ * file-sentinel flag and the per-call compress skip. When the flag is OFF (default),
+ * compress was skipped, or route() produced no compressed envelope, this is a no-op
+ * → byte-identical reversibility. Errors are swallowed: capture must never break a
+ * tool call.
+ *
+ * It parses the envelope route() already built (updatedToolOutput) to recover the
+ * compressed signal — it does NOT re-run compress(), so producer and transform stay
+ * in lockstep on one compression result.
+ */
+function captureSignal(
+  input,
+  payload,
+  { isArmedFn = isArmed, append, mkdir, env = process.env, sessionId } = {},
+) {
+  try {
+    if (!isArmedFn('fr_b5_capture')) return { written: 0 };
+    if (skipFlags(input, env).skipCompress) return { written: 0 };
+    const out = payload && payload.hookSpecificOutput;
+    if (!out || typeof out.updatedToolOutput !== 'string') return { written: 0 };
+
+    let env_;
+    try { env_ = JSON.parse(out.updatedToolOutput); } catch { return { written: 0 }; }
+    const d = env_ && env_._dioscuri;
+    if (!d || d.compressed !== true) return { written: 0 }; // raw passthrough → nothing to capture
+
+    const signal = {
+      tool: input && input.toolName,
+      retained: env_.retained,
+      dropped_count: d.droppedCount,
+      verdicts: d.verdicts,
+      originalHash: d.originalHash,
+    };
+    // No session_id ⇒ no consumer can ever read this back (the Stop worker keys the
+    // buffer by session_id). Writing to a shared 'noid' file would silently collide
+    // sessions and orphan the line. A missing sessionId is therefore a no-op capture —
+    // consistent with the fail-safe posture: never write what nothing can consume.
+    if (!sessionId) return { written: 0 };
+    const opts = {};
+    if (append) opts.append = append;
+    if (mkdir) opts.mkdir = mkdir;
+    return appendSignal(sessionId, signal, opts);
+  } catch {
+    return { written: 0 }; // capture never breaks the tool call
+  }
+}
+
+/**
  * Normalize the raw Claude Code PostToolUse stdin payload into the router's input
  * shape. Claude Code sends { tool_name, tool_input, tool_response, ... }; the
  * router works in camelCase so the snake_case wire format is decoded once, here.
@@ -292,6 +343,14 @@ async function main() {
     process.exit(0); // any router error → raw append, never break the tool call
   }
 
+  // FR-B5 capture side-effect — never affects stdout / the tool result. Gated by the
+  // flag sentinel; a no-op when OFF (default). Wrapped so it can never break the call.
+  if (payload) {
+    let sid;
+    try { sid = JSON.parse(input).session_id; } catch { sid = undefined; }
+    try { captureSignal(normalized, payload, { sessionId: sid }); } catch { /* never break the call */ }
+  }
+
   if (payload) process.stdout.write(JSON.stringify(payload));
   process.exit(0);
 }
@@ -305,6 +364,7 @@ module.exports = {
   HANDLERS,
   skipFlags,
   route,
+  captureSignal,
   normalizeInput,
 };
 
