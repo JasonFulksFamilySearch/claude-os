@@ -33,7 +33,7 @@
       }
     },
     "merge-progression": {
-      "_comment": "WRITE-CAPABLE: transitions Jira tickets. cloud_allowed:false hard-blocks cloud-routine creation — a write-capable skill must not run unattended from a sandbox. Runs LOCAL ONLY.",
+      "_comment": "WRITE-CAPABLE: transitions Jira tickets. cloud_allowed:false marks this LOCAL-ONLY — a write-capable skill must not run unattended from a sandbox. Enforced at RUNTIME by the skill's cloud-routine refusal gate (it reads this flag and aborts a cloud run) and pinned by bin/test/digest-config-contract.test.js. NOT enforced at the /schedule create path: that is Claude Code's built-in skill, which this repo cannot patch. See bin/digest-cloud-guard.js.",
       "walter": {
         "repos": ["JasonFulksFamilySearch/claude-os"],
         "output": "queue",
