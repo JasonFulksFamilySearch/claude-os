@@ -480,6 +480,14 @@ memory system:
 | C2 — entry-granular indexing | ✓ Done | One DB row per dated learning entry (anchored rows); chunk-split CUTOVER **deferred** — flag `c2_chunking_enabled` default off, armed post-curation via `npm run cutover` |
 | C3 — entry-anchor resolution | Pending | Arm Stage-2 absence probes; superseded-entry leak detection |
 
+**Flag-storage routing rule.** Two flag mechanisms exist by design. Consumers that
+already open the MCP SQLite DB (the indexer) read flags from the `meta` table
+(e.g. `c2_chunking_enabled`). Consumers in the **hooks** layer cannot open
+`better-sqlite3` (no `hooks/package.json` / `node_modules`), so they read **file
+sentinels** under `~/.claude-data/flags/` (e.g. the FR-B5 `fr_b5_capture` flag).
+Rule: DB-open consumers → meta table; hook consumers → file flags. An absent
+sentinel means OFF.
+
 ## Maintainer
 
 [Jason](mailto:jason.fulks@familysearch.org) — sole author and maintainer. The system runs as two
