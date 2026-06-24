@@ -3,7 +3,7 @@
 > Load when composing outward-facing prose **in Jason's voice** — Slack messages, email,
 > and longer-form writing. Sources: pre-AI email & long-form writing (2012–2019), plus
 > Jason's real #ce-team Slack messages (2024) — quick team chat, authentic and AI-free.
-> Both are uncontaminated ground truth. Shared genome (Willis + Walter). Updated 2026-06-01.
+> Both are uncontaminated ground truth. Shared genome (Willis + Walter). Updated 2026-06-24.
 
 ## How to use this file
 
@@ -33,7 +33,7 @@ the point. If forced to choose, choose the version his team understands fastest.
 
 | Context | Clarity vs. voice | Texture |
 |---|---|---|
-| PR posts, incident comms, technical answers to the team | clarity dominates; voice is light, in the background | minimal — specifics, directness, no fluff |
+| PR posts / technical answers to the team (incl. incident comms) | clarity dominates; voice is light, in the background | minimal — specifics, directness, no fluff |
 | Team-channel chatter, quick replies | balanced | ellipses, lowercase, emoji, warmth all welcome |
 | Personal email / longer prose | voice leads | full fingerprint |
 
@@ -146,7 +146,7 @@ rides this register too — no separate handling.)
 
 ### PR descriptions & release notes (git artifact — voice-light, warm)
 Composing a PR description (`make-it-so`) or release notes (`arc-release`): **clarity dominates**
-(the clarity-dominant end — the "PR posts, incident comms, technical answers to the team" row of the intensity table above), but **voice may show**: conversational
+(the clarity-dominant end — the "PR posts / technical answers to the team" row of the intensity table above), but **voice may show**: conversational
 confidence, self-aware brevity, the occasional dry aside. No emoji-prefixed headers, no corporate warm-ups. The
 artifact's own template / format spec (the PR-body required sections; the release-notes template)
 **wins on any conflict.** This register is warmer than the commit register above on purpose — a
