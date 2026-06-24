@@ -375,6 +375,36 @@ Produce a ranked list of the five skills most at risk of over-triggering and
 the five most at risk of under-triggering. For each: quote the description,
 explain the failure mode, suggest a fix.
 
+**Phase 5D — External-communication voice policy (drift catcher)**
+Doc reference: `~/.claude-os/reference/writing-voice.md` → "How to use" policy.
+
+Every skill that emits **human-facing external communication** (Slack messages, PR descriptions,
+PR review bodies/replies, commit messages, release notes) MUST reference `writing-voice.md` at an
+appropriate register. **Exempt:** skills whose only external text targets **Jira or GitHub issues**
+— their voice is unchanged by policy. No PreToolUse hook enforces outgoing prose, so this periodic
+sweep is the only guard; surface drift loudly.
+
+**(1) Name-anchored positive control — the documented in-scope set MUST each comply:**
+```
+grep -L writing-voice skills/commit/SKILL.md skills/make-it-so/SKILL.md skills/post-review/SKILL.md skills/ship/SKILL.md skills/arc-release/SKILL.md
+```
+Expected: **no output**. `grep -L` lists files that do NOT match, so any file printed is a
+non-compliant in-scope skill → **WARN**. This is the primary check because it catches `commit` and
+`make-it-so` — whose posting mechanisms (`/commit`, `gh pr create`) the verb-sweep below does not
+match — by NAME, so it cannot silently miss an in-scope skill the way a verb pattern can.
+
+**(2) Backstop sweep — catch any UNDOCUMENTED poster:**
+```
+grep -rEl "conversations_add_message|chat.postMessage|gh pr comment|gh pr review|gh pr create|gh api .*pulls.*review|gh api .*pulls.*comment|gh api .*pulls.*replies|gh api .*issues.*comment|pull_request_review|add_comment_to_pending_review|add_issue_comment|add_reply_to_pull_request|request_copilot_review|gh release create" skills/ agents/
+```
+For each hit, it must be EITHER (i) compliant (`grep -l writing-voice <file>` matches) OR (ii) on a list below.
+
+- **Already covered — compliant by delegation or by a consumer (do not flag):** `agents/pr-to-slack` SKILL.md (loads it directly) **and its `post.sh`** (the mechanical Block Kit poster — composition lives in the SKILL.md), `skills/pr-to-slack` (delegates to the agent), `skills/pr-response` (loads it), **`skills/ship/helpers.md`** (the shared reply-posting `gh api` helper — it holds the commands, not the prose; composition is governed by its consumers `ship` Step 6 + `pr-response`, both compliant), `ship` Phase 5 Slack (delegates to `pr-to-slack`), `ship` Phase 3.5 PR body (`--fill` inherits the commit text). (Note: `audit-claude-os` itself matches the sweep because this check *quotes* those verb strings — it is the auditor, not a poster.) These entries are **conditionally** covered — re-verify the basis each run, do not treat the list as a permanent pass: the delegation target (`pr-to-slack` → its agent SKILL.md must still load writing-voice; `post.sh` → same agent) or the consumer (`ship/helpers.md` → `ship` Step 6 + `pr-response` must still reference it) must itself still be compliant. If a covered entry's basis no longer holds, flag it as MISSING-REGISTER.
+- **Exempt — Jira / GitHub-issue surfaces (do not flag):** `investigate`, `jira`, `estimate`, `generate-qa-subtask`, `arc-defect-verify`, the background digests, `prd-to-jira`, and `make-it-so`'s issue-comment step (only its PR *body* is in scope).
+- **False positives — mechanism is example/data, not a live post (do not flag):** `mcp-health-audit` (`create_pull_request` is example data in a permission table), `scan` (Confluence = a doc-link target), `standup` (git author email), `prompt-master-main` (a cold-email *example* in its template library), `review-pr` (read-only; posts nothing — hands to `post-review`).
+
+Render: COMPLIANT / MISSING-REGISTER / WRONG-REGISTER / UNLISTED-POSTER. Any poster that is neither compliant nor listed → **WARN** (cite the file, the missing register, and the fix: "add a `writing-voice` <register> pointer at the posting step"). A poster naming the wrong register (e.g. a GitHub PR review pointing at the Slack PR-announcement subsection) → **WARN**.
+
 ---
 
 ## Findings Report

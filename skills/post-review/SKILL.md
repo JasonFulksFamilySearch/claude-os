@@ -57,6 +57,12 @@ A successful review satisfies all of the following:
 MUST follow these principles. Technical substance and severity ratings are unchanged —
 only the delivery changes.
 
+**Voice register.** Compose the review body and inline comments in the **"PR posts / technical
+answers to the team"** register from `~/.claude-os/reference/writing-voice.md` (clarity dominates,
+voice light — specifics, directness, no corporate warm-up, no hedging). Name that register
+explicitly: it is **not** the *Slack — PR-announcement posts* subsection (which is Slack-specific
+and owned by `pr-to-slack`). The supportive-tone principles below win on any conflict.
+
 ### Core Principles
 
 1. **Lead with strengths.** Before listing findings, open with what the code does well —

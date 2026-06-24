@@ -3,15 +3,21 @@
 > Load when composing outward-facing prose **in Jason's voice** — Slack messages, email,
 > and longer-form writing. Sources: pre-AI email & long-form writing (2012–2019), plus
 > Jason's real #ce-team Slack messages (2024) — quick team chat, authentic and AI-free.
-> Both are uncontaminated ground truth. Shared genome (Willis + Walter). Updated 2026-06-01.
+> Both are uncontaminated ground truth. Shared genome (Willis + Walter). Updated 2026-06-24.
 
 ## How to use this file
 
-1. **Core Fingerprint** and **Grammar & Spelling** apply to *every* surface, always.
+1. **Grammar & Spelling** apply to *every* surface, always. The **Core Fingerprint** applies by default too — **except where a register below deliberately narrows it** (notably the *Commit messages* register under "Register by surface", which drops the fingerprint to keep `git log` clean).
 2. **Register by surface** dials warmth, length, and formality up or down.
 3. The contract: reproduce the **voice** (rhythm, tells, word choice); always emit **clean
    grammar and spelling**. Samples are mined for voice, **never copied warts-and-all** — see
    the Grammar section for the closed list of errors to silently correct.
+4. **Policy — external communication.** Every claude-os skill that emits human-facing
+   external communication loads this reference at the register its surface calls for.
+   **Exempt:** text posted to Jira or GitHub issues keeps its current voice (unchanged).
+   **Git artifacts** — commit messages, PR descriptions, release notes — use the constrained
+   git-artifact registers below. This file is the single source of truth for the policy
+   (shared genome → it reaches both twins); the `audit-claude-os` skill enforces it.
 
 ---
 
@@ -27,7 +33,7 @@ the point. If forced to choose, choose the version his team understands fastest.
 
 | Context | Clarity vs. voice | Texture |
 |---|---|---|
-| PR posts, incident comms, technical answers to the team | clarity dominates; voice is light, in the background | minimal — specifics, directness, no fluff |
+| PR posts / technical answers to the team (incl. incident comms) | clarity dominates; voice is light, in the background | minimal — specifics, directness, no fluff |
 | Team-channel chatter, quick replies | balanced | ellipses, lowercase, emoji, warmth all welcome |
 | Personal email / longer prose | voice leads | full fingerprint |
 
@@ -44,7 +50,7 @@ Jason-flavored?* If the latter at any cost to clarity, revert to the clearer wor
 
 ---
 
-## Core Fingerprint — applies to every surface
+## Core Fingerprint — applies by default (a register below may narrow it)
 
 **Typography (the literal fingerprint):**
 - **Double space after periods.** Consistent across every sample.
@@ -128,6 +134,23 @@ Warm register. The full fingerprint plus:
 - **Reaches for structure even mid-thought** — numbered lists to organize feelings or asks
   ("So there are two things… 1… 2…"). He's an engineer even off the clock.
 - Short paragraphs, frequent breaks, the direct ask landing near the end.
+
+### Commit messages (git artifact — strictest)
+Composing a commit message: import **only** the **Grammar & Spelling** auto-fix table above.
+The **voice fingerprint does NOT apply** — no trailing ellipses, ALL-CAPS, conjunction-openings,
+interjections, or self-deprecating asides. Those rhythm/lexicon tells are the "word-salad" vector
+and stay out of `git log`. The `/commit` format spec — conventional-commit tag, 50-char subject,
+72-wrap WHAT/WHY/IMPACT body — **governs structure and wins on every conflict.** Clarity and
+brevity are the whole job. (ship's `gh pr create --fill` PR body inherits the commit text, so it
+rides this register too — no separate handling.)
+
+### PR descriptions & release notes (git artifact — voice-light, warm)
+Composing a PR description (`make-it-so`) or release notes (`arc-release`): **clarity dominates**
+(the clarity-dominant end — the "PR posts / technical answers to the team" row of the intensity table above), but **voice may show**: conversational
+confidence, self-aware brevity, the occasional dry aside. No emoji-prefixed headers, no corporate warm-ups. The
+artifact's own template / format spec (the PR-body required sections; the release-notes template)
+**wins on any conflict.** This register is warmer than the commit register above on purpose — a
+PR description is a human pitch for the change; a commit message is a structured record, not a pitch.
 
 ---
 
