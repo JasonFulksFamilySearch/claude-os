@@ -9,6 +9,8 @@ const { todayLocal } = require('./lib/episode-utils.js');
 const { safeString, yamlScalar, coerceObservation } = require('./lib/observation.js');
 const { summarize } = require('./lib/summarizer-client.js');
 const { tailHash, shouldSummarize, createCaptureQueue } = require('./lib/capture-queue.js');
+const { readSignals } = require('./lib/capture-buffer.js');
+const { isArmed } = require('./lib/fr-b5-flag.js');
 
 const EPISODES_DIR = join(homedir(), '.claude-data', 'episodes');
 const LOG_PATH = join(homedir(), '.claude-data', 'logs', 'session-observer.log');
@@ -105,7 +107,15 @@ function buildTranscriptText(turns) {
   return selected.join('');
 }
 
-function buildEpisodeContent(obs, sessionId, turnCount) {
+// Render the preserved verdicts (a `kind@index,kind@index` string) and the CCR retrieve
+// hash onto a tool-signal line. Kept pure (no clock/random) for determinism.
+function why_suffix(preserved, ccrHash) {
+  const k = preserved ? ` [${preserved}]` : '';
+  const h = ccrHash ? ` (ccr=${ccrHash})` : '';
+  return k + h;
+}
+
+function buildEpisodeContent(obs, sessionId, turnCount, toolSignals = []) {
   const safeSessionId = String(sessionId).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64) || String(Date.now());
 
   const fmLines = [
@@ -134,6 +144,24 @@ function buildEpisodeContent(obs, sessionId, turnCount) {
     sections.push('## Discoveries\n' + obs.discoveries.map(d => '- ' + d).join('\n'));
   if (obs.files_of_note.length)
     sections.push('## Files of note\n' + obs.files_of_note.map(f => '- `' + f.path + '` — ' + f.reason).join('\n'));
+
+  // FR-B5 (DIO-18): the "## Tool signals" section is built DIRECTLY from the capture
+  // buffer records (NOT via summarize()). Empty ⇒ omitted ⇒ byte-identical to pre-feature,
+  // mirroring the conditional-section pattern above.
+  if (Array.isArray(toolSignals) && toolSignals.length) {
+    const lines = toolSignals.map((s) => {
+      // AC-5b containment: render each PRESERVED verdict as `kind@index` so the section
+      // names exactly which original rows were preserved and why. `preserved` is
+      // [{index,kind}] from toSignalRecord (derived from compress()'s flat string verdicts).
+      const preserved = Array.isArray(s.preserved)
+        ? s.preserved.map((p) => `${p.kind}@${p.index}`).filter(Boolean).join(',')
+        : '';
+      // ccr_hash is the CCR retrieve marker (AC-1); dropped_count + preserved kinds are the signal.
+      return `- \`${s.tool}\` — ${s.retained}, ${s.dropped_count} dropped` +
+        why_suffix(preserved, s.ccr_hash);
+    });
+    sections.push('## Tool signals\n' + lines.join('\n'));
+  }
 
   return fmLines.join('\n') + sections.join('\n\n') + '\n';
 }
@@ -197,7 +225,13 @@ async function main() {
     process.exit(0);
   }
   const existingRaw = existsSync(target) ? readFileSync(target, 'utf8') : null;
-  const content = preservePromoted(existingRaw, buildEpisodeContent(obs, sessionId, turns.length));
+  // FR-B5: read the tool-signal buffer ONLY when armed; OFF (default) ⇒ [] ⇒ no section
+  // ⇒ byte-identical episode. Read is fail-safe ([] on any error).
+  const toolSignals = isArmed('fr_b5_capture') ? readSignals(sessionId) : [];
+  const content = preservePromoted(
+    existingRaw,
+    buildEpisodeContent(obs, sessionId, turns.length, toolSignals),
+  );
   const tmpPath = target + '.tmp';
   writeFileSync(tmpPath, content, 'utf8');
   renameSync(tmpPath, target);
