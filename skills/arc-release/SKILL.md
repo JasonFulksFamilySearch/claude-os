@@ -240,6 +240,8 @@ in `references/release-notes-template.md` (match the 13 prior files —
 `release-notes-v2.5.6.md` through `release-notes-v2.0.0.md`). **Read that companion file
 now** to load the template structure and section-adaptation rules (Patch/Minor/Major/Chore).
 
+Compose the prose in the **PR descriptions & release notes** register from `~/.claude-os/reference/writing-voice.md` — clarity-first, voice may show (no emoji-prefixed headers, no corporate warm-up); the template's structure and section rules **win on any conflict.**
+
 Commit and push the release notes:
 ```bash
 cd ~/dev/Record_Exchange/arc-record-exchange
@@ -374,6 +376,8 @@ gh workflow list --repo fs-eng/arc-record-exchange-orch-service
 
 Post a separate Block Kit message for each repo directly to **#arc-team** via `mcp__slack__conversations_add_message`
 (load via ToolSearch if needed). Post all four messages — one per repo, in this order: ARC, REOS, DSS, GSS.
+
+Compose each message in the **Slack — team channel** (warm) register from `~/.claude-os/reference/writing-voice.md` — Jason's warm, direct team voice (NOT the formal *Slack — PR-announcement posts* register). The Block Kit structure and the required fields below win on any conflict.
 
 Each message should include:
 - Service name, version, and link to its GitHub release
