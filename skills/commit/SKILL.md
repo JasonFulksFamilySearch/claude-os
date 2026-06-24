@@ -68,6 +68,13 @@ not a checklist. Explain WHAT changed, WHY it was necessary, and the IMPACT
 on the system. Separate from subject with a blank line.
 </format>
 
+**Voice — grammar/spelling only.** Apply the **Grammar & Spelling** auto-fix table from
+`~/.claude-os/reference/writing-voice.md` (the *Commit messages* register) so homophones,
+subject–verb slips, and dropped contractions never reach `git log`. The voice **fingerprint does
+NOT apply** to commit messages — no trailing ellipses, ALL-CAPS, conjunction-openings, or
+self-deprecating asides; those rhythm/lexicon tells are the word-salad vector. The format spec
+above wins on any conflict.
+
 Think carefully about the diff before selecting a commit type — a change that
 cannot be described cleanly in 50 characters is almost always two commits.
 
