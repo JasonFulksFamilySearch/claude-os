@@ -148,6 +148,13 @@ function buildEpisodeContent(obs, sessionId, turnCount, toolSignals = []) {
   // FR-B5 (DIO-18): the "## Tool signals" section is built DIRECTLY from the capture
   // buffer records (NOT via summarize()). Empty ⇒ omitted ⇒ byte-identical to pre-feature,
   // mirroring the conditional-section pattern above.
+  //
+  // yagni: the PRD (US-4 / ID-3) named an OPTIONAL `tool_findings` frontmatter field as a
+  // possible schema surface for these signals. We deliberately do NOT add it: the signals
+  // are surfaced in this body section (the recallable, user-facing form the AC wanted), no
+  // consumer reads a `tool_findings` field, and adding an always-present frontmatter key
+  // would risk the flag-OFF byte-identical-to-pre-feature guarantee (AC-5c.2) for zero
+  // benefit. If a future consumer needs structured frontmatter access, add it then.
   if (Array.isArray(toolSignals) && toolSignals.length) {
     const lines = toolSignals.map((s) => {
       // AC-5b containment: render each PRESERVED verdict as `kind@index` so the section
