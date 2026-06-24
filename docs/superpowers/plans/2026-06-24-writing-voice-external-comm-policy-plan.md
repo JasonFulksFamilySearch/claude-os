@@ -41,7 +41,7 @@
 - Modify: `reference/writing-voice.md` — "Register by surface" table (~`:96-131`) and "How to use" header (~`:8-14`)
 
 **Interfaces:**
-- Produces: two named register rows that Tasks 2–6 point at — refer to them by the names **"Commit messages"** register and **"PR descriptions / release notes"** register.
+- Produces: two named register rows that Tasks 2–6 point at — refer to them by the names **"Commit messages"** register and **"PR descriptions & release notes"** register.
 - Note for Tasks 4–5: they consume the EXISTING **"PR posts / technical answers to the team"** register (the `:30` intensity-table row — clarity dominates, voice light; `pr-response:18` already points at it by that name). They reference it **by explicit name** and explicitly exclude the **"Slack — PR-announcement posts"** subsection (`:116-120`, Slack-specific, owned by `pr-to-slack`). No new subsection is added for this — the explicit naming in Tasks 4/5 is the disambiguation, which keeps this change to the PRD's two new rows (closes Gate-2 P4 without scope creep).
 
 - [ ] **Step 1: Verification assertion (pre-edit)**
@@ -53,7 +53,7 @@ Expected: no match (the rows do not exist yet).
 
 In the "Register by surface" section, add two new rows/subsections after the existing Email row, each more constrained than the existing "PR posts" row. Required content (checkable bullets):
 - **Commit messages** register: import **only** the Grammar & Spelling auto-fix table; the voice fingerprint does **NOT** apply; the `/commit` format spec wins on every conflict; explicit "no word salad" intent (the rhythm/lexicon traits at `:58-69` are the salad vector and are excluded). Note it also governs ship's `--fill` PR body (inherited from the commit).
-- **PR descriptions / release notes** register: PR-post register, clarity-first, but **voice permitted to show** (conversational confidence, self-aware brevity, occasional dry aside); no emoji-prefixed headers / corporate fluff; the artifact's template/format spec wins on conflict.
+- **PR descriptions & release notes** register: PR-post register, clarity-first, but **voice permitted to show** (conversational confidence, self-aware brevity, occasional dry aside); no emoji-prefixed headers / corporate fluff; the artifact's template/format spec wins on conflict.
 - Each row states its precedence explicitly, mirroring `:116-120`.
 
 - [ ] **Step 3: Add the policy line to the "How to use" header**
@@ -106,7 +106,7 @@ Stage `skills/commit/SKILL.md` only; commit via `/commit`.
 - Modify: `skills/make-it-so/SKILL.md` — Step 6 PR-body composition (~`:390`, "PR body must include:")
 
 **Interfaces:**
-- Consumes: the "PR descriptions / release notes" register from Task 1.
+- Consumes: the "PR descriptions & release notes" register from Task 1.
 
 - [ ] **Step 1: Verification assertion (pre-edit)**
 
@@ -191,7 +191,7 @@ Stage `skills/ship/SKILL.md` only; commit via `/commit`.
 - Reference (read for context, no edit required): `skills/arc-release/references/release-notes-template.md` (absolute path — carried from Gate 1)
 
 **Interfaces:**
-- Consumes: the "PR descriptions / release notes" register and the team-channel register from `reference/writing-voice.md`.
+- Consumes: the "PR descriptions & release notes" register and the team-channel register from `reference/writing-voice.md`.
 
 - [ ] **Step 1: Verification assertion (pre-edit)**
 
@@ -264,6 +264,6 @@ Stage `skills/audit-claude-os/SKILL.md` only; commit via `/commit`.
 
 **2. Placeholder scan:** No "TBD"/"handle edge cases" — each task names the file, the target region, the required content bullets, and a concrete grep assertion. Prose wording is intentionally not locked (per the lean-plan constraint), but every edit's *required content* is enumerated and checkable.
 
-**3. Consistency:** Register names are used consistently — Tasks 2 & 6(release) → "PR descriptions / release notes" + "Commit messages" (defined in Task 1 Step 2); Tasks 4 & 5 → the existing "PR posts / technical answers to the team" register, referenced by explicit name (the `:30` register, explicitly NOT the `:116` Slack-announcement subsection — closes Gate-2 P4 with no new subsection); Task 6(Slack) → team-channel register. No dangling or ambiguous reference: every consuming task names its register explicitly; Task 1 creates the two new rows before Tasks 2/6 consume them.
+**3. Consistency:** Register names are used consistently — Tasks 2 & 6(release) → "PR descriptions & release notes" + "Commit messages" (defined in Task 1 Step 2); Tasks 4 & 5 → the existing "PR posts / technical answers to the team" register, referenced by explicit name (the `:30` register, explicitly NOT the `:116` Slack-announcement subsection — closes Gate-2 P4 with no new subsection); Task 6(Slack) → team-channel register. No dangling or ambiguous reference: every consuming task names its register explicitly; Task 1 creates the two new rows before Tasks 2/6 consume them.
 
 **4. Exemption integrity:** Tasks 3 and 7 both explicitly guard the Jira/GitHub-issue exemption (Task 3: do not add a pointer at the issue-comment step; Task 7: exempt issue-only skills). The false-positive and already-covered lists are recorded in Task 7 so the audit check is self-consistent with the no-edit decisions.

@@ -7,7 +7,7 @@
 
 ## How to use this file
 
-1. **Core Fingerprint** and **Grammar & Spelling** apply to *every* surface, always.
+1. **Grammar & Spelling** apply to *every* surface, always. The **Core Fingerprint** applies by default too — **except where a register below deliberately narrows it** (notably the *Commit messages* register, which drops the fingerprint to keep `git log` clean; see item 4).
 2. **Register by surface** dials warmth, length, and formality up or down.
 3. The contract: reproduce the **voice** (rhythm, tells, word choice); always emit **clean
    grammar and spelling**. Samples are mined for voice, **never copied warts-and-all** — see
@@ -145,9 +145,9 @@ brevity are the whole job. (ship's `gh pr create --fill` PR body inherits the co
 rides this register too — no separate handling.)
 
 ### PR descriptions & release notes (git artifact — voice-light, warm)
-Composing a PR description (`make-it-so`) or release notes (`arc-release`): use the PR-post
-register — **clarity-first**, but **voice may show**: conversational confidence, self-aware
-brevity, the occasional dry aside. No emoji-prefixed headers, no corporate warm-ups. The
+Composing a PR description (`make-it-so`) or release notes (`arc-release`): **clarity dominates**
+(as in the *PR posts* row of the intensity table above), but **voice may show**: conversational
+confidence, self-aware brevity, the occasional dry aside. No emoji-prefixed headers, no corporate warm-ups. The
 artifact's own template / format spec (the PR-body required sections; the release-notes template)
 **wins on any conflict.** This register is warmer than the commit register above on purpose — a
 PR description is a human pitch for the change; a commit message is a structured record, not a pitch.
