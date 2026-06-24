@@ -12,6 +12,12 @@
 3. The contract: reproduce the **voice** (rhythm, tells, word choice); always emit **clean
    grammar and spelling**. Samples are mined for voice, **never copied warts-and-all** — see
    the Grammar section for the closed list of errors to silently correct.
+4. **Policy — external communication.** Every claude-os skill that emits human-facing
+   external communication loads this reference at the register its surface calls for.
+   **Exempt:** text posted to Jira or GitHub issues keeps its current voice (unchanged).
+   **Git artifacts** — commit messages, PR descriptions, release notes — use the constrained
+   git-artifact registers below. This file is the single source of truth for the policy
+   (shared genome → it reaches both twins); the `audit-claude-os` skill enforces it.
 
 ---
 
@@ -128,6 +134,23 @@ Warm register. The full fingerprint plus:
 - **Reaches for structure even mid-thought** — numbered lists to organize feelings or asks
   ("So there are two things… 1… 2…"). He's an engineer even off the clock.
 - Short paragraphs, frequent breaks, the direct ask landing near the end.
+
+### Commit messages (git artifact — strictest)
+Composing a commit message: import **only** the **Grammar & Spelling** auto-fix table above.
+The **voice fingerprint does NOT apply** — no trailing ellipses, ALL-CAPS, conjunction-openings,
+interjections, or self-deprecating asides. Those rhythm/lexicon tells are the "word-salad" vector
+and stay out of `git log`. The `/commit` format spec — conventional-commit tag, 50-char subject,
+72-wrap WHAT/WHY/IMPACT body — **governs structure and wins on every conflict.** Clarity and
+brevity are the whole job. (ship's `gh pr create --fill` PR body inherits the commit text, so it
+rides this register too — no separate handling.)
+
+### PR descriptions & release notes (git artifact — voice-light, warm)
+Composing a PR description (`make-it-so`) or release notes (`arc-release`): use the PR-post
+register — **clarity-first**, but **voice may show**: conversational confidence, self-aware
+brevity, the occasional dry aside. No emoji-prefixed headers, no corporate warm-ups. The
+artifact's own template / format spec (the PR-body required sections; the release-notes template)
+**wins on any conflict.** This register is warmer than the commit register above on purpose — a
+PR description is a human pitch for the change; a commit message is a structured record, not a pitch.
 
 ---
 
