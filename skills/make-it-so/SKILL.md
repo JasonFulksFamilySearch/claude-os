@@ -394,6 +394,8 @@ Push the branch and open a pull request. Target the correct base branch — stac
 - Key design decisions
 - Manual test plan
 
+Compose the PR body in the **PR descriptions & release notes** register from `~/.claude-os/reference/writing-voice.md` — clarity-first, voice may show (no emoji-prefixed headers, no corporate warm-up); the required sections above win on any conflict. (Issue comments this skill posts are exempt — do not apply a voice register to them.)
+
 After opening, always resolve both automated feedback sources before the PR is considered complete — never mark a PR done while Copilot or SonarQube findings remain unaddressed, because unresolved automated findings signal to reviewers that the work is incomplete:
 
 **GitHub Copilot** — Read all Copilot review comments. Address each one or document explicitly why it was declined. Commit any fixes.
