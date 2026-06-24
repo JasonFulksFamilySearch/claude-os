@@ -219,22 +219,38 @@ test('GATE-3: the TOIN logger imports NO ranking/weights module (no write path t
   assert.ok(!/readFileSync|readFile\b|createReadStream/.test(code), 'the log sink has NO reader');
 });
 
-// THE weights write-path assertion (the central Gate-3 proof). Scans every RUNTIME module that
-// DIO-15 touches — plus the modules that DEFINE the weights — for any code that WRITES/MUTATES
-// the six-factor WEIGHTS object or the engine's search_config weight constants, and asserts ZERO
-// such paths. This proves the log→weight loop is closed by construction: even a FUTURE
-// log-consuming retune step would have to introduce such a write here, which this test forbids.
-test('GATE-3: ZERO runtime path mutates the six-factor WEIGHTS or search_config weights', () => {
-  // The six-factor WEIGHTS constant is FROZEN at definition — a runtime mutation throws.
+// THE weights write-path proof (the central Gate-3 guarantee). The load-bearing backstop is
+// Object.freeze(WEIGHTS): a runtime mutation of a frozen object THROWS under strict mode (or
+// no-ops in sloppy mode) — this is what actually closes the log→weight loop, and it catches
+// EVERY mutation form (member-set, alias, Object.defineProperty, Reflect.set) by execution.
+// The static scan below is defense-in-depth: a fast lint that fails the build the moment an
+// obvious weight-write is committed to the DIO-15 surface, so the regression is caught at the
+// diff rather than only at runtime. It is deliberately NOT claimed to be exhaustive — a regex
+// cannot track aliasing (`const W = WEIGHTS; W.recency = …`), so freeze, not the scan, is the
+// guarantee; the scan just raises the cost of an accidental direct write.
+test('GATE-3: Object.freeze is the load-bearing guarantee; a static scan backstops obvious weight-writes', () => {
+  // The six-factor WEIGHTS constant is FROZEN at definition — a runtime mutation throws. This
+  // is the real guarantee, proven by execution (not by the static scan): it catches every form.
   const { WEIGHTS } = require('../injection-ranking.js');
   assert.ok(Object.isFrozen(WEIGHTS), 'WEIGHTS must be frozen (a runtime write throws)');
   assert.throws(() => {
     'use strict';
     WEIGHTS.recency = 0.99;
   }, 'a runtime write to a weight must throw — there is no mutation path');
+  // Freeze also defeats the forms a static regex would miss — proven by execution:
+  assert.throws(() => {
+    'use strict';
+    const alias = WEIGHTS; // aliasing cannot evade a frozen target
+    alias.recency = 0.99;
+  }, 'a write through an alias must throw — freeze, not the scan, is the backstop');
+  assert.throws(() => {
+    Object.defineProperty(WEIGHTS, 'recency', { value: 0.99 });
+  }, 'Object.defineProperty on a frozen object must throw');
+  assert.equal(Reflect.set(WEIGHTS, 'recency', 0.99), false, 'Reflect.set must fail (return false) on a frozen object');
 
-  // Static scan: no module in the DIO-15 surface assigns to WEIGHTS[...] or reassigns WEIGHTS,
-  // and none writes a search_config weight constant at runtime.
+  // Defense-in-depth static scan: no module in the DIO-15 surface performs an OBVIOUS direct
+  // write to WEIGHTS or reassigns a search_config weight constant. Non-exhaustive by design
+  // (see the block comment above) — freeze is the guarantee; this just catches the easy cases.
   const surface = [
     path.join(HOOKS_LIB, 'toin-log.js'),
     path.join(HOOKS_LIB, 'ccr-retrieve.js'),
@@ -249,9 +265,11 @@ test('GATE-3: ZERO runtime path mutates the six-factor WEIGHTS or search_config 
   // declaration is not a runtime mutation.
   const WRITE_PATTERNS = [
     /WEIGHTS\s*\[[^\]]+\]\s*=[^=]/, // WEIGHTS['recency'] = ...
-    /WEIGHTS\.[A-Za-z_$][\w$]*\s*=[^=]/, // WEIGHTS.recency = ...  (not == / ===)
+    /WEIGHTS\s*\.\s*[A-Za-z_$][\w$]*\s*=[^=]/, // WEIGHTS.recency = ... and WEIGHTS . recency = ... (spaced member; not == / ===)
     /(?<!const\s)(?<!let\s)(?<!var\s)\bWEIGHTS\s*=\s*(?!\s*Object\.freeze)/, // reassigning the binding (except the frozen definition)
     /Object\.assign\s*\(\s*WEIGHTS/, // Object.assign(WEIGHTS, ...)
+    /Object\.defineProperty\s*\(\s*WEIGHTS/, // Object.defineProperty(WEIGHTS, ...)
+    /Reflect\.(set|defineProperty)\s*\(\s*WEIGHTS/, // Reflect.set(WEIGHTS, ...) / Reflect.defineProperty(WEIGHTS, ...)
     /\b(W_REINFORCE|W_EXACT_TITLE|W_EXACT_CONTENT|RRF_K)\s*=[^=]/, // engine weight reassignment
   ];
   for (const file of surface) {

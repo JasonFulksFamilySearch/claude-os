@@ -13,6 +13,14 @@ export const searchMemoryInput = z.object({
   limit: z.number().int().positive().max(50).optional(),
   source_filter: z.array(z.string()).optional(),
   project_filter: z.string().optional(),
+  // AC-4 gate (issue #55): reinforcement records a retrieval as a recall signal (bumps
+  // access_stats and the access_queries telemetry). Defaults to true — the human-recall
+  // behavior. A machine-originated retrieval (graph selection / enrich / graph-auditor)
+  // must pass reinforce:false so its access is NOT counted as recall. This is a function-
+  // level parameter for INTERNAL programmatic callers only: the MCP tool handler
+  // (index.ts) force-overrides reinforce:true on every model-facing call, so a client
+  // cannot set it and the model-facing search is always human recall.
+  reinforce: z.boolean().optional(),
 });
 
 export type SearchMemoryInput = z.infer<typeof searchMemoryInput>;
@@ -107,6 +115,7 @@ export async function searchMemory(
 ): Promise<SearchMemoryResult[]> {
   const args = searchMemoryInput.parse(rawArgs);
   const limit = args.limit ?? 10;
+  const reinforce = args.reinforce ?? true;
   // Oversample each retriever so a hit found by both but ranked deep in one list
   // still receives both RRF terms at fusion time.
   const poolSize = Math.min(CANDIDATE_CAP, limit * CANDIDATE_MULTIPLIER);
@@ -285,35 +294,43 @@ export async function searchMemory(
   // 6. Best-effort reinforcement: bump ONLY the returned rows. Writes to access_stats
   //    (not observations) so it never fires the FTS-sync triggers, and is wrapped so a
   //    transient write failure never fails the read.
-  try {
-    const query_hash = createHash("sha256")
-      .update(args.query.trim().toLowerCase())
-      .digest("hex");
-    const upsert = db.prepare(
-      `INSERT INTO access_stats(observation_id, last_accessed, access_count)
-       VALUES (?, ?, 1)
-       ON CONFLICT(observation_id) DO UPDATE SET
-         last_accessed = excluded.last_accessed,
-         access_count = access_count + 1`,
-    );
-    // Per-query access telemetry (C3): one (observation_id, query_hash) pair per returned
-    // row, riding the SAME best-effort transaction so it can never fail the read.
-    const upsertQuery = db.prepare(
-      `INSERT INTO access_queries(observation_id, query_hash, access_count, first_seen, last_seen)
-       VALUES (?, ?, 1, ?, ?)
-       ON CONFLICT(observation_id, query_hash) DO UPDATE SET
-         access_count = access_count + 1,
-         last_seen = excluded.last_seen`,
-    );
-    const bump = db.transaction((rows: SearchMemoryResult[]) => {
-      for (const r of rows) {
-        upsert.run(r.id, now);
-        upsertQuery.run(r.id, query_hash, now, now);
-      }
-    });
-    bump(results);
-  } catch {
-    // Reinforcement is best-effort; a write failure must not fail search.
+  //
+  //    AC-4 gate (issue #55): a machine-originated retrieval passes reinforce:false, which
+  //    skips the ENTIRE reinforcement write — neither access_stats (the ranking tie-breaker
+  //    read back in ranking.ts) nor the access_queries recall telemetry is touched. A
+  //    machine access is not a recall signal. The read-back is unchanged: a reinforce:false
+  //    search still BENEFITS from prior organic reinforcement, it just writes none of its own.
+  if (reinforce) {
+    try {
+      const query_hash = createHash("sha256")
+        .update(args.query.trim().toLowerCase())
+        .digest("hex");
+      const upsert = db.prepare(
+        `INSERT INTO access_stats(observation_id, last_accessed, access_count)
+         VALUES (?, ?, 1)
+         ON CONFLICT(observation_id) DO UPDATE SET
+           last_accessed = excluded.last_accessed,
+           access_count = access_count + 1`,
+      );
+      // Per-query access telemetry (C3): one (observation_id, query_hash) pair per returned
+      // row, riding the SAME best-effort transaction so it can never fail the read.
+      const upsertQuery = db.prepare(
+        `INSERT INTO access_queries(observation_id, query_hash, access_count, first_seen, last_seen)
+         VALUES (?, ?, 1, ?, ?)
+         ON CONFLICT(observation_id, query_hash) DO UPDATE SET
+           access_count = access_count + 1,
+           last_seen = excluded.last_seen`,
+      );
+      const bump = db.transaction((rows: SearchMemoryResult[]) => {
+        for (const r of rows) {
+          upsert.run(r.id, now);
+          upsertQuery.run(r.id, query_hash, now, now);
+        }
+      });
+      bump(results);
+    } catch {
+      // Reinforcement is best-effort; a write failure must not fail search.
+    }
   }
 
   return results;

@@ -238,7 +238,12 @@ async function main(): Promise<void> {
     try {
       switch (name) {
         case "search_memory":
-          return jsonResult(await searchMemory(db, args ?? {}));
+          // The model-facing tool is ALWAYS human recall: force reinforcement on, overriding
+          // any client-supplied `reinforce`. The gate (search_memory.ts) exists only for
+          // internal programmatic callers (future machine→search paths) that invoke
+          // searchMemory directly; the MCP surface never honors a caller-set reinforce, so
+          // "model-facing search always reinforces" is enforced here, not merely convention.
+          return jsonResult(await searchMemory(db, { ...(args ?? {}), reinforce: true }));
         case "get_topic":
           return jsonResult(getTopic(args ?? {}));
         case "append_learning":
