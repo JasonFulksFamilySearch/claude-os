@@ -45,6 +45,21 @@ test('flag ON but compress skipped ⇒ no capture', () => {
   assert.equal(appended, 0);
 });
 
+test('flag ON + compressed envelope but NO sessionId ⇒ no capture', () => {
+  // A missing session_id has no consumer (the Stop worker keys the buffer by session_id),
+  // so capturing it would silently orphan / collide the line. Must be a no-op, not a write
+  // to a shared 'noid' file.
+  let appended = 0;
+  const res = captureSignal(INPUT, PAYLOAD, {
+    isArmedFn: () => true,
+    append: () => { appended++; return undefined; },
+    mkdir: () => undefined,
+    sessionId: undefined, env: {},
+  });
+  assert.deepEqual(res, { written: 0 });
+  assert.equal(appended, 0);
+});
+
 test('flag ON but no compressed envelope (raw passthrough) ⇒ no capture', () => {
   let appended = 0;
   const rawPayload = { hookSpecificOutput: { hookEventName: 'PostToolUse', updatedToolOutput: '[{"a":1}]' } };

@@ -1,7 +1,7 @@
 'use strict';
 
 const {
-  readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, renameSync,
+  readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, renameSync, rmSync,
 } = require('node:fs');
 const { join, dirname, resolve, sep } = require('node:path');
 const { homedir } = require('node:os');
@@ -9,7 +9,7 @@ const { todayLocal } = require('./lib/episode-utils.js');
 const { safeString, yamlScalar, coerceObservation } = require('./lib/observation.js');
 const { summarize } = require('./lib/summarizer-client.js');
 const { tailHash, shouldSummarize, createCaptureQueue } = require('./lib/capture-queue.js');
-const { readSignals } = require('./lib/capture-buffer.js');
+const { readSignals, bufferPath } = require('./lib/capture-buffer.js');
 const { isArmed } = require('./lib/fr-b5-flag.js');
 
 const EPISODES_DIR = join(homedir(), '.claude-data', 'episodes');
@@ -234,7 +234,8 @@ async function main() {
   const existingRaw = existsSync(target) ? readFileSync(target, 'utf8') : null;
   // FR-B5: read the tool-signal buffer ONLY when armed; OFF (default) ⇒ [] ⇒ no section
   // ⇒ byte-identical episode. Read is fail-safe ([] on any error).
-  const toolSignals = isArmed('fr_b5_capture') ? readSignals(sessionId) : [];
+  const armed = isArmed('fr_b5_capture');
+  const toolSignals = armed ? readSignals(sessionId) : [];
   const content = preservePromoted(
     existingRaw,
     buildEpisodeContent(obs, sessionId, turns.length, toolSignals),
@@ -242,6 +243,13 @@ async function main() {
   const tmpPath = target + '.tmp';
   writeFileSync(tmpPath, content, 'utf8');
   renameSync(tmpPath, target);
+  // FR-B5: evict the session's capture buffer AFTER the episode is durably written, so a
+  // write failure never loses the signals. Only when ARMED — a flag-OFF run never read or
+  // wrote a buffer and must stay byte-identical / filesystem-untouched. Fail-safe: eviction
+  // can never crash the worker (same posture as the rest of FR-B5).
+  if (armed) {
+    try { rmSync(bufferPath(sessionId), { force: true }); } catch { /* eviction never crashes the worker */ }
+  }
   queue.markSuccess(sessionId, { turnCount: turns.length, tailHash: hash });
   process.exit(0);
 }

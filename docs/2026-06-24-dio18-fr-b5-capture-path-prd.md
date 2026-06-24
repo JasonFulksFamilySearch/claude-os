@@ -19,8 +19,8 @@ This is the **highest-risk remaining Dioscuri unit**: it is the only *new lossy 
 
 Build the three missing pieces, all behind a single default-OFF flag:
 
-1. **A tool-signal producer** — a handler on the existing PostToolUse router appends one compressed-signal line per tool result to a new, indexer-excluded `capture-buffer/<sessionId>.jsonl`. It stores the *compressed signal summary*, never the raw dump.
-2. **A consumer in the Stop episode worker** — reads that buffer alongside the transcript and writes a `## Tool signals` section directly into the episode `.md` (not through the Haiku summarizer). The episode schema gains an optional `tool_findings`.
+1. **A tool-signal producer** — a fail-safe `main()` SIDE-EFFECT on the existing PostToolUse router (NOT a handler, and NOT part of the frozen `route()` contract) appends one compressed-signal line per tool result to a new, indexer-excluded `capture-buffer/<sessionId>.jsonl`. It stores the *compressed signal summary*, never the raw dump.
+2. **A consumer in the Stop episode worker** — reads that buffer alongside the transcript and writes a `## Tool signals` section directly into the episode `.md` (not through the Haiku summarizer). The signals are surfaced in that body section only; the build deliberately does NOT add a `tool_findings` frontmatter field (deferred — see the ID-3 / US-4 scope decision below).
 3. **A file-sentinel arming flag** — gates the whole path. Absent (the default) ⇒ the feature is off ⇒ episodes are byte-identical to pre-feature. Arming = creating the sentinel (a separate, human-gated act tracked in #72).
 
 When OFF (shipped state), the system behaves exactly as today. The build is verified by tests and the Gate-3 diff judge; it is *armed* only later, after #59 quantifies fidelity and the operator runs the manual eval re-baseline.
@@ -66,7 +66,8 @@ Given the FR-B5 flag is armed
 When the Stop episode worker builds the episode .md
 Then it reads the buffer directly (NOT through summarize())
   And appends a "## Tool signals" section built from the buffer records
-  And the episode frontmatter/record schema carries an optional tool_findings field
+  And that section is the ONLY surface — no tool_findings frontmatter field is added
+    (deferred until a consumer needs it; see the ID-3 Gate-3 scope-decision note)
 ```
 
 **US-5 — As the system, I want the consumer to read transcript and buffer as one worker with two inputs, decoupled by the buffer file, so there is no producer/consumer race (FR-F3).**

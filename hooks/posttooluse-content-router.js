@@ -296,10 +296,15 @@ function captureSignal(
       verdicts: d.verdicts,
       originalHash: d.originalHash,
     };
+    // No session_id ⇒ no consumer can ever read this back (the Stop worker keys the
+    // buffer by session_id). Writing to a shared 'noid' file would silently collide
+    // sessions and orphan the line. A missing sessionId is therefore a no-op capture —
+    // consistent with the fail-safe posture: never write what nothing can consume.
+    if (!sessionId) return { written: 0 };
     const opts = {};
     if (append) opts.append = append;
     if (mkdir) opts.mkdir = mkdir;
-    return appendSignal(sessionId || 'noid', signal, opts);
+    return appendSignal(sessionId, signal, opts);
   } catch {
     return { written: 0 }; // capture never breaks the tool call
   }
