@@ -6,7 +6,7 @@ description: >
   "run doctor", "is my memory engine healthy", "diagnose my installation", or
   "repair my installation".
 argument-hint: "[--fix] [--full]"
-allowed-tools: Bash(cd:*), Bash(npm run doctor), Bash(npm run doctor -- --full), Bash(npm run migrate), Bash(npm run eval), Bash(npm run reembed)
+allowed-tools: Bash(cd:*), Bash(npm run doctor), Bash(npm run doctor -- --full), Bash(npm run doctor -- --apply-fix=*)
 ---
 
 <role>
@@ -49,8 +49,13 @@ For EACH fixable finding, one at a time:
   a. Describe what the fix will do and why (e.g. "drop the dead label `<q>` whose target
      no longer exists, back up the labels file, then re-run eval").
   b. Ask the operator to confirm.
-  c. On confirm: apply that single fix (the corresponding `npm run` action) and report the
-     result — for label/baseline fixes, the new composed eval verdict. On decline: skip it.
+  c. On confirm: apply that single fix by running
+     `cd ~/.claude-os/mcp && npm run doctor -- --apply-fix=<fix-id>`
+     where `<fix-id>` is the remediation id from the diagnosis (drop-dead-label, run-migrate,
+     re-embed, clear-stale-lock, recapture-baseline). This invokes the real fix function with
+     its backup-before-mutate and gate enforcement — never raw `npm run reembed` or
+     `npm run eval -- --rebaseline`, which bypass those guards. Report the result (applied +
+     detail + verdictAfter if present). On decline: skip it.
 Never bundle multiple fixes into one confirmation. Never re-offer a fix whose check now PASSes.
 
 ## 3. Report-only findings
