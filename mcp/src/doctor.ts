@@ -441,6 +441,49 @@ export async function reembedMissing(opts: {
 }
 
 // ---------------------------------------------------------------------------
+// Task 13: clearStaleLock fix — apply-time staleness re-verification
+// ---------------------------------------------------------------------------
+import { rmSync as rmSyncLock } from "node:fs";
+
+// clearStaleLock: removes the stale writer-lock directory so a crashed session
+// stops blocking index maintenance.
+//
+// Safety contract: isStale is re-called AT APPLY TIME with the same lockPath
+// and now. Only rmSync the lock dir if it is STILL stale. If a live writer
+// re-heartbeated between diagnose and apply (bumping the mtime past the
+// threshold) the fix REFUSES: applied:false, dir intact. Clearing a lock a live
+// writer holds would corrupt single-writer election.
+//
+// Idempotent: if the lock dir doesn't exist, nothing to clear — applied:false.
+// rmSync with force:true does not throw on an absent dir.
+export function clearStaleLock(opts: { lockPath: string; now?: number }): FixResult {
+  const { lockPath } = opts;
+  const now = opts.now ?? Date.now();
+
+  // No lock dir — already healthy.
+  if (!existsSync(lockPath)) {
+    return { applied: false, detail: "no writer lock present — nothing to clear." };
+  }
+
+  // Apply-time re-verification: re-call isStale at this moment. A live writer
+  // may have re-heartbeated between diagnose and now, making the lock fresh.
+  if (!isStale(lockPath, now)) {
+    return {
+      applied: false,
+      detail: "lock is no longer stale — refusing to clear (a live writer may hold it).",
+    };
+  }
+
+  // Lock is still stale: clear it. force:true makes a concurrent removal benign.
+  rmSyncLock(lockPath, { recursive: true, force: true });
+
+  return {
+    applied: true,
+    detail: "stale writer-lock directory cleared; index maintenance may now proceed.",
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Task 8: registry assembly + diagnose() end-to-end composition
 // ---------------------------------------------------------------------------
 

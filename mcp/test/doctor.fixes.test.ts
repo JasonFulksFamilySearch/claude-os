@@ -5,7 +5,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
 import { openDb } from "../src/db.js";
-import { checkBrokenLabels, checkCorpusSnapshot, checkOrphanEmbeddings, checkSchemaCurrent, dropDeadLabel, recomputeCorpusSnapshot, reembedMissing, runMigrateFix, type FixResult } from "../src/doctor.js";
+import { checkBrokenLabels, checkCorpusSnapshot, checkOrphanEmbeddings, checkSchemaCurrent, checkStaleLock, clearStaleLock, dropDeadLabel, recomputeCorpusSnapshot, reembedMissing, runMigrateFix, type FixResult } from "../src/doctor.js";
 import { isV3Schema, runMigrations, verifyBackup } from "../src/migrations.js";
 import { main as migrateMain } from "../src/scripts/migrate.js";
 import { countMissingVectors } from "../src/indexer.js";
@@ -621,5 +621,107 @@ describe("doctor.fixes — reembedMissing", () => {
 
     const check = await checkOrphanEmbeddings({ db } as any);
     expect(check.status).toBe("PASS");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 13: clearStaleLock
+// ---------------------------------------------------------------------------
+import { mkdirSync as mkdirSyncLock, utimesSync } from "node:fs";
+import { HEARTBEAT_REFRESH_MS, STALENESS_MULTIPLE } from "../src/election.js";
+
+describe("doctor.fixes — clearStaleLock", () => {
+  let dir: string;
+  let lockPath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "doctor-clear-lock-"));
+    lockPath = join(dir, "memory.db.writer.lock.d");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // Helper: create a lock dir whose mtime is `ageMs` milliseconds before `now`.
+  function makeStaleLock(now: number, ageMs: number): void {
+    mkdirSyncLock(lockPath);
+    const mtimeSec = (now - ageMs) / 1000;
+    utimesSync(lockPath, mtimeSec, mtimeSec);
+  }
+
+  // Helper: touch the lock dir to `freshMs` relative to `now` (makes it non-stale).
+  function touchFresh(now: number): void {
+    const mtimeSec = now / 1000;
+    utimesSync(lockPath, mtimeSec, mtimeSec);
+  }
+
+  // -------------------------------------------------------------------------
+  // Stale → cleared: diagnose FAIL, fix removes dir, check reports PASS after
+  // -------------------------------------------------------------------------
+
+  it("stale lock: checkStaleLock FAIL then clearStaleLock removes the dir and check reports PASS", async () => {
+    const now = 200 * HEARTBEAT_REFRESH_MS;
+    // Age is slightly more than the staleness threshold so isStale returns true.
+    const ageMs = STALENESS_MULTIPLE * HEARTBEAT_REFRESH_MS + 5_000;
+    makeStaleLock(now, ageMs);
+
+    // Before fix: check reports FAIL with remediation clear-stale-lock.
+    const before = await checkStaleLock({ lockPath, now } as any);
+    expect(before.status).toBe("FAIL");
+    expect(before.remediation?.id).toBe("clear-stale-lock");
+
+    // Apply the fix.
+    const res: FixResult = clearStaleLock({ lockPath, now });
+    expect(res.applied).toBe(true);
+
+    // Lock dir must be gone.
+    expect(existsSync(lockPath)).toBe(false);
+
+    // After fix: check reports PASS (no lock dir).
+    const after = await checkStaleLock({ lockPath, now } as any);
+    expect(after.status).toBe("PASS");
+  });
+
+  // -------------------------------------------------------------------------
+  // APPLY-TIME REFUSAL (load-bearing): stale at diagnose, re-heartbeated
+  // before apply — clearStaleLock MUST refuse and leave the dir intact.
+  // -------------------------------------------------------------------------
+
+  it("apply-time refusal: lock re-heartbeated between diagnose and apply — refused, dir survives", async () => {
+    const now = 200 * HEARTBEAT_REFRESH_MS;
+    const ageMs = STALENESS_MULTIPLE * HEARTBEAT_REFRESH_MS + 5_000;
+    makeStaleLock(now, ageMs);
+
+    // Verify it IS stale at diagnose time.
+    const diagnoseResult = await checkStaleLock({ lockPath, now } as any);
+    expect(diagnoseResult.status).toBe("FAIL");
+
+    // Simulate a live writer re-heartbeating between diagnose and apply:
+    // touch the lock dir to `now` so isStale(lockPath, now) returns false.
+    touchFresh(now);
+
+    // clearStaleLock must re-call isStale at apply time and refuse.
+    const res: FixResult = clearStaleLock({ lockPath, now });
+    expect(res.applied).toBe(false);
+    expect(res.detail).toMatch(/no longer stale/i);
+
+    // The lock dir must still exist — clearStaleLock did not remove it.
+    expect(existsSync(lockPath)).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // No-lock idempotency: absent lockPath → applied:false, no throw
+  // -------------------------------------------------------------------------
+
+  it("no-lock idempotency: absent lockPath returns applied:false and does not throw", () => {
+    // lockPath was never created.
+    expect(existsSync(lockPath)).toBe(false);
+
+    const res: FixResult = clearStaleLock({ lockPath, now: Date.now() });
+    expect(res.applied).toBe(false);
+
+    // No throw, no side effects.
+    expect(existsSync(lockPath)).toBe(false);
   });
 });
