@@ -3,7 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const sc = require('../lib/smart-crusher.js');
 
-test('smart-crusher exports the slot fractions DIO-19 needs to recompute the split', () => {
+test('smart-crusher exports the slot fractions the fidelity harness needs to recompute the split', () => {
   assert.equal(sc.SCHEMA_FRACTION, 0.30);
   assert.equal(sc.RECENCY_FRACTION, 0.15);
   // already-exported surface the harness also relies on:
