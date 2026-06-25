@@ -4,6 +4,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   composeFidelityVerdict,
+  labeledSetHash,
   type FidelityBaseline,
 } from "../src/scripts/fidelity.js";
 
@@ -26,15 +27,18 @@ describe("fidelity labeled set", () => {
 
 describe("composeFidelityVerdict", () => {
   it("captures on first run (no baseline), composes a delta on second", () => {
+    const hash = labeledSetHash([[{ a: 1 }, [0]] as any]);
     const cur: FidelityBaseline = {
       rate: 0.8,
       total_attributable: 10,
+      labeled_set_hash: hash,
       captured_on_ref: "x",
     };
     expect(composeFidelityVerdict(null, cur).status).toBe("CAPTURED");
     const prev: FidelityBaseline = {
       rate: 0.9,
       total_attributable: 10,
+      labeled_set_hash: hash,
       captured_on_ref: "w",
     };
     expect(composeFidelityVerdict(prev, cur).status).toBe("REGRESSED"); // 0.8 < 0.9
@@ -53,6 +57,7 @@ describe("composeFidelityVerdict", () => {
     const prev: FidelityBaseline = {
       rate: 0.9,
       total_attributable: 10,
+      labeled_set_hash: "AAA",
       captured_on_ref: "w",
     };
     expect(composeFidelityVerdict(prev, nullCur).status).toBe("INCONCLUSIVE");
@@ -65,11 +70,13 @@ describe("composeFidelityVerdict", () => {
     const corruptPrev = {
       rate: null,
       total_attributable: 0,
+      labeled_set_hash: "AAA",
       captured_on_ref: "x",
     } as any;
     const cur: FidelityBaseline = {
       rate: 0.8,
       total_attributable: 10,
+      labeled_set_hash: "AAA",
       captured_on_ref: "y",
     };
     const result = composeFidelityVerdict(corruptPrev, cur);
@@ -77,22 +84,102 @@ describe("composeFidelityVerdict", () => {
     expect(result.reason).toMatch(/baseline/i);
   });
 
-  it("returns INCONCLUSIVE when labeled-set attributable population changed (shape mismatch)", () => {
-    // Comparability guard: a baseline captured on one labeled set (attributable=30) composed
-    // against a run on a re-curated set (attributable=25) is not comparable — even when the
-    // current rate is higher (0.9 > 0.5). A higher rate must NOT mask the shape change.
-    const prev: FidelityBaseline = {
+  it("returns INCONCLUSIVE when baseline predates the content-hash guard (no labeled_set_hash)", () => {
+    // A pre-fix baseline has no labeled_set_hash. Composing against it must force a
+    // re-capture rather than silently skipping the comparability check.
+    const prevNohash: FidelityBaseline = {
       rate: 0.5,
       total_attributable: 30,
       captured_on_ref: "x",
+      // labeled_set_hash intentionally absent
     };
     const cur: FidelityBaseline = {
-      rate: 0.9,
-      total_attributable: 25,
+      rate: 0.99,
+      total_attributable: 30,
+      labeled_set_hash: "BBB",
+      captured_on_ref: "y",
+    };
+    const result = composeFidelityVerdict(prevNohash, cur);
+    expect(result.status).toBe("INCONCLUSIVE");
+    expect(result.reason).toMatch(/predates/i);
+  });
+
+  it("returns INCONCLUSIVE when labeled-set CONTENT changed at equal total_attributable (the exact hole the old count guard missed)", () => {
+    // The old guard compared total_attributable counts and missed content swaps that keep
+    // the count stable (same 30 attributable rows, different payload content).
+    // composeFidelityVerdict({rate:0.40, total_attributable:30, labeled_set_hash:"AAA"},
+    //                        {rate:0.99, total_attributable:30, labeled_set_hash:"BBB"})
+    // MUST return INCONCLUSIVE — a higher current rate must NOT mask the content swap.
+    const prev: FidelityBaseline = {
+      rate: 0.4,
+      total_attributable: 30,
+      labeled_set_hash: "AAA",
+      captured_on_ref: "x",
+    };
+    const cur: FidelityBaseline = {
+      rate: 0.99,
+      total_attributable: 30,
+      labeled_set_hash: "BBB",
       captured_on_ref: "y",
     };
     const result = composeFidelityVerdict(prev, cur);
     expect(result.status).toBe("INCONCLUSIVE");
-    expect(result.reason).toMatch(/attributable/i);
+    expect(result.reason).toMatch(/labeled set content/i);
+  });
+
+  it("returns PASS when labeled-set content is unchanged and rate did not regress", () => {
+    // The hash guard must not over-fire: matching hashes with equal/better rate → PASS.
+    const hash = "SAME_HASH";
+    const prev: FidelityBaseline = {
+      rate: 0.8,
+      total_attributable: 30,
+      labeled_set_hash: hash,
+      captured_on_ref: "x",
+    };
+    const cur: FidelityBaseline = {
+      rate: 0.85,
+      total_attributable: 30,
+      labeled_set_hash: hash,
+      captured_on_ref: "y",
+    };
+    expect(composeFidelityVerdict(prev, cur).status).toBe("PASS");
+  });
+
+  it("returns REGRESSED when labeled-set content is unchanged and rate regressed", () => {
+    // The hash guard must not over-fire: matching hashes with a lower rate → REGRESSED.
+    const hash = "SAME_HASH";
+    const prev: FidelityBaseline = {
+      rate: 0.9,
+      total_attributable: 30,
+      labeled_set_hash: hash,
+      captured_on_ref: "x",
+    };
+    const cur: FidelityBaseline = {
+      rate: 0.7,
+      total_attributable: 30,
+      labeled_set_hash: hash,
+      captured_on_ref: "y",
+    };
+    expect(composeFidelityVerdict(prev, cur).status).toBe("REGRESSED");
+  });
+
+  it("labeledSetHash is stable across calls (deterministic) and excludes notes", () => {
+    const payloads1 = [{ array: [{ a: 1 }, { b: 2 }], important_indices: [0] }];
+    const payloads2 = [
+      {
+        array: [{ a: 1 }, { b: 2 }],
+        important_indices: [0],
+        notes: "different note",
+      },
+    ];
+    // Same content → same hash
+    expect(labeledSetHash(payloads1)).toBe(labeledSetHash(payloads1));
+    // Notes difference → same hash (notes excluded from measurement fields)
+    expect(labeledSetHash(payloads1)).toBe(labeledSetHash(payloads2));
+    // Different content → different hash
+    const payloads3 = [
+      { array: [{ a: 99 }, { b: 2 }], important_indices: [0] },
+    ];
+    expect(labeledSetHash(payloads1)).not.toBe(labeledSetHash(payloads3));
   });
 });

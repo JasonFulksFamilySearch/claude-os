@@ -10,6 +10,7 @@
 // on the pre-change compressor. The gate is micro-average fidelity non-regression.
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -37,8 +38,20 @@ interface FidelityLabeledSet {
 
 export interface FidelityBaseline {
   rate: number;
-  total_attributable: number;
+  total_attributable: number; // provenance only — comparability is decided by labeled_set_hash
+  labeled_set_hash?: string;
   captured_on_ref: string;
+}
+
+// Stable content hash of the fidelity labeled set's measurement-determining fields.
+// Mirrors eval.ts's fileSetHash idiom: only fields that affect measurement are hashed
+// (array + important_indices); notes is human annotation and does not affect the result.
+// Deterministic: JSON.stringify of a sorted-key representation is stable across calls.
+export function labeledSetHash(payloads: PayloadEntry[]): string {
+  const stable = JSON.stringify(
+    payloads.map((p) => [p.array, p.important_indices]),
+  );
+  return createHash("sha256").update(stable).digest("hex");
 }
 
 interface VerdictResult {
@@ -93,6 +106,7 @@ export function composeFidelityVerdict(
   cur: {
     rate: number | null;
     total_attributable: number;
+    labeled_set_hash?: string;
     captured_on_ref?: string;
   },
 ): VerdictResult {
@@ -107,6 +121,7 @@ export function composeFidelityVerdict(
       cur: {
         rate: 0,
         total_attributable: cur.total_attributable,
+        labeled_set_hash: cur.labeled_set_hash,
         captured_on_ref: curRef,
       },
       prev,
@@ -116,6 +131,7 @@ export function composeFidelityVerdict(
   const curBaseline: FidelityBaseline = {
     rate: cur.rate,
     total_attributable: cur.total_attributable,
+    labeled_set_hash: cur.labeled_set_hash,
     captured_on_ref: curRef,
   };
 
@@ -136,14 +152,27 @@ export function composeFidelityVerdict(
     };
   }
 
-  // COMPARABILITY GUARD: if the labeled set's attributable population changed since the
-  // baseline was captured, the two rates are measured on different denominators and are not
-  // comparable. A higher rate must NOT mask a population change — return INCONCLUSIVE rather
-  // than a plausible-but-wrong PASS. Mirrors the eval gate's file_set_hash shape guard.
-  if (prev.total_attributable !== cur.total_attributable) {
+  // COMPARABILITY GUARD: mirrors eval.ts's fileSetHash content-hash guard.
+  // A baseline captured on labeled-set-V1 composed against a run on labeled-set-V2
+  // (swapped payload content, same total_attributable) yields a plausible-but-wrong
+  // verdict. A bare row count cannot detect a content swap — only a content hash can.
+  //
+  // "predates" branch: a baseline without labeled_set_hash was captured before this
+  // guard existed; force a re-capture rather than silently skipping the check.
+  if (prev.labeled_set_hash === undefined) {
     return {
       status: "INCONCLUSIVE",
-      reason: `labeled set shape changed (baseline attributable=${prev.total_attributable} vs current=${cur.total_attributable}) — not comparable; delete ~/.claude-data/eval/fidelity-baseline.json and re-capture`,
+      reason:
+        "baseline predates the content-hash guard — re-capture (delete ~/.claude-data/eval/fidelity-baseline.json)",
+      cur: curBaseline,
+      prev,
+    };
+  }
+  if (prev.labeled_set_hash !== cur.labeled_set_hash) {
+    return {
+      status: "INCONCLUSIVE",
+      reason:
+        "labeled set content changed since baseline — not comparable; re-capture the baseline (delete ~/.claude-data/eval/fidelity-baseline.json)",
       cur: curBaseline,
       prev,
     };
@@ -231,10 +260,12 @@ async function main(): Promise<void> {
 
   const ref = gitRef();
   const prev = readBaseline(BASELINE_PATH);
+  const curHash = labeledSetHash(payloads);
 
   const verdict = composeFidelityVerdict(prev, {
     rate: avg.rate,
     total_attributable: avg.totalAttributable,
+    labeled_set_hash: curHash,
     captured_on_ref: ref,
   });
 
