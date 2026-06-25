@@ -136,6 +136,19 @@ export function composeFidelityVerdict(
     };
   }
 
+  // COMPARABILITY GUARD: if the labeled set's attributable population changed since the
+  // baseline was captured, the two rates are measured on different denominators and are not
+  // comparable. A higher rate must NOT mask a population change — return INCONCLUSIVE rather
+  // than a plausible-but-wrong PASS. Mirrors the eval gate's file_set_hash shape guard.
+  if (prev.total_attributable !== cur.total_attributable) {
+    return {
+      status: "INCONCLUSIVE",
+      reason: `labeled set shape changed (baseline attributable=${prev.total_attributable} vs current=${cur.total_attributable}) — not comparable; delete ~/.claude-data/eval/fidelity-baseline.json and re-capture`,
+      cur: curBaseline,
+      prev,
+    };
+  }
+
   const regressed = cur.rate < prev.rate - EPSILON;
   return {
     status: regressed ? "REGRESSED" : "PASS",

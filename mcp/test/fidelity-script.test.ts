@@ -76,4 +76,23 @@ describe("composeFidelityVerdict", () => {
     expect(result.status).toBe("INCONCLUSIVE");
     expect(result.reason).toMatch(/baseline/i);
   });
+
+  it("returns INCONCLUSIVE when labeled-set attributable population changed (shape mismatch)", () => {
+    // Comparability guard: a baseline captured on one labeled set (attributable=30) composed
+    // against a run on a re-curated set (attributable=25) is not comparable — even when the
+    // current rate is higher (0.9 > 0.5). A higher rate must NOT mask the shape change.
+    const prev: FidelityBaseline = {
+      rate: 0.5,
+      total_attributable: 30,
+      captured_on_ref: "x",
+    };
+    const cur: FidelityBaseline = {
+      rate: 0.9,
+      total_attributable: 25,
+      captured_on_ref: "y",
+    };
+    const result = composeFidelityVerdict(prev, cur);
+    expect(result.status).toBe("INCONCLUSIVE");
+    expect(result.reason).toMatch(/attributable/i);
+  });
 });

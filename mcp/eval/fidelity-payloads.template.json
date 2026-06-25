@@ -1,10 +1,10 @@
 {
-  "_note": "TEMPLATE — update.sh provisions this to ~/.claude-data/eval/fidelity-payloads.json only if that file is absent. DISJOINTNESS RULE: every payload array in this file MUST remain disjoint from mcp/eval/labeled-queries.template.json. The two sets measure different properties (compression fidelity vs retrieval recall) and sharing rows is train/test leakage that voids the fidelity gate. The disjointness test in mcp/test/fidelity-script.test.ts is the tripwire.",
+  "_note": "TEMPLATE — update.sh provisions this to ~/.claude-data/eval/fidelity-payloads.json only if that file is absent. DISJOINTNESS RULE: every payload array in this file MUST remain disjoint from mcp/eval/labeled-queries.template.json. The two sets measure different properties (compression fidelity vs retrieval recall) and sharing rows is train/test leakage that voids the fidelity gate. The disjointness test in mcp/test/fidelity-script.test.ts is the tripwire. ILLUSTRATIVE PLACEHOLDERS: the payloads below are seed data only and MUST be re-curated with representative real tool-output payloads before the captured fidelity number is trusted to gate an arming decision. Set curation.fidelity_floor, curation.date, curation.approver, and curation.corpus_snapshot at curation time.",
   "curation": {
     "date": null,
     "approver": null,
     "corpus_snapshot": null,
-    "fidelity_floor": 0.75,
+    "fidelity_floor": null,
     "_criterion": "Droppable rows only, terse-high-value rows included. NO status rows, NO threshold-value rows, NO failure-signal rows."
   },
   "payloads": [
