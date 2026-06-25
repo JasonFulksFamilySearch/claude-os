@@ -834,15 +834,13 @@ import { readFileSync as readFile } from "node:fs";
 import { isV3Schema } from "./migrations.js";
 import { chunkFile } from "./chunker.js";
 import type { SourceType } from "./db.js";
-
-function markerOn(db: Database.Database): boolean {
-  const row = db.prepare("SELECT value FROM meta WHERE key='c2_chunking_enabled'").get() as { value: string } | undefined;
-  return row?.value === "1";
-}
+// chunkingEnabled is already imported from "./eval_inspect.js" in Task 4's block; reuse it
+// here rather than reimplementing the meta.c2_chunking_enabled read (the plan's "Reuse,
+// don't reimplement" contract — and exactly what Task 5's Interfaces block promises).
 
 export function checkChunkingMarker(ctx: DoctorContext): Promise<CheckResult> {
   return safeCheck("index/chunking-marker", () => {
-    const on = markerOn(ctx.db);
+    const on = chunkingEnabled(ctx.db);
     const anchored = (ctx.db.prepare("SELECT COUNT(*) c FROM observations WHERE anchor != ''").get() as { c: number }).c;
     if (on && anchored === 0) return { id: "index/chunking-marker", status: "FAIL", fixable: false,
       detail: "c2_chunking_enabled marker is on but no chunked rows (anchor != '') exist — run the cutover/reindex." };
@@ -865,7 +863,7 @@ const setsEqual = (a: Set<string>, b: Set<string>) => a.size === b.size && [...a
 
 export function checkChunkShapeDivergence(ctx: DoctorContext): Promise<CheckResult> {
   return safeCheck("index/chunk-shape-divergence", () => {
-    if (!markerOn(ctx.db)) return { id: "index/chunk-shape-divergence", status: "PASS",
+    if (!chunkingEnabled(ctx.db)) return { id: "index/chunk-shape-divergence", status: "PASS",
       detail: "chunking not enabled — divergence check is not applicable.", fixable: false };
     const rows = ctx.db.prepare("SELECT source_path, source_type, anchor FROM observations").all() as
       { source_path: string; source_type: SourceType; anchor: string }[];
@@ -1714,7 +1712,7 @@ summary is diagnosis only.
 ## Sequencing
 
 - **Phase 1 first** (Tasks 1–2): doctor's checks import `eval_inspect.ts` and will not compile until it lands.
-- **Phase 2** (Tasks 3–8): Task 3 (types + composition + honesty invariant) before all others; Tasks 4–7 are independent and can be done in any order or parallel; Task 8 (registry) last, after all checks exist.
+- **Phase 2** (Tasks 3–8): Task 3 (types + composition + honesty invariant) before all others; Tasks 4–7 are largely independent and may be done in any order, with one caveat — Task 5 reuses the `chunkingEnabled` import that Task 4's Step 3 adds to `doctor.ts`, so if Task 5 is done before Task 4, add that one import line (`import { chunkingEnabled } from "./eval_inspect.js";`) in Task 5's Step 3 instead. Either way the symbol resolves once both tasks have landed (they append to the same file). Task 8 (registry) last, after all checks exist.
 - **Phase 3** (Tasks 9–18): fix functions 9–14 are independent of each other; Task 17 (npm script) before Task 15's manual-verify commands; then 15, 16, 18.
 
 ## Definition of Done
