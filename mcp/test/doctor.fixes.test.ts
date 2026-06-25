@@ -2,8 +2,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import Database from "better-sqlite3";
+import * as sqliteVec from "sqlite-vec";
 import { openDb } from "../src/db.js";
-import { checkBrokenLabels, checkCorpusSnapshot, dropDeadLabel, recomputeCorpusSnapshot, type FixResult } from "../src/doctor.js";
+import { checkBrokenLabels, checkCorpusSnapshot, checkSchemaCurrent, dropDeadLabel, recomputeCorpusSnapshot, runMigrateFix, type FixResult } from "../src/doctor.js";
+import { isV3Schema, runMigrations } from "../src/migrations.js";
+import { main as migrateMain } from "../src/scripts/migrate.js";
 
 // Mock the embedder so these tests never load @huggingface/transformers.
 vi.mock("../src/embedder.js", async (importOriginal) => {
@@ -262,6 +266,212 @@ describe("doctor.fixes — recomputeCorpusSnapshot", () => {
     expect(after.curation.corpus_snapshot).toBe(3);
 
     const check = await checkCorpusSnapshot({ db, labelsPath } as any);
+    expect(check.status).toBe("PASS");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 11: runMigrateFix
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a faithful pre-C2 (v2) database — same shape as the helper in
+ * migrations.test.ts — opened raw (NOT through openDb, which fail-fasts on v2).
+ */
+function makeV2Fixture(dbPath: string): Database.Database {
+  const raw = new Database(dbPath);
+  raw.pragma("journal_mode = WAL");
+  raw.pragma("foreign_keys = ON");
+  sqliteVec.load(raw);
+
+  raw.exec(`
+    CREATE TABLE observations (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_type   TEXT NOT NULL,
+      source_path   TEXT NOT NULL,
+      project       TEXT,
+      topic         TEXT,
+      title         TEXT,
+      content       TEXT NOT NULL,
+      content_hash  TEXT NOT NULL,
+      file_mtime    INTEGER NOT NULL,
+      indexed_at    INTEGER NOT NULL,
+      frontmatter   TEXT,
+      UNIQUE(source_path)
+    );
+
+    CREATE VIRTUAL TABLE observations_fts USING fts5(
+      title,
+      content,
+      topic,
+      content='observations',
+      content_rowid='id',
+      tokenize='porter unicode61'
+    );
+
+    CREATE TRIGGER observations_ai AFTER INSERT ON observations BEGIN
+      INSERT INTO observations_fts(rowid, title, content, topic)
+      VALUES (new.id, new.title, new.content, new.topic);
+    END;
+    CREATE TRIGGER observations_ad AFTER DELETE ON observations BEGIN
+      INSERT INTO observations_fts(observations_fts, rowid, title, content, topic)
+      VALUES ('delete', old.id, old.title, old.content, old.topic);
+    END;
+    CREATE TRIGGER observations_au AFTER UPDATE ON observations BEGIN
+      INSERT INTO observations_fts(observations_fts, rowid, title, content, topic)
+      VALUES ('delete', old.id, old.title, old.content, old.topic);
+      INSERT INTO observations_fts(rowid, title, content, topic)
+      VALUES (new.id, new.title, new.content, new.topic);
+    END;
+  `);
+
+  raw.prepare(`
+    INSERT INTO observations
+      (id, source_type, source_path, project, topic, title, content, content_hash, file_mtime, indexed_at, frontmatter)
+    VALUES (1, 'learning', '/a/learnings.md', 'proj', 'java', 'First', 'the migrate fixture content', 'h1', 100, 200, null)
+  `).run();
+
+  return raw;
+}
+
+describe("doctor.fixes — runMigrateFix", () => {
+  let dir: string;
+  let dbPath: string;
+  let v2: Database.Database;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "doctor-migrate-fix-"));
+    dbPath = join(dir, "memory.db");
+    v2 = makeV2Fixture(dbPath);
+  });
+
+  afterEach(() => {
+    try { v2.close(); } catch { /* already closed */ }
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // -------------------------------------------------------------------------
+  // Before: checkSchemaCurrent reports FAIL with remediation "run-migrate"
+  // -------------------------------------------------------------------------
+
+  it("before fix: checkSchemaCurrent reports FAIL with remediation id run-migrate", async () => {
+    const res = await checkSchemaCurrent({ db: v2 } as any);
+    expect(res.status).toBe("FAIL");
+    expect(res.fixable).toBe(true);
+    expect(res.remediation?.id).toBe("run-migrate");
+    expect(isV3Schema(v2)).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // Apply: migrateRunner actually migrates → isV3Schema true, checkSchemaCurrent PASS
+  // -------------------------------------------------------------------------
+
+  it("applies migration via injected runner — isV3Schema becomes true and checkSchemaCurrent reports PASS", async () => {
+    // Inject a runner that calls runMigrations directly on the fixture DB.
+    const res: FixResult = await runMigrateFix({
+      db: v2,
+      migrateRunner: async () => {
+        try {
+          runMigrations(v2);
+          return { ok: true };
+        } catch (err) {
+          return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+        }
+      },
+    });
+
+    expect(res.applied).toBe(true);
+    expect(isV3Schema(v2)).toBe(true);
+
+    const check = await checkSchemaCurrent({ db: v2 } as any);
+    expect(check.status).toBe("PASS");
+  });
+
+  // -------------------------------------------------------------------------
+  // Apply (real migrate path): migrateMain as runner → .pre-c2.bak produced
+  // -------------------------------------------------------------------------
+
+  it("real migrate path: migrateMain runner produces a .pre-c2.bak and migrates to v3", async () => {
+    const backupPath = dbPath + ".pre-c2.bak";
+
+    // Close the raw handle — migrateMain opens its own handle against the file.
+    v2.close();
+
+    const res: FixResult = await runMigrateFix({
+      db: v2, // db arg not used in the runner body (migrateMain uses the path)
+      migrateRunner: async () => {
+        try {
+          migrateMain(dbPath, backupPath);
+          return { ok: true };
+        } catch (err) {
+          return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+        }
+      },
+    });
+
+    expect(res.applied).toBe(true);
+
+    // Migrate's own backup must be present.
+    expect(existsSync(backupPath)).toBe(true);
+
+    // Reopen to verify v3 — migrateMain closes the handle it opened.
+    const upgraded = new Database(dbPath);
+    sqliteVec.load(upgraded);
+    try {
+      expect(isV3Schema(upgraded)).toBe(true);
+    } finally {
+      upgraded.close();
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Failure surfaced: migrateRunner returns ok:false → applied:false, reason in detail
+  // -------------------------------------------------------------------------
+
+  it("failure surfaced: migrateRunner returning ok:false yields applied:false with reason in detail", async () => {
+    const res: FixResult = await runMigrateFix({
+      db: v2,
+      migrateRunner: async () => ({ ok: false, reason: "boom" }),
+    });
+
+    expect(res.applied).toBe(false);
+    expect(res.detail).toMatch(/migrate failed/i);
+    expect(res.detail).toMatch(/boom/);
+
+    // DB is still v2 — the fix did not throw, just reported the failure.
+    expect(isV3Schema(v2)).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // No double-backup: runMigrateFix never calls backupDb itself
+  // (structural: the function body must not reference backupDb — verified in code;
+  // this test confirms re-running on an already-v3 DB stays PASS via migrate's own no-op)
+  // -------------------------------------------------------------------------
+
+  it("idempotency: after migration, re-run with a no-op runner leaves checkSchemaCurrent PASS", async () => {
+    // First run — migrate the fixture.
+    await runMigrateFix({
+      db: v2,
+      migrateRunner: async () => {
+        runMigrations(v2);
+        return { ok: true };
+      },
+    });
+    expect(isV3Schema(v2)).toBe(true);
+
+    // Second run — migrate's "already v3, exit 0" path via runMigrations (no-op).
+    const res2: FixResult = await runMigrateFix({
+      db: v2,
+      migrateRunner: async () => {
+        runMigrations(v2); // idempotent — returns {migrated:false}, no mutation
+        return { ok: true };
+      },
+    });
+    expect(res2.applied).toBe(true);
+
+    // DB stays v3; checkSchemaCurrent stays PASS.
+    expect(isV3Schema(v2)).toBe(true);
+    const check = await checkSchemaCurrent({ db: v2 } as any);
     expect(check.status).toBe("PASS");
   });
 });

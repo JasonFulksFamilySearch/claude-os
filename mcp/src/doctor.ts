@@ -373,6 +373,30 @@ export function recomputeCorpusSnapshot(opts: {
   };
 }
 
+// runMigrateFix: delegates the v2→v3 schema migration to the injected
+// migrateRunner (the real impl shells `npm run migrate` with CLAUDE_OS_DB_PATH).
+// The migrate script owns its own VACUUM INTO backup — this fix does NOT
+// double-backup the DB. On runner failure the reason is surfaced in detail
+// (never swallowed). On success, checkSchemaCurrent will report PASS because
+// the DB now has the anchor column (isV3Schema returns true).
+export async function runMigrateFix(opts: {
+  db: Database.Database;
+  migrateRunner: () => Promise<{ ok: boolean; reason?: string }>;
+}): Promise<FixResult> {
+  const { migrateRunner } = opts;
+  const result = await migrateRunner();
+  if (!result.ok) {
+    return {
+      applied: false,
+      detail: `migrate failed: ${result.reason ?? "unknown error"}`,
+    };
+  }
+  return {
+    applied: true,
+    detail: "v2→v3 migration applied via migrate runner; schema is now current.",
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Task 8: registry assembly + diagnose() end-to-end composition
 // ---------------------------------------------------------------------------
