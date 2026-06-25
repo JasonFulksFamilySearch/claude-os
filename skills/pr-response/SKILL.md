@@ -2,7 +2,7 @@
 name: pr-response
 description: >
   Clears an open PR's unresolved reviewer threads to merge-ready — autonomously
-  evaluating, fixing or rebutting, replying to, and resolving each comment in the
+  evaluating, fixing/rebutting/deferring, replying to, and resolving each comment in the
   user's voice. Use after a reviewer (typically GitHub Copilot, often right after
   /ship) leaves comments on an open PR that must be handled before merge. Triggers:
   "handle Copilot's review", "respond to the PR comments", "address copilot", "deal
@@ -34,14 +34,14 @@ stale facts. Read before you report; report before you act.
 
 <task>
 **Task:** Run a bounded address-and-resolve loop over the open PR's unresolved reviewer threads:
-each round, dispatch a worker to evaluate → fix-or-rebut → draft voice-matched replies, then
+each round, dispatch a worker to evaluate → fix/rebut/defer → draft voice-matched replies, then
 commit (one grouped commit) → push → post replies → **resolve the threads right after the push**
 (CI is verified once at the final merge-readiness check, not awaited before resolving). Repeat
 until a check finds no new unresolved reviewer threads, until a round changes no code (convergence),
 or the round cap is hit (safety rail). Finish with an honest merge-readiness report.
 
-**Intent:** Turn "Copilot reviewed my PR" into one command that leaves every thread fixed-or-
-rebutted, replied to in the user's voice, and **resolved** — the state that actually clears branch
+**Intent:** Turn "Copilot reviewed my PR" into one command that leaves every thread fixed, rebutted,
+or deferred, replied to in the user's voice, and **resolved** — the state that actually clears branch
 protection. The loop exists because reply-then-push triggers a re-review; a single pass leaves
 the late wave unhandled (the 0/5 gap this skill was built to close).
 
@@ -350,7 +350,7 @@ run `gh pr merge`.
   ran no further cycle, and posted no reply to the summary.
 - A worker subagent (not the parent inline) did the per-comment judgment and code edits, scoped to
   referenced files, and ran the project gate before any commit.
-- Each round produced exactly one grouped commit via `/commit` (or none, if all rebuttals).
+- Each round produced exactly one grouped commit via `/commit` (or none, if all rebuttals/deferrals).
 - Replies were posted and threads resolved right after the push (not gated on CI), in-thread in the user's PR-post voice register, with real commit SHAs on fixes.
 - **Every dispositioned thread was resolved via `resolveReviewThread`** — fixes, rebuttals, and deferrals alike.
 - The loop terminated on the convergence rule (a no-FIX round) or, failing that, the round cap —
@@ -381,7 +381,7 @@ Phase 0: PR #1487 | branch feat/ARC-3971-... | OPEN | mergeStateStatus BLOCKED
 Round 1: 4 unresolved Copilot threads.
   Worker: fixed :88 (orElseThrow), :142 (extract retry), :77 (rename); rebutted :60 (stream→loop, unmeasured micro-opt). Gate: pass.
   Commit a3f89c1 via /commit → push → posted 4 in-thread replies (voice) → resolved 4 threads (isResolved:true ×4) — right after push, no CI wait.
-Settle 1m → Round 2: 0 unresolved threads. Break.
+Settle 1m → re-check finds 0 unresolved threads → break (round stays 1; the 0-thread re-check is the exit, not a numbered round).
 Phase 3: mergeable MERGEABLE, CLEAN, checks SUCCESS, threads all resolved.
   ⚠ reviewDecision REVIEW_REQUIRED — needs a human approval; flagged. Not merging.
 </example>
@@ -392,7 +392,7 @@ Input: /pr-response (Copilot posts a new comment after the round-1 push)
 Round 1: 2 threads → fixed → commit → push → replied → resolved (no CI wait).
 Settle 1m → Round 2: 1 NEW thread (Copilot re-review on the new commit).
   Worker: fixed it. Commit → push → replied → resolved.
-Settle 1m → Round 3: 0 unresolved. Break. (This is the wave a single pass drops.)
+Settle 1m → re-check finds 0 unresolved → break (round stays 2). (This is the wave a single pass drops.)
 </example>
 
 <example label="gate-fail-abort">
