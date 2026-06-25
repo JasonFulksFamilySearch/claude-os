@@ -225,3 +225,62 @@ describe("index/cutover checks", () => {
     expect(res.detail).not.toMatch(/cutover failed/i);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task 6: corpus checks
+// ---------------------------------------------------------------------------
+import { mkdirSync } from "node:fs";
+import { checkIntegrity, checkCorpusShape, checkOrphanEmbeddings, checkExpectedContextFiles } from "../src/doctor.js";
+
+function vec(fill: number) { const v = new Float32Array(768).fill(fill); return Buffer.from(v.buffer, v.byteOffset, v.byteLength); }
+
+describe("corpus checks", () => {
+  let dir: string, db: any, dbPath: string, repoRoot: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "doctor-corpus-")); dbPath = join(dir, "memory.db"); db = openDb(dbPath);
+    repoRoot = join(dir, "repo"); mkdirSync(join(repoRoot, "context-templates"), { recursive: true });
+  });
+  afterEach(() => { db.close(); rmSync(dir, { recursive: true, force: true }); });
+
+  function seedContext(name: string) {
+    return db.prepare(`INSERT INTO observations (source_type,source_path,anchor,parent_title,project,topic,title,content,content_hash,file_mtime,indexed_at,frontmatter)
+      VALUES ('context',?, '',NULL,NULL,NULL,'T','b',?,1,2,NULL)`).run("/data/context/" + name, "h" + name).lastInsertRowid;
+  }
+
+  it("integrity_check ok => PASS", async () => {
+    expect((await checkIntegrity({ db } as any)).status).toBe("PASS");
+  });
+  it("empty corpus => FAIL", async () => {
+    const res = await checkCorpusShape({ db } as any);
+    expect(res.status).toBe("FAIL");
+    expect(res.detail).toMatch(/empty/i);
+  });
+  it("non-empty corpus => PASS", async () => {
+    seedContext("java.md"); seedContext("github.md");
+    expect((await checkCorpusShape({ db } as any)).status).toBe("PASS");
+  });
+  it("every observation has a vec_items row => PASS", async () => {
+    const id = seedContext("a.md");
+    db.prepare("INSERT INTO vec_items(observation_id, embedding) VALUES (?,?)").run(BigInt(id), vec(0.1));
+    expect((await checkOrphanEmbeddings({ db } as any)).status).toBe("PASS");
+  });
+  it("an observation with no vec_items row => FAIL fixable by re-embed", async () => {
+    seedContext("a.md");
+    const res = await checkOrphanEmbeddings({ db } as any);
+    expect(res.status).toBe("FAIL");
+    expect(res.remediation?.id).toBe("re-embed");
+  });
+  it("a template whose context copy is absent from the index => FAIL naming the missing file", async () => {
+    writeFileSync(join(repoRoot, "context-templates", "java.md"), "x");
+    writeFileSync(join(repoRoot, "context-templates", "github.md"), "x");
+    seedContext("java.md");
+    const res = await checkExpectedContextFiles({ db, repoRoot } as any);
+    expect(res.status).toBe("FAIL");
+    expect(res.detail).toMatch(/github\.md/);
+  });
+  it("every template present in the index => PASS", async () => {
+    writeFileSync(join(repoRoot, "context-templates", "java.md"), "x");
+    seedContext("java.md");
+    expect((await checkExpectedContextFiles({ db, repoRoot } as any)).status).toBe("PASS");
+  });
+});

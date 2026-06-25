@@ -180,3 +180,49 @@ export function checkChunkShapeDivergence(ctx: DoctorContext): Promise<CheckResu
     return { id: "index/chunk-shape-divergence", status: "PASS", detail: "no chunk-shape divergence.", fixable: false };
   });
 }
+
+// ---------------------------------------------------------------------------
+// Task 6: corpus checks
+// ---------------------------------------------------------------------------
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
+import { countMissingVectors } from "./indexer.js";
+
+export function checkIntegrity(ctx: DoctorContext): Promise<CheckResult> {
+  return safeCheck("corpus/integrity", () => {
+    const ic = ctx.db.pragma("integrity_check", { simple: true });
+    if (ic !== "ok") return { id: "corpus/integrity", status: "FAIL", fixable: false,
+      detail: `SQLite integrity_check returned "${String(ic)}" — see the rollback procedure (not auto-fixable).` };
+    return { id: "corpus/integrity", status: "PASS", detail: "integrity_check ok.", fixable: false };
+  });
+}
+
+export function checkCorpusShape(ctx: DoctorContext): Promise<CheckResult> {
+  return safeCheck("corpus/shape", () => {
+    const total = (ctx.db.prepare("SELECT COUNT(*) c FROM observations").get() as { c: number }).c;
+    if (total === 0) return { id: "corpus/shape", status: "FAIL", fixable: false, detail: "corpus is empty — nothing is indexed." };
+    const distinct = (ctx.db.prepare("SELECT COUNT(DISTINCT source_path) c FROM observations").get() as { c: number }).c;
+    return { id: "corpus/shape", status: "PASS", detail: `${total} rows across ${distinct} distinct files.`, fixable: false };
+  });
+}
+
+export function checkOrphanEmbeddings(ctx: DoctorContext): Promise<CheckResult> {
+  return safeCheck("corpus/orphan-embeddings", () => {
+    const missing = countMissingVectors(ctx.db);
+    if (missing > 0) return { id: "corpus/orphan-embeddings", status: "FAIL", fixable: true,
+      detail: `${missing} observation row(s) have no embedding — silent retrieval degradation.`,
+      remediation: { id: "re-embed", description: `re-embed ${missing} missing row(s)`, command: "npm run reembed" } };
+    return { id: "corpus/orphan-embeddings", status: "PASS", detail: "every observation has an embedding.", fixable: false };
+  });
+}
+
+export function checkExpectedContextFiles(ctx: DoctorContext): Promise<CheckResult> {
+  return safeCheck("corpus/expected-context", () => {
+    const templates = readdirSync(join(ctx.repoRoot, "context-templates")).filter((f) => f.endsWith(".md"));
+    const indexed = (ctx.db.prepare("SELECT source_path FROM observations WHERE source_type='context'").all() as { source_path: string }[]).map((r) => r.source_path);
+    const missing = templates.filter((t) => !indexed.some((p) => p.endsWith("/" + t) || p.endsWith(t)));
+    if (missing.length > 0) return { id: "corpus/expected-context", status: "FAIL", fixable: false,
+      detail: `expected context file(s) missing from the index: ${missing.join(", ")} (derived from context-templates/).` };
+    return { id: "corpus/expected-context", status: "PASS", detail: "every provisioned context template is indexed.", fixable: false };
+  });
+}
