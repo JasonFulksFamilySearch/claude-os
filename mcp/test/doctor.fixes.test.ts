@@ -5,7 +5,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
 import { openDb } from "../src/db.js";
-import { checkBrokenLabels, checkCorpusSnapshot, checkOrphanEmbeddings, checkSchemaCurrent, checkStaleLock, clearStaleLock, dropDeadLabel, recomputeCorpusSnapshot, reembedMissing, runMigrateFix, type FixResult } from "../src/doctor.js";
+import { checkBaselineStale, checkBrokenLabels, checkCorpusSnapshot, checkOrphanEmbeddings, checkSchemaCurrent, checkStaleLock, clearStaleLock, dropDeadLabel, recomputeCorpusSnapshot, recaptureBaseline, reembedMissing, runMigrateFix, type FixResult } from "../src/doctor.js";
 import { isV3Schema, runMigrations, verifyBackup } from "../src/migrations.js";
 import { main as migrateMain } from "../src/scripts/migrate.js";
 import { countMissingVectors } from "../src/indexer.js";
@@ -627,7 +627,7 @@ describe("doctor.fixes — reembedMissing", () => {
 // ---------------------------------------------------------------------------
 // Task 13: clearStaleLock
 // ---------------------------------------------------------------------------
-import { mkdirSync as mkdirSyncLock, utimesSync } from "node:fs";
+import { mkdirSync as mkdirSyncLock, utimesSync, copyFileSync as copyFileSyncFs } from "node:fs";
 import { HEARTBEAT_REFRESH_MS, STALENESS_MULTIPLE } from "../src/election.js";
 
 describe("doctor.fixes — clearStaleLock", () => {
@@ -723,5 +723,197 @@ describe("doctor.fixes — clearStaleLock", () => {
 
     // No throw, no side effects.
     expect(existsSync(lockPath)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 14: recaptureBaseline — code-enforced fresh-PASS gate
+// ---------------------------------------------------------------------------
+import { writeBaseline } from "../src/eval_inspect.js";
+import type { Baseline } from "../src/eval_inspect.js";
+
+describe("doctor.fixes — recaptureBaseline", () => {
+  let dir: string;
+  let db: import("better-sqlite3").Database;
+  let dbPath: string;
+  let baselinePath: string;
+
+  // Writes a minimal but structurally valid baseline at the given path.
+  function seedBaseline(path: string, chunked: boolean): void {
+    const b: Baseline = {
+      captured_at: "2025-01-01T00:00:00.000Z",
+      captured_on_ref: "old-ref",
+      corpus: { db_path: "/old/path", observation_count: 10, chunking_enabled: chunked },
+      presence: { mean_recall_at_k: 0.5, mrr: 0.5, k: 5 },
+      absence: {},
+    };
+    writeBaseline(path, b);
+  }
+
+  // Sets the meta.c2_chunking_enabled flag on the DB to make chunkingEnabled() return the value.
+  function setChunkingEnabled(d: import("better-sqlite3").Database, enabled: boolean): void {
+    d.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('c2_chunking_enabled', ?)")
+      .run(enabled ? "1" : "0");
+  }
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "doctor-recapture-"));
+    dbPath = join(dir, "memory.db");
+    db = openDb(dbPath);
+    baselinePath = join(dir, "eval-baseline.json");
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // -------------------------------------------------------------------------
+  // REFUSAL (highest-priority): non-PASS eval — baseline file untouched
+  // -------------------------------------------------------------------------
+
+  it("refuses when runEval returns verdict INCONCLUSIVE — baseline file is NOT written", async () => {
+    // No baseline file exists yet.
+    expect(existsSync(baselinePath)).toBe(false);
+
+    const res: FixResult = await recaptureBaseline({
+      db,
+      baselinePath,
+      runEval: () => Promise.resolve({ verdict: "INCONCLUSIVE", ok: true }),
+    });
+
+    // Refused.
+    expect(res.applied).toBe(false);
+    expect(res.detail).toMatch(/refusing to recapture/);
+    expect(res.detail).toMatch(/gate is in code/);
+
+    // Baseline file must NOT have been created — the guard fired before any write.
+    expect(existsSync(baselinePath)).toBe(false);
+  });
+
+  it("refuses when runEval returns verdict FAIL — baseline file is NOT written", async () => {
+    expect(existsSync(baselinePath)).toBe(false);
+
+    const res: FixResult = await recaptureBaseline({
+      db,
+      baselinePath,
+      runEval: () => Promise.resolve({ verdict: "FAIL", ok: true }),
+    });
+
+    expect(res.applied).toBe(false);
+    expect(res.detail).toMatch(/refusing to recapture/);
+    expect(existsSync(baselinePath)).toBe(false);
+  });
+
+  it("refuses when runEval returns ok:false — baseline file is NOT written", async () => {
+    expect(existsSync(baselinePath)).toBe(false);
+
+    const res: FixResult = await recaptureBaseline({
+      db,
+      baselinePath,
+      runEval: () => Promise.resolve({ verdict: "PASS", ok: false, reason: "subprocess error" }),
+    });
+
+    expect(res.applied).toBe(false);
+    expect(res.detail).toMatch(/refusing to recapture/);
+    expect(existsSync(baselinePath)).toBe(false);
+  });
+
+  it("refuses on non-PASS with a pre-existing baseline — pre-existing file bytes are UNCHANGED", async () => {
+    // Seed a prior baseline so we can verify it survives unchanged.
+    seedBaseline(baselinePath, false);
+    const preImage = readFileSync(baselinePath, "utf8");
+
+    const res: FixResult = await recaptureBaseline({
+      db,
+      baselinePath,
+      runEval: () => Promise.resolve({ verdict: "INCONCLUSIVE", ok: true }),
+    });
+
+    expect(res.applied).toBe(false);
+    // File is untouched — same bytes as the pre-image.
+    expect(readFileSync(baselinePath, "utf8")).toBe(preImage);
+    // And no .bak was created (the guard fired before any write).
+    expect(existsSync(baselinePath + ".bak")).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // BACKUP-BEFORE-OVERWRITE + SUCCESS
+  // -------------------------------------------------------------------------
+
+  it("on PASS with a prior baseline: backs up pre-image BEFORE write, new baseline records live chunking_enabled, applied:true", async () => {
+    // Seed a prior baseline (unchunked) and capture its bytes.
+    seedBaseline(baselinePath, false);
+    const preImage = readFileSync(baselinePath, "utf8");
+
+    // Set the live DB to chunked so we can verify the new baseline picks it up.
+    setChunkingEnabled(db, true);
+
+    const res: FixResult = await recaptureBaseline({
+      db,
+      baselinePath,
+      runEval: () => Promise.resolve({ verdict: "PASS", ok: true }),
+    });
+
+    // Applied.
+    expect(res.applied).toBe(true);
+    expect(res.verdictAfter).toBe("PASS");
+    expect(res.backupPath).toBe(baselinePath + ".bak");
+
+    // .bak must contain the pre-image (old baseline).
+    expect(existsSync(baselinePath + ".bak")).toBe(true);
+    expect(readFileSync(baselinePath + ".bak", "utf8")).toBe(preImage);
+
+    // New baseline must record chunking_enabled matching the live index (true).
+    const newBaseline = JSON.parse(readFileSync(baselinePath, "utf8")) as Baseline;
+    expect(newBaseline.corpus.chunking_enabled).toBe(true);
+  });
+
+  it("on PASS with no prior baseline: no backup path, new baseline written, applied:true", async () => {
+    expect(existsSync(baselinePath)).toBe(false);
+    setChunkingEnabled(db, false);
+
+    const res: FixResult = await recaptureBaseline({
+      db,
+      baselinePath,
+      runEval: () => Promise.resolve({ verdict: "PASS", ok: true }),
+    });
+
+    expect(res.applied).toBe(true);
+    expect(res.verdictAfter).toBe("PASS");
+    // No backup when there was no prior baseline.
+    expect(res.backupPath).toBeUndefined();
+    expect(existsSync(baselinePath + ".bak")).toBe(false);
+
+    // Baseline file was created.
+    expect(existsSync(baselinePath)).toBe(true);
+    const written = JSON.parse(readFileSync(baselinePath, "utf8")) as Baseline;
+    expect(written.corpus.chunking_enabled).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // checkBaselineStale reports PASS after recapture (idempotency)
+  // -------------------------------------------------------------------------
+
+  it("after successful recapture, checkBaselineStale reports PASS (idempotency)", async () => {
+    // Set the DB to chunked. Seed a baseline that says unchunked → stale.
+    setChunkingEnabled(db, true);
+    seedBaseline(baselinePath, false);
+
+    // Before fix: stale — isCutoverBoundary(false, true) is true.
+    const before = await checkBaselineStale({ db, baselinePath } as any);
+    expect(before.status).toBe("FAIL");
+
+    // Apply the fix.
+    const res: FixResult = await recaptureBaseline({
+      db,
+      baselinePath,
+      runEval: () => Promise.resolve({ verdict: "PASS", ok: true }),
+    });
+    expect(res.applied).toBe(true);
+
+    // Now the baseline records chunking_enabled:true; live index is also chunked → PASS.
+    const after = await checkBaselineStale({ db, baselinePath } as any);
+    expect(after.status).toBe("PASS");
   });
 });

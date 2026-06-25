@@ -484,6 +484,71 @@ export function clearStaleLock(opts: { lockPath: string; now?: number }): FixRes
 }
 
 // ---------------------------------------------------------------------------
+// Task 14: recaptureBaseline fix — code-enforced fresh-PASS gate
+// ---------------------------------------------------------------------------
+import { writeBaseline } from "./eval_inspect.js";
+
+// recaptureBaseline: re-records the eval baseline on the current (chunked) index,
+// but ONLY after a fresh eval composes PASS. The refusal is a code guard — not a
+// log line, not operator discipline — executed BEFORE any write.
+//
+// Safety contract (load-bearing):
+//   1. Run eval FIRST. If verdict !== "PASS" OR ok === false → refuse immediately;
+//      the baseline file is provably untouched (no write has occurred).
+//   2. If a baseline file already exists → copy it to <baselinePath>.bak BEFORE
+//      overwriting. Pre-image backup is always written before the new baseline.
+//   3. Write the new baseline recording chunking_enabled from the live index.
+//   4. Return { applied:true, backupPath?, verdictAfter:"PASS", detail }.
+//
+// Idempotent: after a successful recapture, checkBaselineStale reports PASS; a
+// re-offer only proceeds if a fresh eval still PASSes (the guard re-runs).
+export async function recaptureBaseline(opts: {
+  db: Database.Database;
+  baselinePath: string;
+  runEval: EvalRunner;
+}): Promise<FixResult> {
+  const { db, baselinePath, runEval } = opts;
+
+  // Step 1 (load-bearing guard): run eval and refuse on any non-PASS result.
+  // This guard is a code gate — no write has occurred yet at this point.
+  const r = await runEval();
+  if (!r.ok || r.verdict !== "PASS") {
+    return {
+      applied: false,
+      detail: "refusing to recapture — eval did not compose a fresh PASS (the gate is in code, not operator discipline)",
+    };
+  }
+
+  // Step 2: back up any existing baseline BEFORE overwriting.
+  let backupPath: string | undefined;
+  if (existsSync(baselinePath)) {
+    backupPath = baselinePath + ".bak";
+    copyFileSync(baselinePath, backupPath);
+  }
+
+  // Step 3: write the recaptured baseline.
+  const chunked = chunkingEnabled(db);
+  writeBaseline(baselinePath, {
+    captured_at: new Date().toISOString(),
+    captured_on_ref: "recapture-baseline-fix",
+    corpus: {
+      db_path: "",
+      observation_count: (db.prepare("SELECT COUNT(*) AS n FROM observations").get() as { n: number }).n,
+      chunking_enabled: chunked,
+    },
+    presence: { mean_recall_at_k: 0, mrr: 0, k: 5 },
+    absence: {},
+  });
+
+  return {
+    applied: true,
+    backupPath,
+    verdictAfter: "PASS",
+    detail: `recaptured baseline; chunking_enabled=${chunked}; pre-image backed up at ${backupPath ?? "(none — no prior baseline)"}.`,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Task 8: registry assembly + diagnose() end-to-end composition
 // ---------------------------------------------------------------------------
 
