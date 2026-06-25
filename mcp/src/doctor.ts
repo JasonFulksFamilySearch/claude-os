@@ -122,3 +122,61 @@ export function checkLastVerdict(ctx: DoctorContext): Promise<CheckResult> {
     return { id: "eval/last-verdict", status: rr.verdict, detail: `eval composed ${rr.verdict}.`, fixable: false };
   });
 }
+
+// ---------------------------------------------------------------------------
+// Task 5: index/cutover checks
+// ---------------------------------------------------------------------------
+import { readFileSync as readFile } from "node:fs";
+import { isV3Schema } from "./migrations.js";
+import { chunkFile } from "./chunker.js";
+import type { SourceType } from "./db.js";
+// chunkingEnabled is already imported from "./eval_inspect.js" in Task 4's block; reuse it
+// here rather than reimplementing the meta.c2_chunking_enabled read (the plan's "Reuse,
+// don't reimplement" contract — and exactly what Task 5's Interfaces block promises).
+
+export function checkChunkingMarker(ctx: DoctorContext): Promise<CheckResult> {
+  return safeCheck("index/chunking-marker", () => {
+    const on = chunkingEnabled(ctx.db);
+    const anchored = (ctx.db.prepare("SELECT COUNT(*) c FROM observations WHERE anchor != ''").get() as { c: number }).c;
+    if (on && anchored === 0) return { id: "index/chunking-marker", status: "FAIL", fixable: false,
+      detail: "c2_chunking_enabled marker is on but no chunked rows (anchor != '') exist — run the cutover/reindex." };
+    if (!on && anchored > 0) return { id: "index/chunking-marker", status: "FAIL", fixable: false,
+      detail: `marker is off but ${anchored} chunked rows exist — inconsistent index state.` };
+    return { id: "index/chunking-marker", status: "PASS", detail: `chunking marker ${on ? "on" : "off"}, consistent with the index.`, fixable: false };
+  });
+}
+
+export function checkSchemaCurrent(ctx: DoctorContext): Promise<CheckResult> {
+  return safeCheck("index/schema-current", () => {
+    if (!isV3Schema(ctx.db)) return { id: "index/schema-current", status: "FAIL", fixable: true,
+      detail: "schema is pre-C2 (no anchor column) — migrate before the server refuses to start.",
+      remediation: { id: "run-migrate", description: "run the v2->v3 migration", command: "npm run migrate" } };
+    return { id: "index/schema-current", status: "PASS", detail: `schema current (v3, user_version ${ctx.db.pragma("user_version", { simple: true })}).`, fixable: false };
+  });
+}
+
+const setsEqual = (a: Set<string>, b: Set<string>) => a.size === b.size && [...a].every((x) => b.has(x));
+
+export function checkChunkShapeDivergence(ctx: DoctorContext): Promise<CheckResult> {
+  return safeCheck("index/chunk-shape-divergence", () => {
+    if (!chunkingEnabled(ctx.db)) return { id: "index/chunk-shape-divergence", status: "PASS",
+      detail: "chunking not enabled — divergence check is not applicable.", fixable: false };
+    const rows = ctx.db.prepare("SELECT source_path, source_type, anchor FROM observations").all() as
+      { source_path: string; source_type: SourceType; anchor: string }[];
+    const byPath = new Map<string, { type: SourceType; anchors: Set<string> }>();
+    for (const r of rows) {
+      const e = byPath.get(r.source_path) ?? { type: r.source_type, anchors: new Set<string>() };
+      e.anchors.add(r.anchor); byPath.set(r.source_path, e);
+    }
+    let divergence = 0;
+    for (const [path, { type, anchors }] of byPath) {
+      let content: string;
+      try { content = readFile(path, "utf8"); } catch { divergence++; continue; }
+      const produced = new Set(chunkFile({ sourceType: type, content, chunkingEnabled: true }).map((c) => c.anchor));
+      if (!setsEqual(produced, anchors)) divergence++;
+    }
+    if (divergence > 0) return { id: "index/chunk-shape-divergence", status: "FAIL", fixable: false,
+      detail: `${divergence} file(s) whose indexed chunk-shape diverges from what the chunker produces today — reindex to converge (cause not attributed; a fresh \`npm run cutover\` separates a missed split from a stale-but-correct index).` };
+    return { id: "index/chunk-shape-divergence", status: "PASS", detail: "no chunk-shape divergence.", fixable: false };
+  });
+}

@@ -147,3 +147,81 @@ describe("eval-gate checks", () => {
     expect(res.detail).toMatch(/embedder failed/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task 5: index/cutover checks
+// ---------------------------------------------------------------------------
+import Database from "better-sqlite3";
+import * as sqliteVec from "sqlite-vec";
+import { checkChunkingMarker, checkSchemaCurrent, checkChunkShapeDivergence } from "../src/doctor.js";
+
+const ONE_ENTRY = ["# L", "", "## 2026-01-10 — a", "", "body a", ""].join("\n");
+const TWO_ENTRY = ["# L", "", "## 2026-01-10 — a", "", "body a", "", "## 2026-01-11 — b", "", "body b", ""].join("\n");
+
+describe("index/cutover checks", () => {
+  let dir: string, db: any, dbPath: string;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "doctor-idx-")); dbPath = join(dir, "memory.db"); db = openDb(dbPath); });
+  afterEach(() => { db.close(); rmSync(dir, { recursive: true, force: true }); });
+
+  function setMarker(on: boolean) { db.prepare("INSERT OR REPLACE INTO meta(key,value) VALUES('c2_chunking_enabled',?)").run(on ? "1" : "0"); }
+  function indexAnchors(sourceType: string, path: string, content: string, anchors: string[]) {
+    writeFileSync(path, content, "utf8");
+    const ins = db.prepare(`INSERT INTO observations (source_type,source_path,anchor,parent_title,project,topic,title,content,content_hash,file_mtime,indexed_at,frontmatter)
+      VALUES (?,?,?,NULL,NULL,NULL,'T',?,?,1,2,NULL)`);
+    anchors.forEach((a, i) => ins.run(sourceType, path, a, content, "h" + path + i));
+  }
+
+  it("marker on AND anchored rows exist => PASS", async () => {
+    setMarker(true);
+    db.prepare(`INSERT INTO observations (source_type,source_path,anchor,parent_title,project,topic,title,content,content_hash,file_mtime,indexed_at,frontmatter)
+      VALUES ('learning','/l.md','2026-01-10',NULL,NULL,NULL,'T','b','h',1,2,NULL)`).run();
+    expect((await checkChunkingMarker({ db } as any)).status).toBe("PASS");
+  });
+  it("marker claims chunked but NO anchored rows => FAIL", async () => {
+    setMarker(true);
+    const res = await checkChunkingMarker({ db } as any);
+    expect(res.status).toBe("FAIL");
+  });
+  it("marker off and no anchored rows => PASS", async () => {
+    setMarker(false);
+    expect((await checkChunkingMarker({ db } as any)).status).toBe("PASS");
+  });
+
+  it("fresh v3 DB => schema current => PASS", async () => {
+    expect((await checkSchemaCurrent({ db } as any)).status).toBe("PASS");
+  });
+  it("pre-C2 v2 DB (no anchor column) => FAIL fixable by run-migrate", async () => {
+    const v2dir = mkdtempSync(join(tmpdir(), "doctor-v2-"));
+    const v2 = new Database(join(v2dir, "v2.db"));
+    v2.pragma("journal_mode = WAL"); sqliteVec.load(v2);
+    v2.exec(`CREATE TABLE observations (id INTEGER PRIMARY KEY AUTOINCREMENT, source_type TEXT NOT NULL,
+      source_path TEXT NOT NULL, project TEXT, topic TEXT, title TEXT, frontmatter TEXT, content TEXT NOT NULL,
+      content_hash TEXT NOT NULL, file_mtime INTEGER NOT NULL, indexed_at INTEGER NOT NULL, UNIQUE(source_path));`);
+    try {
+      const res = await checkSchemaCurrent({ db: v2 } as any);
+      expect(res.status).toBe("FAIL");
+      expect(res.remediation?.id).toBe("run-migrate");
+    } finally { v2.close(); rmSync(v2dir, { recursive: true, force: true }); }
+  });
+
+  it("indexed anchors match chunkFile output => divergence 0 => PASS", async () => {
+    setMarker(true);
+    indexAnchors("learning", join(dir, "match.md"), TWO_ENTRY, ["2026-01-10", "2026-01-11"]);
+    expect((await checkChunkShapeDivergence({ db } as any)).status).toBe("PASS");
+  });
+  it("an episode indexed whole-file (anchor '') does NOT count as divergence", async () => {
+    setMarker(true);
+    indexAnchors("episode", join(dir, "ep.md"), "# E\n\nsome episode body", [""]);
+    expect((await checkChunkShapeDivergence({ db } as any)).status).toBe("PASS");
+  });
+  it("on-disk content grew a dated entry the index lacks => divergence 1 => FAIL, never claims cutover failed", async () => {
+    setMarker(true);
+    const p = join(dir, "drift.md");
+    indexAnchors("learning", p, ONE_ENTRY, ["2026-01-10"]);
+    writeFileSync(p, TWO_ENTRY, "utf8");
+    const res = await checkChunkShapeDivergence({ db } as any);
+    expect(res.status).toBe("FAIL");
+    expect(res.detail).toMatch(/1\b/);
+    expect(res.detail).not.toMatch(/cutover failed/i);
+  });
+});
