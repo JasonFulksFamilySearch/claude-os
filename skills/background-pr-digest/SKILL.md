@@ -68,23 +68,51 @@ Stop immediately.
 
 Scan **each repo in `$REPOS`** (not the ambient repo). For each:
 
+Run **two** fetches per repo. The field carrying review-requested needs the `read:org` token scope
+the headless `GITHUB_TOKEN` lacks, so it is fetched via the scope-free search path — NOT via
+`--json reviewRequests` (that field exists but expanding it requires `read:org` and hard-fails the
+whole query).
+
+**(a) Status + conflict (repo scope only):**
+
 ```bash
-gh pr list --repo <owner/repo> --json number,title,url,reviewRequested,statusCheckRollup,mergeable --limit 20
+gh pr list --repo <owner/repo> --json number,title,url,statusCheckRollup,mergeable --limit 20
 ```
 
-Parse the JSON array. Each element has:
+Each element has:
 - `number` — PR number (integer)
 - `title` — PR title string
 - `url` — PR URL string
-- `reviewRequested` — array of objects; each has a `login` field
 - `statusCheckRollup` — array of check objects; each has a `conclusion` field (`"FAILURE"`, `"SUCCESS"`, etc.) and optionally a `state` field (`"FAILURE"`, `"ERROR"`, etc.)
 - `mergeable` — string: `"MERGEABLE"`, `"CONFLICTING"`, or `"UNKNOWN"`
 
+> **`mergeable` is computed lazily.** The first `gh pr list` after a recent push returns `"UNKNOWN"`
+> and only *triggers* the computation. **Re-query any PR that returns `UNKNOWN` once** (a second
+> `gh pr list` for that repo) before concluding it is not conflicting — otherwise a real
+> merge-conflict is silently dropped.
+
+**(b) Review-requested (scope-free search — needs no `read:org`):**
+
+```bash
+gh search prs --repo <owner/repo> --review-requested=@me --state=open --json number,title,url
+```
+
+`@me` resolves to the active token's user (the `github_user` from config), so any PR returned here is
+a review-requested match — no `login`-field comparison needed.
+
 ## Step 2 — Filter for Interesting Items
 
-For each PR, evaluate these three signals. A single PR can match more than one.
+**First, reconcile the two Step 1 fetches into one candidate set, keyed by PR number.** Union (a)
+and (b) — do NOT iterate fetch (a) alone. A PR that appears only in fetch (b) is review-requested
+and may sit outside fetch (a)'s `--limit 20` window; it is still a matched item and MUST carry into
+the signal evaluation below. Carry each PR's fields (`number`, `title`, `url`) from whichever fetch
+supplied them, and remember which of (a)/(b) it came from — fetch (a) is the only source of
+`statusCheckRollup` and `mergeable`, so a PR present only in (b) can match the review-requested
+signal but cannot match ci-failed or merge-conflict (no data for those, treat as not-matched).
 
-**review-requested:** `reviewRequested` array contains an entry where `login === $GH_USER` (the `github_user` from config, Step 0).
+For each PR in that unioned set, evaluate these three signals. A single PR can match more than one.
+
+**review-requested:** the PR appears in fetch (b)'s results (the scope-free `gh search prs --review-requested=@me`). No `login` comparison is needed — `@me` already scoped it to the operator.
 
 **ci-failed:** `statusCheckRollup` array contains at least one entry where `conclusion === 'FAILURE'` or `conclusion === 'ERROR'` or `state === 'FAILURE'` or `state === 'ERROR'`.
 

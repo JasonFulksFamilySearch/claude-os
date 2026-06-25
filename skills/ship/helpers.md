@@ -65,7 +65,7 @@ populate `{owner}/{repo}` for the `gh api` calls below.
 
 ```bash
 # Human review comments + PR-level discussion
-gh pr view "$PR_NUMBER" --json reviews,comments,reviewThreads \
+gh pr view "$PR_NUMBER" --json reviews,comments \
   --jq '[
     (.reviews[]? | select(.state != "PENDING") | {id: ("review-" + (.id|tostring)), user: .author.login, body: .body, created_at: .submittedAt}),
     (.comments[]? | {id: ("comment-" + (.id|tostring)), user: .author.login, body: .body, created_at: .createdAt})
@@ -109,26 +109,48 @@ Fields:
   "new" comments)
 - `seen_comment_ids` — string array of `id` values returned by `fetch_pr_signals`;
   refreshed every poll to use as the baseline for the next diff
-- `clean_poll_count` — int, increments on a clean poll, resets to 0 on any new signal
+- `clean_poll_count` — int, increments on a clean poll AND on a decline-only addressing cycle
+  (no code changed → no new review surface, so it counts toward the streak); resets to 0 only when
+  a cycle lands a FIX (a pushed code change triggers a reviewer re-review, so the streak is re-earned)
 - `cycle_count` — int, increments each time Phase 4c is invoked from this watch
 
 Persist via the Write tool after each loop iteration. Delete the file on successful
-exit (two consecutive clean polls).
+exit — when `clean_poll_count` reaches `REQUIRED_CLEAN_POLLS`, where the streak is made of
+clean polls and/or decline-only cycles (per the `clean_poll_count` definition above), not
+clean polls alone.
 
 ---
 
 ## Reply-posting commands (Phase 4c Step 6)
 
-For each addressed inline comment:
+Pick the form by disposition. **A declined comment has no commit/SHA** — never use the fix form for
+it (it would falsely claim a fix landed).
+
+For each **FIXED** inline comment:
 
 ```bash
 gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER/comments/<comment-id>/replies" \
   -f body="Addressed in <short-SHA>: <one-line summary of fix>"
 ```
 
-For PR-level / issue comments (Sonar, top-level reviews):
+For each **DECLINED** inline comment (no code change — put the reason on the record, no SHA):
+
+```bash
+gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER/comments/<comment-id>/replies" \
+  -f body="<the sub-agent's decline reason — why no change was warranted>"
+```
+
+For the single PR-level / issue summary comment (Sonar, top-level reviews) — cite a SHA only if a
+fix landed this cycle. Fix cycle:
 
 ```bash
 gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/comments" \
-  -f body="Cycle ${cycle_count}: addressed ${N} comments in <short-SHA>. See thread replies for details."
+  -f body="Cycle ${cycle_count}: ${F} fixed in <short-SHA>, ${D} declined. See thread replies for details."
+```
+
+Decline-only cycle (no SHA exists):
+
+```bash
+gh api "repos/{owner}/{repo}/issues/$PR_NUMBER/comments" \
+  -f body="Cycle ${cycle_count}: ${D} comment(s) declined with reasons (no code change). See thread replies."
 ```
