@@ -398,6 +398,49 @@ export async function runMigrateFix(opts: {
 }
 
 // ---------------------------------------------------------------------------
+// Task 12: reembedMissing fix — back up DB, verify, then vectorCoverageSweep
+// ---------------------------------------------------------------------------
+import { backupDb, verifyBackup } from "./migrations.js";
+import { vectorCoverageSweep } from "./indexer.js";
+
+// reembedMissing: snapshots the DB (VACUUM INTO), verifies the backup is
+// complete and structurally correct, then runs vectorCoverageSweep to
+// re-embed any observation rows that have no vec_items entry.
+//
+// The backup→verify→mutate order is the load-bearing safety contract:
+// re-embedding is not trivially undoable (new vec_items rows are written),
+// so the DB is snapshotted first. If verifyBackup throws the function aborts
+// before any sweep mutation — a bad backup means no safe re-embed.
+export async function reembedMissing(opts: {
+  db: Database.Database;
+  dbPath: string;
+  backupPath: string;
+}): Promise<FixResult> {
+  const { db, backupPath } = opts;
+
+  // Capture live observation count BEFORE backup — verifyBackup requires the
+  // exact count to detect a truncated or stale snapshot.
+  const count = (db.prepare("SELECT COUNT(*) AS n FROM observations").get() as { n: number }).n;
+
+  // Step 1: back up the DB (VACUUM INTO).
+  backupDb(db, backupPath);
+
+  // Step 2: verify the backup is complete and not corrupted.
+  // If this throws, no mutation has occurred — let the throw propagate so the
+  // caller knows the fix could not proceed safely.
+  verifyBackup(backupPath, count);
+
+  // Step 3: re-embed orphan observations.
+  const sweep = await vectorCoverageSweep(db);
+
+  return {
+    applied: true,
+    backupPath,
+    detail: `re-embedded ${sweep.healed} orphan(s); ${sweep.after} remaining (before: ${sweep.before}, after: ${sweep.after}).`,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Task 8: registry assembly + diagnose() end-to-end composition
 // ---------------------------------------------------------------------------
 

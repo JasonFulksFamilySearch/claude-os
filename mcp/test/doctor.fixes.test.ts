@@ -5,9 +5,10 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
 import { openDb } from "../src/db.js";
-import { checkBrokenLabels, checkCorpusSnapshot, checkSchemaCurrent, dropDeadLabel, recomputeCorpusSnapshot, runMigrateFix, type FixResult } from "../src/doctor.js";
-import { isV3Schema, runMigrations } from "../src/migrations.js";
+import { checkBrokenLabels, checkCorpusSnapshot, checkOrphanEmbeddings, checkSchemaCurrent, dropDeadLabel, recomputeCorpusSnapshot, reembedMissing, runMigrateFix, type FixResult } from "../src/doctor.js";
+import { isV3Schema, runMigrations, verifyBackup } from "../src/migrations.js";
 import { main as migrateMain } from "../src/scripts/migrate.js";
+import { countMissingVectors } from "../src/indexer.js";
 
 // Mock the embedder so these tests never load @huggingface/transformers.
 vi.mock("../src/embedder.js", async (importOriginal) => {
@@ -472,6 +473,153 @@ describe("doctor.fixes — runMigrateFix", () => {
     // DB stays v3; checkSchemaCurrent stays PASS.
     expect(isV3Schema(v2)).toBe(true);
     const check = await checkSchemaCurrent({ db: v2 } as any);
+    expect(check.status).toBe("PASS");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 12: reembedMissing
+// ---------------------------------------------------------------------------
+
+describe("doctor.fixes — reembedMissing", () => {
+  let dir: string;
+  let db: import("better-sqlite3").Database;
+  let dbPath: string;
+
+  // Seed a v3 observation row with NO vec_items entry — an orphan.
+  function seedOrphan(d: import("better-sqlite3").Database, path: string) {
+    d.prepare(`INSERT INTO observations
+      (source_type, source_path, anchor, parent_title, project, topic, title, content, content_hash, file_mtime, indexed_at, frontmatter)
+      VALUES ('context', ?, '', NULL, NULL, NULL, 'T', 'body', ?, 1, 2, NULL)`)
+      .run(path, "h" + path);
+    // Intentionally do NOT insert a vec_items row — this is the orphan state.
+  }
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "doctor-reembed-"));
+    dbPath = join(dir, "memory.db");
+    db = openDb(dbPath);
+    seedOrphan(db, "/orphan.md");
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // -------------------------------------------------------------------------
+  // Before-fix: checkOrphanEmbeddings reports FAIL with remediation "re-embed"
+  // -------------------------------------------------------------------------
+
+  it("before fix: checkOrphanEmbeddings reports FAIL with remediation re-embed", async () => {
+    const res = await checkOrphanEmbeddings({ db } as any);
+    expect(res.status).toBe("FAIL");
+    expect(res.fixable).toBe(true);
+    expect(res.remediation?.id).toBe("re-embed");
+    // There is at least 1 orphan.
+    expect(countMissingVectors(db)).toBeGreaterThan(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Backup-first + verify: snapshot written and verifyBackup passes BEFORE sweep
+  // -------------------------------------------------------------------------
+
+  it("backup-first: backupDb writes a snapshot and verifyBackup passes with the live observation count", async () => {
+    const backupPath = join(dir, "memory.db.bak");
+    const liveCount = (db.prepare("SELECT COUNT(*) AS n FROM observations").get() as { n: number }).n;
+
+    // Run the fix — embedder is mocked so the sweep resolves a zero-vector.
+    await reembedMissing({ db, dbPath, backupPath });
+
+    // The backup file must exist and pass verifyBackup with the pre-sweep count.
+    // verifyBackup throws on failure; no throw = backup is valid and count-consistent.
+    expect(() => verifyBackup(backupPath, liveCount)).not.toThrow();
+  });
+
+  // -------------------------------------------------------------------------
+  // Apply: after fix, countMissingVectors === 0 and checkOrphanEmbeddings PASS
+  // -------------------------------------------------------------------------
+
+  it("apply: after reembedMissing, countMissingVectors is 0 and checkOrphanEmbeddings reports PASS", async () => {
+    const backupPath = join(dir, "memory.db.bak");
+
+    const res: FixResult = await reembedMissing({ db, dbPath, backupPath });
+
+    expect(res.applied).toBe(true);
+    expect(res.backupPath).toBe(backupPath);
+
+    // All orphans healed.
+    expect(countMissingVectors(db)).toBe(0);
+
+    // Check reports PASS.
+    const check = await checkOrphanEmbeddings({ db } as any);
+    expect(check.status).toBe("PASS");
+  });
+
+  // -------------------------------------------------------------------------
+  // Abort-on-bad-backup: verifyBackup throws → vectorCoverageSweep never runs
+  // -------------------------------------------------------------------------
+
+  it("abort-on-bad-backup: if verifyBackup would fail (wrong expectedCount), the orphans remain unhealed", async () => {
+    // Strategy: write a real backup, then pass the wrong expectedCount to verifyBackup
+    // by forcing it to mismatch. We do this by writing a zero-byte file at the backup path
+    // so verifyBackup's size-floor check (< 4096 bytes) throws before any sweep.
+    const backupPath = join(dir, "memory.db.bad.bak");
+    // Write a 0-byte file — verifyBackup will throw "below 4096-byte floor".
+    writeFileSync(backupPath, "");
+
+    // Patch backupDb in this test: instead of VACUUM INTO (which would write a valid backup),
+    // we seed the bad file ourselves and override by closing + reopening — but the simplest
+    // approach is: call reembedMissing with a backupPath that already exists as a corrupt file.
+    // backupDb does `VACUUM INTO`; VACUUM INTO throws if the destination file already exists in
+    // some SQLite builds, or overwrites it. In practice, better-sqlite3 / SQLite will overwrite
+    // with the real DB. So instead, we test the abort by directly verifying that verifyBackup
+    // with a deliberately wrong count throws, and that countMissingVectors(db) still > 0 after.
+    //
+    // The load-bearing test: we spy on vectorCoverageSweep via a wrapping pattern — the
+    // simplest production-code-faithful approach is to use a bad backupPath that causes
+    // verifyBackup to throw. We achieve this by temporarily making the backup file a corrupt
+    // stub AFTER backupDb runs but before verifyBackup checks. Since we cannot intercept mid-
+    // function in a unit test without mocking the whole module, we instead construct the scenario
+    // by verifying that verifyBackup with a mismatched expectedCount throws, which IS the abort
+    // path — and assert the orphans remain in db (unchanged).
+    //
+    // Direct: call reembedMissing with an impossible expectedCount via module-level spy.
+    // The cleanest safe approach: mock verifyBackup to throw for this test only.
+    const { verifyBackup: vb } = await import("../src/migrations.js");
+    const spy = vi.spyOn(await import("../src/migrations.js"), "verifyBackup")
+      .mockImplementationOnce(() => { throw new Error("simulated: backup count mismatch"); });
+
+    await expect(reembedMissing({ db, dbPath, backupPath: join(dir, "memory.db.abort.bak") }))
+      .rejects.toThrow("simulated: backup count mismatch");
+
+    // Orphans must still be present — vectorCoverageSweep did not run.
+    expect(countMissingVectors(db)).toBeGreaterThan(0);
+
+    spy.mockRestore();
+    // Suppress unused variable lint — vb is imported for its side effect (module load).
+    void vb;
+  });
+
+  // -------------------------------------------------------------------------
+  // Idempotency: re-run with 0 orphans → sweep early-returns; check still PASS
+  // -------------------------------------------------------------------------
+
+  it("idempotency: re-run when 0 orphans exist keeps checkOrphanEmbeddings at PASS", async () => {
+    const backupPath1 = join(dir, "memory.db.bak1");
+    const backupPath2 = join(dir, "memory.db.bak2");
+
+    // First run — heals the orphan.
+    await reembedMissing({ db, dbPath, backupPath: backupPath1 });
+    expect(countMissingVectors(db)).toBe(0);
+
+    // Second run — 0 orphans; vectorCoverageSweep early-returns {before:0,healed:0,after:0}.
+    // Use a distinct backupPath because VACUUM INTO refuses to overwrite an existing file.
+    const res2: FixResult = await reembedMissing({ db, dbPath, backupPath: backupPath2 });
+    expect(res2.applied).toBe(true);
+    expect(countMissingVectors(db)).toBe(0);
+
+    const check = await checkOrphanEmbeddings({ db } as any);
     expect(check.status).toBe("PASS");
   });
 });
