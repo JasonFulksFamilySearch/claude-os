@@ -286,3 +286,26 @@ export function checkAdvisorySingleRowContext(ctx: DoctorContext): Promise<Check
       detail: `${n} single-row context file(s) may rank poorly (issue #82) — a known standing condition, not a fault.` };
   });
 }
+
+// ---------------------------------------------------------------------------
+// Task 8: registry assembly + diagnose() end-to-end composition
+// ---------------------------------------------------------------------------
+
+export const CHECKS: Check[] = [
+  checkBaselinePresent, checkBaselineStale, checkBrokenLabels, checkCorpusSnapshot, checkLastVerdict,
+  checkChunkingMarker, checkChunkShapeDivergence, checkSchemaCurrent,
+  checkIntegrity, checkCorpusShape, checkOrphanEmbeddings, checkExpectedContextFiles,
+  checkStaleLock,
+  checkNpmAudit, checkBuild, checkTestSuite,
+  checkBackupPresent,
+  checkAdvisorySingleRowContext,
+];
+
+export async function runChecks(ctx: DoctorContext): Promise<CheckResult[]> {
+  return Promise.all(CHECKS.map((c) => Promise.resolve(c(ctx))));
+}
+
+export async function diagnose(ctx: DoctorContext): Promise<{ results: CheckResult[]; verdict: DoctorVerdict }> {
+  const results = await runChecks(ctx);
+  return { results, verdict: composeVerdict(results) };
+}

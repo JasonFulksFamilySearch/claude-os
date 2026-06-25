@@ -361,3 +361,96 @@ describe("election / deps / backup / advisory checks", () => {
     expect(res.detail).toMatch(/#82/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task 8: registry end-to-end composition
+// ---------------------------------------------------------------------------
+import { diagnose } from "../src/doctor.js";
+
+// buildHealthyCtx assembles a fully-healthy DoctorContext in a fresh temp dir.
+// Returns { ctx, cleanup } where cleanup closes the db and rmSyncs the temp dir.
+function buildHealthyCtx(): { ctx: any; cleanup: () => void } {
+  const dir = mkdtempSync(join(tmpdir(), "doctor-reg-"));
+  const dbPath = join(dir, "memory.db");
+  const db = openDb(dbPath);
+
+  // Seed one context observation (source_type='context', source_path ends with the template name).
+  const contextPath = "/data/context/java.md";
+  const rowId = db.prepare(`INSERT INTO observations
+    (source_type, source_path, anchor, parent_title, project, topic, title, content, content_hash, file_mtime, indexed_at, frontmatter)
+    VALUES ('context', ?, '', NULL, NULL, NULL, 'T', 'body', 'h1', 1, 2, NULL)`)
+    .run(contextPath).lastInsertRowid;
+
+  // Each observation needs a vec_items row so orphan-embeddings PASSes.
+  // vec_items requires an INTEGER primary key — use BigInt to match better-sqlite3's integer type.
+  const embBuf = Buffer.from(new Float32Array(768).fill(0.1).buffer);
+  db.prepare("INSERT INTO vec_items(observation_id, embedding) VALUES (?,?)").run(BigInt(rowId), embBuf);
+
+  // Baseline: chunking_enabled=false (live index is also non-chunked), so stale check
+  // sees isCutoverBoundary(false, false)=false → PASS.
+  const baselinePath = join(dir, "eval-baseline.json");
+  writeFileSync(baselinePath, JSON.stringify({ corpus: { chunking_enabled: false } }));
+
+  // Labels: corpus_snapshot must equal distinctSourcePaths(db).length (= 1), and every
+  // query must resolve to ≥1 row via resolveRelevantIds (instr on source_path).
+  const labelsPath = join(dir, "labeled-queries.json");
+  writeFileSync(labelsPath, JSON.stringify({
+    curation: { corpus_snapshot: 1 },
+    queries: [{ query: "find java", expectedPathContains: ["java.md"] }],
+  }));
+
+  // context-templates/ in repoRoot: one .md file matching the indexed observation.
+  const repoRoot = join(dir, "repo");
+  mkdirSync(join(repoRoot, "context-templates"), { recursive: true });
+  writeFileSync(join(repoRoot, "context-templates", "java.md"), "# Java context");
+
+  // Backup file: .pre-c2.bak present.
+  writeFileSync(dbPath + ".pre-c2.bak", "backup");
+
+  // lockPath: absent (no dir) → stale-lock PASS.
+  const lockPath = join(dir, "memory.db.writer.lock.d");
+
+  const ctx = {
+    db,
+    dbPath,
+    baselinePath,
+    labelsPath,
+    lockPath,
+    repoRoot,
+    full: false,
+    runEval: () => Promise.resolve({ verdict: "PASS" as const, ok: true }),
+    runAudit: () => Promise.resolve({ ok: true, vulnerabilities: { critical: 0, high: 0, moderate: 0, low: 0 } }),
+    runBuild: () => Promise.resolve({ ok: true, passed: true }),
+    runTest: () => Promise.resolve({ ok: true, passed: true }),
+  };
+
+  return {
+    ctx,
+    cleanup: () => { db.close(); rmSync(dir, { recursive: true, force: true }); },
+  };
+}
+
+describe("registry end-to-end composition", () => {
+  it("a fully healthy installation composes PASS", async () => {
+    const { ctx, cleanup } = buildHealthyCtx();
+    try { expect((await diagnose(ctx)).verdict).toBe("PASS"); } finally { cleanup(); }
+  });
+
+  it("HONESTY AT THE REGISTRY LEVEL: one un-runnable check (eval throws) drops the verdict to INCONCLUSIVE, not PASS", async () => {
+    const { ctx, cleanup } = buildHealthyCtx();
+    ctx.runEval = () => Promise.reject(new Error("eval exited 1"));
+    try {
+      const { results, verdict } = await diagnose(ctx);
+      expect(verdict).toBe("INCONCLUSIVE");
+      expect(verdict).not.toBe("PASS");
+      expect(results.find((r) => r.id === "eval/last-verdict")?.status).toBe("INCONCLUSIVE");
+      expect(results.filter((r) => r.status === "FAIL")).toHaveLength(0);
+    } finally { cleanup(); }
+  });
+
+  it("a real FAIL (orphan embedding) composes FAIL, outranking any INCONCLUSIVE", async () => {
+    const { ctx, cleanup } = buildHealthyCtx();
+    ctx.db.prepare("DELETE FROM vec_items").run();
+    try { expect((await diagnose(ctx)).verdict).toBe("FAIL"); } finally { cleanup(); }
+  });
+});
