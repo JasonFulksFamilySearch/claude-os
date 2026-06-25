@@ -21,7 +21,8 @@ set -euo pipefail
 #                       the audit log; pretty-prints the assembled payload
 #                       to stdout. Safe for first-test of format changes.
 #
-# Requires: $SLACK_BOT_TOKEN env var, gh (authenticated), jq, curl.
+# Requires: SLACK_MCP_XOXP_TOKEN (env, or ~/.config/slack-mcp/tokens.env), gh (authenticated), jq, curl.
+# Posts as Jason (xoxp user token), NOT as the bot app.
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 TEMPLATE="${SCRIPT_DIR}/signature.template.json"
@@ -97,18 +98,19 @@ require_tool gh
 require_tool jq
 require_tool curl
 
-# Source the token: prefer env var, fall back to macOS keychain.
-# On Jason's Macs the token lives in keychain (account=slack, service=
-# slack-claude-mcp-api-key), not as a shell-exported env var. This fallback
-# means /pr-to-slack works without forcing the agent to re-discover the
-# keychain pattern on every invocation.
-if [ -z "${SLACK_BOT_TOKEN:-}" ]; then
-  if command -v security >/dev/null 2>&1; then
-    SLACK_BOT_TOKEN="$(security find-generic-password -w -a slack -s slack-claude-mcp-api-key 2>/dev/null || true)"
-    export SLACK_BOT_TOKEN
+# Source the user token: prefer an exported env var, else the MCP token file.
+# ~/.config/slack-mcp/tokens.env is the single source of truth the Slack MCP
+# server already reads (it holds SLACK_MCP_XOXP_TOKEN and SLACK_MCP_XOXB_TOKEN).
+# Sourcing the xoxp USER token here makes chat.postMessage post AS Jason, with no
+# secret duplicated into a second store and no rotation drift.
+if [ -z "${SLACK_USER_TOKEN:-}" ]; then
+  if [ -f "${HOME}/.config/slack-mcp/tokens.env" ]; then
+    # shellcheck disable=SC1091
+    . "${HOME}/.config/slack-mcp/tokens.env"
+    SLACK_USER_TOKEN="${SLACK_MCP_XOXP_TOKEN:-}"
   fi
 fi
-[ -n "${SLACK_BOT_TOKEN:-}" ] || fail "\$SLACK_BOT_TOKEN not set and macOS keychain lookup (account=slack, service=slack-claude-mcp-api-key) returned empty. Set the env var, or store the token via: security add-generic-password -a slack -s slack-claude-mcp-api-key -w <token>"
+[ -n "${SLACK_USER_TOKEN:-}" ] || fail "SLACK_MCP_XOXP_TOKEN not set and ~/.config/slack-mcp/tokens.env did not provide it. Ensure that file exists with SLACK_MCP_XOXP_TOKEN=<your xoxp token>."
 [ -f "$TEMPLATE" ]            || fail "template not found at $TEMPLATE"
 [ -f "$SUMMARY_FILE" ]        || fail "summary file not found: $SUMMARY_FILE"
 [ -s "$SUMMARY_FILE" ]        || fail "summary file is empty: $SUMMARY_FILE"
@@ -271,7 +273,7 @@ fi
 # ----------------------------- post to Slack ---------------------------------
 
 RESPONSE="$(curl -s -X POST https://slack.com/api/chat.postMessage \
-  -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+  -H "Authorization: Bearer ${SLACK_USER_TOKEN}" \
   -H "Content-Type: application/json; charset=utf-8" \
   --data-binary @"$PAYLOAD")"
 

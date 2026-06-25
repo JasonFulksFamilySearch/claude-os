@@ -54,9 +54,10 @@ for duplicates before re-posting. `mcp__slack__conversations_add_message` is lis
 the toolset is complete, but posting must go through `post.sh` which validates
 Block Kit structure first; direct MCP posting bypasses that validation.
 
-**Slack MCP authentication:** The Slack MCP server authenticates via a bot token
-configured in Claude Code's MCP server config (`claude mcp get slack`). No additional
-token setup is needed at invocation time — the server handles auth automatically.
+**Slack authentication:** Posting runs through `post.sh`, which authenticates with
+Jason's `xoxp` user token sourced from `~/.config/slack-mcp/tokens.env` — so messages
+post under Jason's identity, not a bot app. The same file backs the `mcp__slack__`
+verification tools. No per-invocation token setup is needed.
 </context>
 
 <instructions>
