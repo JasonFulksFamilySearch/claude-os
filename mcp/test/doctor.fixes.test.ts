@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb } from "../src/db.js";
-import { checkBrokenLabels, dropDeadLabel, type FixResult } from "../src/doctor.js";
+import { checkBrokenLabels, checkCorpusSnapshot, dropDeadLabel, recomputeCorpusSnapshot, type FixResult } from "../src/doctor.js";
 
 // Mock the embedder so these tests never load @huggingface/transformers.
 vi.mock("../src/embedder.js", async (importOriginal) => {
@@ -165,5 +165,103 @@ describe("doctor.fixes — dropDeadLabel", () => {
 
     const res = await checkBrokenLabels({ db, labelsPath } as any);
     expect(res.status).toBe("PASS");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 10: recomputeCorpusSnapshot
+// ---------------------------------------------------------------------------
+
+describe("doctor.fixes — recomputeCorpusSnapshot", () => {
+  let dir: string;
+  let db: import("better-sqlite3").Database;
+  let dbPath: string;
+  let labelsPath: string;
+
+  // Fixture: 3 distinct source paths in the DB; labels file has stale corpus_snapshot = 387.
+  function writeSnapshotLabels(path: string, snapshot: number) {
+    writeFileSync(path, JSON.stringify({
+      curation: { corpus_snapshot: snapshot },
+      queries: [],
+    }));
+  }
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "doctor-corpus-snap-"));
+    dbPath = join(dir, "memory.db");
+    db = openDb(dbPath);
+    labelsPath = join(dir, "labeled-queries.json");
+
+    // Seed 3 distinct source paths so the live count is 3.
+    seedRow(db, "/file-a.md");
+    seedRow(db, "/file-b.md");
+    seedRow(db, "/file-c.md");
+
+    writeSnapshotLabels(labelsPath, 387);
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // -------------------------------------------------------------------------
+  // Before-fix: checkCorpusSnapshot should report FAIL naming both numbers
+  // -------------------------------------------------------------------------
+
+  it("before fix: corpus-snapshot reports FAIL naming both the stale and live count", async () => {
+    const res = await checkCorpusSnapshot({ db, labelsPath } as any);
+    expect(res.status).toBe("FAIL");
+    expect(res.fixable).toBe(true);
+    expect(res.detail).toMatch(/387/);
+    expect(res.detail).toMatch(/3/);
+  });
+
+  // -------------------------------------------------------------------------
+  // Backup-first: .bak exists and equals the pre-image
+  // -------------------------------------------------------------------------
+
+  it("backs up labels to <labelsPath>.bak before overwriting corpus_snapshot", () => {
+    const preImage = readFileSync(labelsPath, "utf8");
+
+    recomputeCorpusSnapshot({ db, labelsPath });
+
+    expect(existsSync(labelsPath + ".bak")).toBe(true);
+    expect(readFileSync(labelsPath + ".bak", "utf8")).toBe(preImage);
+  });
+
+  // -------------------------------------------------------------------------
+  // Apply: written value equals the live count, checkCorpusSnapshot → PASS
+  // -------------------------------------------------------------------------
+
+  it("writes the live distinct-file count and checkCorpusSnapshot reports PASS after", async () => {
+    const res: FixResult = recomputeCorpusSnapshot({ db, labelsPath });
+
+    expect(res.applied).toBe(true);
+    expect(res.backupPath).toBe(labelsPath + ".bak");
+
+    // The written file now carries the live count (3), not the stale 387.
+    const after = JSON.parse(readFileSync(labelsPath, "utf8"));
+    expect(after.curation.corpus_snapshot).toBe(3);
+
+    // checkCorpusSnapshot now reports PASS.
+    const check = await checkCorpusSnapshot({ db, labelsPath } as any);
+    expect(check.status).toBe("PASS");
+  });
+
+  // -------------------------------------------------------------------------
+  // Idempotency: re-run leaves it PASS
+  // -------------------------------------------------------------------------
+
+  it("is idempotent — re-run leaves corpus_snapshot correct and checkCorpusSnapshot PASS", async () => {
+    recomputeCorpusSnapshot({ db, labelsPath });
+    // Second run — snapshot already equals live count.
+    recomputeCorpusSnapshot({ db, labelsPath });
+
+    const after = JSON.parse(readFileSync(labelsPath, "utf8"));
+    expect(after.curation.corpus_snapshot).toBe(3);
+
+    const check = await checkCorpusSnapshot({ db, labelsPath } as any);
+    expect(check.status).toBe("PASS");
   });
 });

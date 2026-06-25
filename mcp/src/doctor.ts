@@ -341,6 +341,38 @@ export async function dropDeadLabel(opts: {
   return { applied: true, backupPath, verdictAfter, detail: `dropped dead label "${deadQuery}"; eval re-run: ${verdictAfter ?? "inconclusive"}.` };
 }
 
+// recomputeCorpusSnapshot: backs up the labels file, then writes the LIVE
+// distinct-file count into curation.corpus_snapshot (never trusts the stored
+// value — the stored value is precisely what may be stale). Synchronous; no
+// eval re-run needed (checkCorpusSnapshot re-reads the live count on demand).
+export function recomputeCorpusSnapshot(opts: {
+  db: Database.Database;
+  labelsPath: string;
+}): FixResult {
+  const { db, labelsPath } = opts;
+  const raw = readFileSync(labelsPath, "utf8");
+  const parsed = JSON.parse(raw) as { curation?: { corpus_snapshot?: number }; [k: string]: unknown };
+
+  const liveCount = distinctSourcePaths(db).length;
+
+  // Backup BEFORE mutation (idempotent is not reversible — recomputing silently overwrites).
+  const backupPath = labelsPath + ".bak";
+  copyFileSync(labelsPath, backupPath);
+
+  // Write the live count into curation.corpus_snapshot.
+  const updated = {
+    ...parsed,
+    curation: { ...(parsed.curation ?? {}), corpus_snapshot: liveCount },
+  };
+  writeFileSync(labelsPath, JSON.stringify(updated, null, 2), "utf8");
+
+  return {
+    applied: true,
+    backupPath,
+    detail: `recomputed corpus_snapshot to ${liveCount} (live distinct-file count).`,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Task 8: registry assembly + diagnose() end-to-end composition
 // ---------------------------------------------------------------------------
