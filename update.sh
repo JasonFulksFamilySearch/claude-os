@@ -97,6 +97,28 @@ else
     ok "Provisioned eval labeled set → ~/.claude-data/eval/ (placeholders — curate before arming)"
 fi
 
+# ── Step 2.7: Fidelity labeled-set provisioning (machine-local) ──────────────
+
+echo "--- Step 2.7: Fidelity labeled set ---"
+
+FIDELITY_TEMPLATE="$REPO_DIR/mcp/eval/fidelity-payloads.template.json"
+FIDELITY_LIVE="$HOME/.claude-data/eval/fidelity-payloads.json"
+
+# The fidelity set is machine-local DATA, disjoint-by-construction from the held-out
+# retrieval eval set. update.sh provisions it from the committed template on a fresh
+# machine (only-if-absent: never clobber a machine's existing fidelity set).
+if [ ! -f "$FIDELITY_TEMPLATE" ]; then
+    skip "No fidelity-payloads template — skipping"
+elif [ -f "$FIDELITY_LIVE" ]; then
+    skip "Fidelity labeled set already present (machine-local; never overwritten by update.sh)"
+else
+    mkdir -p "$(dirname "$FIDELITY_LIVE")"
+    cp "$FIDELITY_TEMPLATE" "$FIDELITY_LIVE"
+    ok "Provisioned fidelity labeled set → ~/.claude-data/eval/ (template payloads — curate before arming)"
+fi
+
+echo ""
+
 # Transition cleanup: an earlier build provisioned the labeled set to the in-repo path
 # mcp/eval/labeled-queries.json (gitignored). The set is now machine-local under
 # ~/.claude-data/eval/, and that gitignore entry is gone — so a leftover in-repo file

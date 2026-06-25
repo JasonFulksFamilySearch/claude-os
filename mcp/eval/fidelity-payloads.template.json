@@ -1,0 +1,411 @@
+{
+  "_note": "TEMPLATE — update.sh provisions this to ~/.claude-data/eval/fidelity-payloads.json only if that file is absent. DISJOINTNESS RULE: every payload array in this file MUST remain disjoint from mcp/eval/labeled-queries.template.json. The two sets measure different properties (compression fidelity vs retrieval recall) and sharing rows is train/test leakage that voids the fidelity gate. The disjointness test in mcp/test/fidelity-script.test.ts is the tripwire.",
+  "curation": {
+    "date": null,
+    "approver": null,
+    "corpus_snapshot": null,
+    "fidelity_floor": 0.75,
+    "_criterion": "Droppable rows only, terse-high-value rows included. NO status rows, NO threshold-value rows, NO failure-signal rows."
+  },
+  "payloads": [
+    {
+      "array": [
+        { "tool": "Read", "description": "Read a file from disk" },
+        { "tool": "Write", "description": "Write content to a file" },
+        {
+          "tool": "Edit",
+          "description": "Apply a targeted string replacement in a file"
+        },
+        {
+          "tool": "Bash",
+          "description": "Run a shell command and return stdout"
+        },
+        {
+          "tool": "Grep",
+          "description": "Search file contents with ripgrep patterns"
+        },
+        { "tool": "Glob", "description": "Match file paths by glob pattern" },
+        {
+          "tool": "mcp__memory__store_memory",
+          "description": "Persist a learning to the memory store"
+        },
+        {
+          "tool": "mcp__memory__search_memory",
+          "description": "Retrieve relevant memories by semantic query"
+        },
+        {
+          "tool": "mcp__memory__list_memories",
+          "description": "List all stored memory entries"
+        },
+        {
+          "tool": "mcp__spokenly__ask_user_dictation",
+          "description": "Prompt the user via voice dictation"
+        }
+      ],
+      "important_indices": [2, 4, 7],
+      "notes": "Tool registry payload. Mid-array indices 2/4/7 are plain droppable tool descriptors — attributable to the bigram importance ranker, outside head/tail position bands."
+    },
+    {
+      "array": [
+        { "key": "repo_root", "value": "/Users/jasonmfulks/.claude-os" },
+        { "key": "agent_name", "value": "Walter" },
+        { "key": "machine_id", "value": "macelabs-macair" },
+        { "key": "memory_db", "value": "~/.claude-data/memory.db" },
+        { "key": "eval_dir", "value": "~/.claude-data/eval/" },
+        { "key": "context_dir", "value": "~/.claude-data/context/" },
+        { "key": "hooks_dir", "value": "~/.claude-os/hooks/" },
+        { "key": "skills_dir", "value": "~/.claude-os/skills/" },
+        { "key": "update_script", "value": "~/.claude-os/update.sh" },
+        { "key": "log_dir", "value": "~/.claude-data/logs/" }
+      ],
+      "important_indices": [3, 5, 6],
+      "notes": "Config key-value pairs. Indices 3/5/6 are mid-array path records — terse-high-value, droppable, attributable outside position bands."
+    },
+    {
+      "array": [
+        {
+          "step": 1,
+          "action": "git status",
+          "purpose": "inspect working tree"
+        },
+        {
+          "step": 2,
+          "action": "git diff",
+          "purpose": "review staged and unstaged changes"
+        },
+        {
+          "step": 3,
+          "action": "git log --oneline -10",
+          "purpose": "review recent commit history"
+        },
+        {
+          "step": 4,
+          "action": "draft commit message from diff",
+          "purpose": "summarize the why"
+        },
+        {
+          "step": 5,
+          "action": "git add <specific files>",
+          "purpose": "stage files by name, never -A"
+        },
+        {
+          "step": 6,
+          "action": "git commit -m <message>",
+          "purpose": "create the commit"
+        },
+        {
+          "step": 7,
+          "action": "git push -u origin <branch>",
+          "purpose": "push branch to remote"
+        },
+        {
+          "step": 8,
+          "action": "gh pr create",
+          "purpose": "open pull request with summary and QA steps"
+        }
+      ],
+      "important_indices": [3, 5, 6],
+      "notes": "Git workflow steps. Indices 3/5/6 describe commit-message drafting and staged-file hygiene — droppable, mid-array, importance-attributable."
+    },
+    {
+      "array": [
+        { "concept": "YAGNI", "rule": "Skip it if it does not need to exist" },
+        {
+          "concept": "stdlib-first",
+          "rule": "Use the standard library before writing custom code"
+        },
+        {
+          "concept": "platform-first",
+          "rule": "Use native platform features before adding dependencies"
+        },
+        {
+          "concept": "dep-reuse",
+          "rule": "Use an already-installed dependency before adding a new one"
+        },
+        {
+          "concept": "one-liner",
+          "rule": "Can it be one line? Make it one line"
+        },
+        {
+          "concept": "minimum-viable",
+          "rule": "Write only what is needed to make it work"
+        },
+        {
+          "concept": "deletion-over-addition",
+          "rule": "Delete code rather than add it when possible"
+        },
+        {
+          "concept": "boring-over-clever",
+          "rule": "Prefer the boring solution to the clever one"
+        },
+        {
+          "concept": "yagni-tag",
+          "rule": "Mark deliberate shortcuts with a yagni: comment"
+        }
+      ],
+      "important_indices": [2, 4, 6],
+      "notes": "YAGNI ladder rules. Indices 2/4/6 are mid-array principle rows — droppable, attributable to the importance ranker, not head/tail position-guaranteed."
+    },
+    {
+      "array": [
+        {
+          "phase": "read",
+          "task": "read CLAUDE.md and learnings.md before starting work"
+        },
+        {
+          "phase": "topic-preflight",
+          "task": "invoke topic-aware-coding skill if TOPIC_REGISTRY.md exists"
+        },
+        {
+          "phase": "discover",
+          "task": "read config and manifest files to infer project stack"
+        },
+        {
+          "phase": "slice",
+          "task": "ship thin vertical slices proved end-to-end before breadth"
+        },
+        {
+          "phase": "test",
+          "task": "use the smallest verification that proves the work"
+        },
+        {
+          "phase": "done-bar",
+          "task": "reviewer can see what changed and how you verified it"
+        },
+        {
+          "phase": "save-path",
+          "task": "a save path is not done until a real round-trip persists"
+        },
+        {
+          "phase": "escalate",
+          "task": "escalate auth, schema-breaking, and UI design decisions"
+        },
+        {
+          "phase": "commit",
+          "task": "run /commit skill — never commit without it"
+        }
+      ],
+      "important_indices": [3, 5, 7],
+      "notes": "Engineering workflow phases. Indices 3/5/7 are mid-array droppable phase descriptors — attributable, outside head/tail bands."
+    },
+    {
+      "array": [
+        {
+          "hook": "PreToolUse",
+          "purpose": "deny disallowed commands before they run"
+        },
+        {
+          "hook": "PostToolUse",
+          "purpose": "capture tool output for context injection"
+        },
+        {
+          "hook": "UserPromptSubmit",
+          "purpose": "inject context hints from topic registry"
+        },
+        {
+          "hook": "Stop",
+          "purpose": "flush pending learnings at session close"
+        },
+        {
+          "hook": "Notification",
+          "purpose": "surface important events to the user"
+        },
+        {
+          "hook": "PreCompact",
+          "purpose": "snapshot session state before context compaction"
+        },
+        {
+          "hook": "PostCompact",
+          "purpose": "reload context rules after compaction"
+        },
+        {
+          "hook": "SessionStart",
+          "purpose": "initialize agent state at session open"
+        }
+      ],
+      "important_indices": [2, 4, 5],
+      "notes": "Lifecycle hook registry. Indices 2/4/5 are mid-array hook descriptors — droppable, attribution-eligible, outside position bands."
+    },
+    {
+      "array": [
+        {
+          "scope": "agent",
+          "path": "~/.claude-data/agent/learnings.md",
+          "role": "cross-project agent learnings"
+        },
+        {
+          "scope": "project",
+          "path": "~/.claude-data/projects/<name>/",
+          "role": "per-project state"
+        },
+        {
+          "scope": "context",
+          "path": "~/.claude-data/context/",
+          "role": "domain knowledge topics"
+        },
+        {
+          "scope": "eval",
+          "path": "~/.claude-data/eval/",
+          "role": "held-out eval and fidelity sets"
+        },
+        {
+          "scope": "memory",
+          "path": "~/.claude-data/memory.db",
+          "role": "semantic memory store"
+        },
+        {
+          "scope": "flags",
+          "path": "~/.claude-data/flags/",
+          "role": "feature flag sentinels"
+        },
+        {
+          "scope": "logs",
+          "path": "~/.claude-data/logs/",
+          "role": "session and hook logs"
+        },
+        {
+          "scope": "tmp",
+          "path": "~/.claude-data/tmp/",
+          "role": "ephemeral scratch files"
+        }
+      ],
+      "important_indices": [2, 4, 6],
+      "notes": "Data directory layout. Indices 2/4/6 describe context, memory, and logs directories — droppable mid-array rows, importance-attributable."
+    },
+    {
+      "array": [
+        {
+          "rule": "no-fabrication",
+          "description": "Only include data with a verifiable source"
+        },
+        {
+          "rule": "ai-transparency",
+          "description": "Label AI-generated content as AI-assisted"
+        },
+        {
+          "rule": "permission-granularity",
+          "description": "Add only the specific missing command, not a wildcard"
+        },
+        {
+          "rule": "minimize-prompts",
+          "description": "Prefer built-in tools to avoid permission prompts"
+        },
+        {
+          "rule": "cli-preference",
+          "description": "Prefer gh and jira CLI over MCP for GitHub and Jira"
+        },
+        {
+          "rule": "no-secrets",
+          "description": "Never commit secrets, credentials, or customer data"
+        },
+        {
+          "rule": "no-merge",
+          "description": "Never merge your own PR — await Jason's merge"
+        },
+        {
+          "rule": "escalate-ui",
+          "description": "Escalate UI look-and-feel changes before deciding unilaterally"
+        },
+        {
+          "rule": "voice-input",
+          "description": "Always use spokenly for questions, never plain text"
+        }
+      ],
+      "important_indices": [3, 5, 7],
+      "notes": "Behavioral rules. Indices 3/5/7 are mid-array droppable rule rows — attributable to the importance ranker, outside head/tail bands."
+    },
+    {
+      "array": [
+        {
+          "skill": "commit",
+          "trigger": "always",
+          "description": "format and create commits"
+        },
+        {
+          "skill": "investigate",
+          "trigger": "before-implementing",
+          "description": "explore code before building"
+        },
+        {
+          "skill": "design-review",
+          "trigger": "non-trivial-decisions",
+          "description": "review design before committing"
+        },
+        {
+          "skill": "post-review",
+          "trigger": "pr-review",
+          "description": "post AI-generated review labeled correctly"
+        },
+        {
+          "skill": "daily-action",
+          "trigger": "morning",
+          "description": "prioritized punch list for the day"
+        },
+        {
+          "skill": "standup",
+          "trigger": "scrum",
+          "description": "three-question format with verifiable data"
+        },
+        {
+          "skill": "topic-aware-coding",
+          "trigger": "topic-registry-present",
+          "description": "pre-flight topic context before coding"
+        },
+        {
+          "skill": "lazy-review",
+          "trigger": "pre-commit",
+          "description": "scan diff for over-engineering"
+        },
+        {
+          "skill": "write-a-prd",
+          "trigger": "analysis-mode",
+          "description": "produce a PRD from investigation"
+        }
+      ],
+      "important_indices": [3, 5, 6],
+      "notes": "Skill catalog. Indices 3/5/6 are mid-array skill descriptors — droppable, importance-attributable, outside position bands."
+    },
+    {
+      "array": [
+        {
+          "module": "indexer",
+          "responsibility": "watch and index source files into the DB"
+        },
+        {
+          "module": "embedder",
+          "responsibility": "generate vector embeddings for observations"
+        },
+        {
+          "module": "search_memory",
+          "responsibility": "hybrid BM25+vector search with ranking"
+        },
+        {
+          "module": "search_config",
+          "responsibility": "fixed ranking weight defaults — never tune against eval"
+        },
+        {
+          "module": "smart-crusher",
+          "responsibility": "compress arrays via bigram importance scoring"
+        },
+        {
+          "module": "fidelity-measure",
+          "responsibility": "measure importance-attributable survival rate"
+        },
+        {
+          "module": "graph-build",
+          "responsibility": "build the inter-topic dependency graph"
+        },
+        {
+          "module": "eval",
+          "responsibility": "offline retrieval quality gate — presence and absence"
+        },
+        {
+          "module": "migrate",
+          "responsibility": "run schema migrations via npm run migrate"
+        }
+      ],
+      "important_indices": [3, 5, 7],
+      "notes": "MCP module index. Indices 3/5/7 are mid-array droppable module descriptors — attributable to the ranker, not in head/tail bands."
+    }
+  ]
+}
