@@ -498,7 +498,7 @@ while clean_poll_count < REQUIRED_CLEAN_POLLS:
   if disposition.fixed > 0:
     clean_poll_count = 0   # a code fix triggers a reviewer re-review wave — the clean streak must be re-earned
   else:
-    # Decline-only cycle: every new comment was rebutted/deferred, no code changed, so this round created
+    # Decline-only cycle: every new comment was declined, no code changed, so this round created
     # NO new review surface. Count it toward the streak instead of resetting — this is what stops the loop
     # from grinding a generative reviewer's cosmetic nits all the way to MAX_CYCLES.
     clean_poll_count += 1

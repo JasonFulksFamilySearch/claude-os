@@ -352,7 +352,7 @@ run `gh pr merge`.
   referenced files, and ran the project gate before any commit.
 - Each round produced exactly one grouped commit via `/commit` (or none, if all rebuttals).
 - Replies were posted and threads resolved right after the push (not gated on CI), in-thread in the user's PR-post voice register, with real commit SHAs on fixes.
-- **Every dispositioned thread was resolved via `resolveReviewThread`** — fixes and rebuttals both.
+- **Every dispositioned thread was resolved via `resolveReviewThread`** — fixes, rebuttals, and deferrals alike.
 - The loop terminated on the convergence rule (a no-FIX round) or, failing that, the round cap —
   never on the reviewer's comment count alone — and honored the settle interval, catching at least
   the re-review wave a single pass would miss.
@@ -364,11 +364,13 @@ run `gh pr merge`.
 Input: /pr-response (PR #1502, Copilot just reviewed right after /ship and found nothing)
 
 Phase 0: PR #1502 | branch feat/ARC-4012-... | OPEN | mergeStateStatus BLOCKED (awaiting approval)
-Round 1 / 1a: 0 unresolved reviewer threads. Copilot's latest non-empty review (commit.oid == HEAD):
+1a (round stays 0 — no unresolved threads, so the round counter never increments): 0 unresolved
+  reviewer threads. Copilot's latest non-empty review (commit.oid == HEAD):
   "Copilot reviewed 6 out of 6 changed files in this pull request and generated no new comments."
   → bound to HEAD + phrase present → copilot_clean = true. No threads + confirmed clean → break
   (exit: copilot-confirmed-clean). No worker dispatched, no commit, no reply posted.
-Phase 2: ✅ Copilot reviewed and generated no new comments — nothing to address. (after 1 round)
+Phase 2: ✅ Copilot reviewed and generated no new comments — nothing to address. (after 0 round(s):
+  the no-op break fires on the first check, before any addressing round is entered)
 Phase 3: mergeable MERGEABLE, no threads. ⚠ reviewDecision REVIEW_REQUIRED — needs a human approval.
 This is the case Jason flagged: the phrase IS the done signal — don't loop, don't reply.
 </example>
