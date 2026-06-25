@@ -103,6 +103,10 @@ require_tool curl
 # server already reads (it holds SLACK_MCP_XOXP_TOKEN and SLACK_MCP_XOXB_TOKEN).
 # Sourcing the xoxp USER token here makes chat.postMessage post AS Jason, with no
 # secret duplicated into a second store and no rotation drift.
+# Resolution order: SLACK_USER_TOKEN env > SLACK_MCP_XOXP_TOKEN env > tokens.env.
+if [ -z "${SLACK_USER_TOKEN:-}" ]; then
+  SLACK_USER_TOKEN="${SLACK_MCP_XOXP_TOKEN:-}"
+fi
 if [ -z "${SLACK_USER_TOKEN:-}" ]; then
   if [ -f "${HOME}/.config/slack-mcp/tokens.env" ]; then
     # shellcheck disable=SC1091
@@ -110,7 +114,14 @@ if [ -z "${SLACK_USER_TOKEN:-}" ]; then
     SLACK_USER_TOKEN="${SLACK_MCP_XOXP_TOKEN:-}"
   fi
 fi
-[ -n "${SLACK_USER_TOKEN:-}" ] || fail "SLACK_MCP_XOXP_TOKEN not set and ~/.config/slack-mcp/tokens.env did not provide it. Ensure that file exists with SLACK_MCP_XOXP_TOKEN=<your xoxp token>."
+[ -n "${SLACK_USER_TOKEN:-}" ] || fail "SLACK_MCP_XOXP_TOKEN not set (checked SLACK_USER_TOKEN env, SLACK_MCP_XOXP_TOKEN env, and ~/.config/slack-mcp/tokens.env). Export SLACK_MCP_XOXP_TOKEN or ensure that file exists with SLACK_MCP_XOXP_TOKEN=<your xoxp token>."
+# Guard: this script exists to post AS Jason. A non-xoxp value (e.g. a stray xoxb
+# bot token) would silently revert to posting as the app — the exact failure this
+# change removes. Refuse it loudly instead.
+case "$SLACK_USER_TOKEN" in
+  xoxp-*) ;;
+  *) fail "resolved Slack token is not an xoxp user token; refusing to post (a non-xoxp token would post as the bot app, not as Jason)." ;;
+esac
 [ -f "$TEMPLATE" ]            || fail "template not found at $TEMPLATE"
 [ -f "$SUMMARY_FILE" ]        || fail "summary file not found: $SUMMARY_FILE"
 [ -s "$SUMMARY_FILE" ]        || fail "summary file is empty: $SUMMARY_FILE"

@@ -7,7 +7,7 @@
 ## Problem
 
 `/pr-to-slack` (and `/ship`, which calls it) posts PR-announcement messages to
-**#ce-team-devs** as the Slack **app** "JMF Claude MCP v2" (the APP badge), because
+**#ce-team-devs** (`C06FFFS6EB0`) as the Slack **app** "JMF Claude MCP v2" (the APP badge), because
 `post.sh` authenticates with a **bot** token (`xoxb`). Jason wants these posts to go
 out under **his own identity** instead — same as the ad-hoc "Correction" reply he
 posted via the user-token MCP path.

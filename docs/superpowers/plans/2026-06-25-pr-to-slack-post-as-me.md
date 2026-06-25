@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make `/pr-to-slack` (and therefore `/ship`) post PR announcements to #ce-team-devs under Jason's own Slack identity instead of the "JMF Claude MCP v2" app.
+**Goal:** Make `/pr-to-slack` (and therefore `/ship`) post PR announcements to `#ce-team-devs` (`C06FFFS6EB0`) under Jason's own Slack identity instead of the "JMF Claude MCP v2" app.
 
 **Architecture:** A single authenticating-token swap in `post.sh` — source the `xoxp` user token from the file the Slack MCP server already reads (`~/.config/slack-mcp/tokens.env`) instead of the `xoxb` bot token from keychain. `chat.postMessage` is authorship-agnostic, so the identical Block Kit payload posts as the user under an `xoxp` token. Docs are then realigned.
 
@@ -210,7 +210,7 @@ Run (same repo/PR):
 ```bash
 ~/.claude-os/agents/pr-to-slack/post.sh "" /tmp/_tmp_pr_summary.md
 ```
-Expected: `Posted: PR #N → #arc-team-devs (ts=...)`.
+Expected: `Posted: PR #N → #arc-team-devs (ts=...)`. (The script still echoes the legacy `#arc-team-devs` label for the same channel — `C06FFFS6EB0`, now named `#ce-team-devs`. The echo wording is out of scope here; verify against this literal string, not the current channel name.)
 
 - [ ] **Step 3: Human visual confirmation (Jason)**
 
