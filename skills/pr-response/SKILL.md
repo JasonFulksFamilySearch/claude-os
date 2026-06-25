@@ -369,7 +369,7 @@ Phase 0: PR #1502 | branch feat/ARC-4012-... | OPEN | mergeStateStatus BLOCKED (
   "Copilot reviewed 6 out of 6 changed files in this pull request and generated no new comments."
   → bound to HEAD + phrase present → copilot_clean = true. No threads + confirmed clean → break
   (exit: copilot-confirmed-clean). No worker dispatched, no commit, no reply posted.
-Phase 2: ✅ Copilot reviewed and generated no new comments — nothing to address. (after 0 round(s):
+Phase 2: ✅ Copilot reviewed and generated no new comments — nothing to address. (after 0 rounds —
   the no-op break fires on the first check, before any addressing round is entered)
 Phase 3: mergeable MERGEABLE, no threads. ⚠ reviewDecision REVIEW_REQUIRED — needs a human approval.
 This is the case Jason flagged: the phrase IS the done signal — don't loop, don't reply.

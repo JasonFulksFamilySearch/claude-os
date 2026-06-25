@@ -102,7 +102,15 @@ a review-requested match — no `login`-field comparison needed.
 
 ## Step 2 — Filter for Interesting Items
 
-For each PR, evaluate these three signals. A single PR can match more than one.
+**First, reconcile the two Step 1 fetches into one candidate set, keyed by PR number.** Union (a)
+and (b) — do NOT iterate fetch (a) alone. A PR that appears only in fetch (b) is review-requested
+and may sit outside fetch (a)'s `--limit 20` window; it is still a matched item and MUST carry into
+the signal evaluation below. Carry each PR's fields (`number`, `title`, `url`) from whichever fetch
+supplied them, and remember which of (a)/(b) it came from — fetch (a) is the only source of
+`statusCheckRollup` and `mergeable`, so a PR present only in (b) can match the review-requested
+signal but cannot match ci-failed or merge-conflict (no data for those, treat as not-matched).
+
+For each PR in that unioned set, evaluate these three signals. A single PR can match more than one.
 
 **review-requested:** the PR appears in fetch (b)'s results (the scope-free `gh search prs --review-requested=@me`). No `login` comparison is needed — `@me` already scoped it to the operator.
 

@@ -115,7 +115,9 @@ Fields:
 - `cycle_count` — int, increments each time Phase 4c is invoked from this watch
 
 Persist via the Write tool after each loop iteration. Delete the file on successful
-exit (two consecutive clean polls).
+exit — when `clean_poll_count` reaches `REQUIRED_CLEAN_POLLS`, where the streak is made of
+clean polls and/or decline-only cycles (per the `clean_poll_count` definition above), not
+clean polls alone.
 
 ---
 
