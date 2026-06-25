@@ -92,6 +92,15 @@ describe("measurePayload — importance-attributable survival", () => {
     expect(() => measurePayload(arr, [2])).toThrow(/below the compression floor/);
   });
 
+  it("aborts loud on an out-of-range important_index — a curation typo must not silently become P1", () => {
+    // An index past the payload's end is a malformed labeled set, not a measurable row.
+    // Bucketing it as P1 would silently understate the attributable denominator and skew
+    // the gated arming number — so the measure throws rather than swallowing it.
+    const arr = rows(12);
+    expect(() => measurePayload(arr, [45])).toThrow(/out of range/);
+    expect(() => measurePayload(arr, [-1])).toThrow(/out of range/);
+  });
+
   it("CONTRACT TRIPWIRE (ID-8/US-7) — a verdicts.length mismatch aborts loud", () => {
     // The real compress() never produces verdicts.length !== originalCount, so the tripwire
     // is only reachable via the injectable compressFn seam. STUB a malformed result (per

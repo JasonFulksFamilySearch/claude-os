@@ -76,10 +76,17 @@ export function measurePayload(
     positionGuaranteed.add(droppableIndices[droppableIndices.length - 1 - k]);
   }
 
-  const droppableSet = new Set(droppableIndices);
   let attributable = 0, survived = 0, excludedP1 = 0, excludedP2 = 0;
   for (const idx of importantIndices) {
-    if (!droppableSet.has(idx)) { excludedP1++; continue; }       // P1: preserved class
+    // A curated index outside the payload's range is a malformed labeled set, not a
+    // measurable row — fail loud rather than silently bucketing it as P1 (which would
+    // understate the attributable denominator and skew the gated arming number).
+    if (idx < 0 || idx >= array.length) {
+      throw new Error(`important_index ${idx} out of range for a ${array.length}-row payload`);
+    }
+    // P1: preserved class — verdict !== 'droppable' (read straight off the verdicts array
+    // compress() returned; no separate Set needed — verdicts[idx] is the same O(1) lookup).
+    if (verdicts[idx] !== "droppable") { excludedP1++; continue; }
     if (positionGuaranteed.has(idx)) { excludedP2++; continue; }  // P2: position band
     attributable++;                                               // P3-eligible: importance ranker is the only keep path
     if (retained.has(idx)) survived++;

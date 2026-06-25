@@ -15,7 +15,7 @@ import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { execSync } from "node:child_process";
-import { measurePayload, microAverage } from "../fidelity-measure.js";
+import { measurePayload, microAverage, type PayloadResult } from "../fidelity-measure.js";
 import { log } from "../logger.js";
 
 interface PayloadEntry {
@@ -62,7 +62,11 @@ export function labeledSetHash(payloads: PayloadEntry[]): string {
 
 interface VerdictResult {
   status: "CAPTURED" | "PASS" | "REGRESSED" | "INCONCLUSIVE";
-  cur: FidelityBaseline;
+  // `cur.rate` is `number | null`: on the degenerate (null-rate) INCONCLUSIVE branch it is
+  // null, never a fabricated 0 — so a future caller that reads `verdict.cur.rate` without
+  // checking `status` can never mistake "no measurement" for a real 0% survival rate. Only
+  // the CAPTURED branch (where rate is a real number) is ever persisted via writeBaseline.
+  cur: { rate: number | null; total_attributable: number; labeled_set_hash?: string; captured_on_ref: string };
   prev: FidelityBaseline | null;
   reason?: string;
 }
@@ -125,7 +129,7 @@ export function composeFidelityVerdict(
       reason:
         "degenerate labeled set — no attributable rows in this run; nothing captured",
       cur: {
-        rate: 0,
+        rate: null, // honest: the rate is unknown, not 0 — never persisted on this branch
         total_attributable: cur.total_attributable,
         labeled_set_hash: cur.labeled_set_hash,
         captured_on_ref: curRef,
@@ -220,7 +224,7 @@ async function main(): Promise<void> {
 
   let totalExcludedP1 = 0;
   let totalExcludedP2 = 0;
-  const results = [];
+  const results: PayloadResult[] = [];
 
   for (let i = 0; i < payloads.length; i++) {
     const entry = payloads[i];
@@ -257,7 +261,7 @@ async function main(): Promise<void> {
   // never used as a pass/fail branch (owner-set, agreed-before-arming design).
   const floor = set.curation?.fidelity_floor ?? null;
   console.log(
-    `Owner-set fidelity floor (reported, not enforced): ${floor === null || floor === undefined ? "n/a" : floor}`,
+    `Owner-set fidelity floor (reported, not enforced): ${floor === null ? "n/a" : floor}`,
   );
   console.log(`Total attributable: ${avg.totalAttributable}`);
   console.log(`Total survived:     ${avg.totalSurvived}`);
@@ -282,7 +286,12 @@ async function main(): Promise<void> {
   }
 
   if (verdict.status === "CAPTURED") {
-    writeBaseline(BASELINE_PATH, verdict.cur);
+    // CAPTURED is only returned for a non-null rate (the null branch is INCONCLUSIVE and
+    // already returned above). Assert that here so a null rate can never reach the baseline.
+    if (verdict.cur.rate === null) {
+      throw new Error("unreachable: CAPTURED verdict with a null rate");
+    }
+    writeBaseline(BASELINE_PATH, { ...verdict.cur, rate: verdict.cur.rate });
     console.log(
       `\nVERDICT: BASELINE CAPTURED (rate=${verdict.cur.rate.toFixed(6)} recorded → ${BASELINE_PATH}; no pass/fail this run)`,
     );

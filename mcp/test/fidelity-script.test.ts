@@ -27,7 +27,7 @@ describe("fidelity labeled set", () => {
 
 describe("composeFidelityVerdict", () => {
   it("captures on first run (no baseline), composes a delta on second", () => {
-    const hash = labeledSetHash([[{ a: 1 }, [0]] as any]);
+    const hash = labeledSetHash([{ array: [{ a: 1 }, { b: 2 }], important_indices: [0] }]);
     const cur: FidelityBaseline = {
       rate: 0.8,
       total_attributable: 10,
