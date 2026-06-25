@@ -62,6 +62,20 @@ After the script completes, summarize in plain language:
 - If the script failed: show the error and suggest next steps (e.g., resolve a
   merge conflict manually, check network, verify git auth).
 
+### 3. Health read (non-blocking)
+
+After the update is reported, run a read-only doctor pass so problems surface at the moment
+they are introduced:
+
+```bash
+cd ~/.claude-os/mcp && npm run doctor
+```
+
+Relay the top `VERDICT:` line. This is NON-BLOCKING: a non-PASS verdict is surfaced as a
+WARNING ("the update completed, but doctor reports <verdict> — run /doctor for detail") and
+does NOT undo or abort the already-completed update. Never run `--fix` here; the post-sync
+summary is diagnosis only.
+
 </instructions>
 
 <success_criteria>
@@ -70,6 +84,8 @@ The skill is complete when:
 - Output was streamed so Sir could see it in real time.
 - Summary reported one of: new commits arrived + MCP rebuild status, already up to date, or error + suggested fix.
 - No commit counts or file names were fabricated — all data came from script output.
+- A non-blocking `npm run doctor` summary was appended after the update report; a non-PASS
+  verdict was surfaced as a warning without aborting the completed update.
 </success_criteria>
 
 <examples>
