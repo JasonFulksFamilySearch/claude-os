@@ -25,7 +25,8 @@ interface PayloadEntry {
 }
 
 interface FidelityLabeledSet {
-  _note?: string;
+  // The template carries a leading `_note` JSON key (disjointness + placeholder warning); it is
+  // human annotation read by people, not the script, so it is intentionally not typed here.
   curation?: {
     date: string | null;
     approver: string | null;

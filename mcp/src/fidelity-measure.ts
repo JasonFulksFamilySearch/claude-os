@@ -28,7 +28,6 @@ interface CompressResult {
   compressed: boolean;
   retainedIndices: number[];
   verdicts: string[];
-  originalCount: number;
 }
 type CompressFn = (array: unknown[]) => CompressResult;
 
