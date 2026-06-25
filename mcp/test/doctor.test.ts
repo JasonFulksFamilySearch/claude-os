@@ -284,3 +284,80 @@ describe("corpus checks", () => {
     expect((await checkExpectedContextFiles({ db, repoRoot } as any)).status).toBe("PASS");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task 7: election / deps / backup / advisory checks
+// ---------------------------------------------------------------------------
+import { utimesSync } from "node:fs";
+import { HEARTBEAT_REFRESH_MS, STALENESS_MULTIPLE } from "../src/election.js";
+import {
+  checkStaleLock, checkNpmAudit, checkBuild, checkTestSuite,
+  checkBackupPresent, checkAdvisorySingleRowContext,
+} from "../src/doctor.js";
+
+const auditRunner = (r: any) => () => Promise.resolve(r);
+const subRunner = (r: any) => () => Promise.resolve(r);
+
+describe("election / deps / backup / advisory checks", () => {
+  let dir: string, db: any, dbPath: string, lockPath: string;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "doctor-misc-")); dbPath = join(dir, "memory.db"); db = openDb(dbPath); lockPath = join(dir, "memory.db.writer.lock.d"); });
+  afterEach(() => { db.close(); rmSync(dir, { recursive: true, force: true }); });
+
+  it("no lock dir => PASS", async () => {
+    expect((await checkStaleLock({ lockPath, now: 1_000_000 } as any)).status).toBe("PASS");
+  });
+  it("stale lock => FAIL fixable by clear-stale-lock", async () => {
+    mkdirSync(lockPath);
+    const now = 100 * HEARTBEAT_REFRESH_MS;
+    const old = (now - (STALENESS_MULTIPLE * HEARTBEAT_REFRESH_MS + 5000)) / 1000;
+    utimesSync(lockPath, old, old);
+    const res = await checkStaleLock({ lockPath, now } as any);
+    expect(res.status).toBe("FAIL");
+    expect(res.remediation?.id).toBe("clear-stale-lock");
+  });
+  it("fresh lock => PASS", async () => {
+    mkdirSync(lockPath);
+    const now = 100 * HEARTBEAT_REFRESH_MS;
+    utimesSync(lockPath, now / 1000, now / 1000);
+    expect((await checkStaleLock({ lockPath, now } as any)).status).toBe("PASS");
+  });
+
+  it("npm audit with vulns => ADVISORY, never offers --force, names #84", async () => {
+    const res = await checkNpmAudit({ runAudit: auditRunner({ ok: true, vulnerabilities: { critical: 1, high: 1, moderate: 0, low: 0 }, devOnly: true }) } as any);
+    expect(res.status).toBe("ADVISORY");
+    expect(res.fixable).toBe(false);
+    expect(res.detail).toMatch(/1 critical/);
+    expect(res.detail).toMatch(/#84/);
+    expect(res.detail).not.toMatch(/--force/);
+  });
+  it("npm audit itself failed => INCONCLUSIVE, never PASS", async () => {
+    expect((await checkNpmAudit({ runAudit: auditRunner({ ok: false, reason: "registry unreachable" }) } as any)).status).toBe("INCONCLUSIVE");
+  });
+  it("tsc/test are ADVISORY when --full off", async () => {
+    expect((await checkBuild({ full: false } as any)).status).toBe("ADVISORY");
+    expect((await checkTestSuite({ full: false } as any)).status).toBe("ADVISORY");
+  });
+  it("tsc passes under --full => PASS; test fails => FAIL; can't-run => INCONCLUSIVE", async () => {
+    expect((await checkBuild({ full: true, runBuild: subRunner({ ok: true, passed: true }) } as any)).status).toBe("PASS");
+    expect((await checkTestSuite({ full: true, runTest: subRunner({ ok: true, passed: false }) } as any)).status).toBe("FAIL");
+    expect((await checkBuild({ full: true, runBuild: subRunner({ ok: false, passed: false, reason: "tsc missing" }) } as any)).status).toBe("INCONCLUSIVE");
+  });
+
+  it("a .pre-cutover backup present => PASS; a .pre-c2.bak => PASS; none => FAIL", async () => {
+    writeFileSync(dbPath + ".pre-cutover.20260622T120000Z.bak", "x");
+    expect((await checkBackupPresent({ dbPath } as any)).status).toBe("PASS");
+    rmSync(dbPath + ".pre-cutover.20260622T120000Z.bak");
+    writeFileSync(dbPath + ".pre-c2.bak", "x");
+    expect((await checkBackupPresent({ dbPath } as any)).status).toBe("PASS");
+    rmSync(dbPath + ".pre-c2.bak");
+    expect((await checkBackupPresent({ dbPath } as any)).status).toBe("FAIL");
+  });
+
+  it("single-row context standing condition is ADVISORY, references #82", async () => {
+    db.prepare(`INSERT INTO observations (source_type,source_path,anchor,parent_title,project,topic,title,content,content_hash,file_mtime,indexed_at,frontmatter)
+      VALUES ('context','/data/context/tiny.md','',NULL,NULL,NULL,'T','b','h',1,2,NULL)`).run();
+    const res = await checkAdvisorySingleRowContext({ db } as any);
+    expect(res.status).toBe("ADVISORY");
+    expect(res.detail).toMatch(/#82/);
+  });
+});

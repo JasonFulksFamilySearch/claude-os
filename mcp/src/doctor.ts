@@ -226,3 +226,63 @@ export function checkExpectedContextFiles(ctx: DoctorContext): Promise<CheckResu
     return { id: "corpus/expected-context", status: "PASS", detail: "every provisioned context template is indexed.", fixable: false };
   });
 }
+
+// ---------------------------------------------------------------------------
+// Task 7: election / deps / backup / advisory checks
+// ---------------------------------------------------------------------------
+import { existsSync } from "node:fs";
+import { basename, dirname } from "node:path";
+import { isStale } from "./election.js";
+
+export function checkStaleLock(ctx: DoctorContext): Promise<CheckResult> {
+  return safeCheck("election/stale-lock", () => {
+    if (!existsSync(ctx.lockPath)) return { id: "election/stale-lock", status: "PASS", detail: "no writer lock held.", fixable: false };
+    if (isStale(ctx.lockPath, ctx.now ?? Date.now())) return { id: "election/stale-lock", status: "FAIL", fixable: true,
+      detail: "writer-lock holder is past staleness (3 × 60s) — a crashed session is blocking index maintenance.",
+      remediation: { id: "clear-stale-lock", description: "clear the stale writer lock (re-verified stale at apply-time)" } };
+    return { id: "election/stale-lock", status: "PASS", detail: "writer lock is fresh.", fixable: false };
+  });
+}
+
+export function checkNpmAudit(ctx: DoctorContext): Promise<CheckResult> {
+  return safeCheck("deps/npm-audit", async () => {
+    const rr = await ctx.runAudit();
+    if (!rr.ok) return { id: "deps/npm-audit", status: "INCONCLUSIVE", detail: `npm audit could not run: ${rr.reason ?? "unknown"}.`, fixable: false };
+    const v = rr.vulnerabilities ?? { critical: 0, high: 0, moderate: 0, low: 0 };
+    const summary = `${v.critical} critical / ${v.high} high / ${v.moderate} moderate / ${v.low} low${rr.devOnly ? " (dev-only)" : ""}`;
+    return { id: "deps/npm-audit", status: "ADVISORY", fixable: false,
+      detail: `npm audit: ${summary}. Report-only — tracked in #84; doctor never runs npm audit fix.` };
+  });
+}
+
+function reportOnlySubprocess(id: string, label: string, runner: SubprocessRunner | undefined, full: boolean): Promise<CheckResult> {
+  return safeCheck(id, async () => {
+    if (!full) return { id, status: "ADVISORY", detail: `${label} not run — pass --full to include it.`, fixable: false };
+    const rr = await runner!();
+    if (!rr.ok) return { id, status: "INCONCLUSIVE", detail: `${label} could not run: ${rr.reason ?? "unknown"}.`, fixable: false };
+    return { id, status: rr.passed ? "PASS" : "FAIL", detail: `${label} ${rr.passed ? "passed" : "failed"} (report-only).`, fixable: false };
+  });
+}
+export const checkBuild: Check = (ctx) => reportOnlySubprocess("deps/tsc", "tsc build", ctx.runBuild, ctx.full);
+export const checkTestSuite: Check = (ctx) => reportOnlySubprocess("deps/test", "test suite", ctx.runTest, ctx.full);
+
+export function checkBackupPresent(ctx: DoctorContext): Promise<CheckResult> {
+  return safeCheck("backup/present", () => {
+    const base = basename(ctx.dbPath);
+    const siblings = readdirSync(dirname(ctx.dbPath));
+    const found = siblings.some((f) =>
+      new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.pre-cutover\\.\\d{8}T\\d{6}Z\\.bak$`).test(f) || f === `${base}.pre-c2.bak`);
+    if (found) return { id: "backup/present", status: "PASS", detail: "a pre-cutover/recovery snapshot is present — rollback is possible.", fixable: false };
+    return { id: "backup/present", status: "FAIL", fixable: false, detail: "no pre-cutover or pre-c2 backup found — a rollback is not currently possible." };
+  });
+}
+
+export function checkAdvisorySingleRowContext(ctx: DoctorContext): Promise<CheckResult> {
+  return safeCheck("advisory/single-row-context", () => {
+    const n = (ctx.db.prepare(
+      "SELECT COUNT(*) c FROM (SELECT source_path FROM observations WHERE source_type='context' GROUP BY source_path HAVING COUNT(*) = 1)")
+      .get() as { c: number }).c;
+    return { id: "advisory/single-row-context", status: "ADVISORY", fixable: false,
+      detail: `${n} single-row context file(s) may rank poorly (issue #82) — a known standing condition, not a fault.` };
+  });
+}
