@@ -47,7 +47,7 @@
     },
     {
       "array": [
-        { "key": "repo_root", "value": "/Users/jasonmfulks/.claude-os" },
+        { "key": "repo_root", "value": "~/.claude-os" },
         { "key": "agent_name", "value": "Walter" },
         { "key": "machine_id", "value": "macelabs-macair" },
         { "key": "memory_db", "value": "~/.claude-data/memory.db" },

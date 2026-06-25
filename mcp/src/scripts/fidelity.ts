@@ -13,7 +13,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import { execSync } from "node:child_process";
 import { measurePayload, microAverage, type PayloadResult } from "../fidelity-measure.js";
 import { log } from "../logger.js";
