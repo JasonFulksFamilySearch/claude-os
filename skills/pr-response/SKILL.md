@@ -154,9 +154,12 @@ HEAD_OID=$(git rev-parse HEAD)          # the commit Copilot must have reviewed
 # $RESP = the GraphQL response above
 echo "$RESP" | jq -r --arg head "$HEAD_OID" '
   [ .data.repository.pullRequest.reviews.nodes[]
-    # exact Copilot identities only — NOT a substring, so a human login containing "copilot" cannot match
+    # exact Copilot identities only — full-string equality (no prefix/substring match), so a human
+    # login that merely starts with or contains "copilot" cannot match; same login set as pr-to-slack
     | select((.author.login | ascii_downcase) as $l
-        | $l == "copilot" or ($l | startswith("copilot-pull-request-reviewer")))
+        | $l == "copilot"
+          or $l == "copilot-pull-request-reviewer"
+          or $l == "copilot-pull-request-reviewer[bot]")
     # a COMMENTED review carrying only inline threads has an EMPTY body, and a PENDING draft is not posted —
     # either would clobber the real summary if taken as "latest", so drop them before picking the newest
     | select(.state != "PENDING" and (.body | length > 0)) ]
