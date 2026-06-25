@@ -45,6 +45,7 @@ interface VerdictResult {
   status: "CAPTURED" | "PASS" | "REGRESSED" | "INCONCLUSIVE";
   cur: FidelityBaseline;
   prev: FidelityBaseline | null;
+  reason?: string;
 }
 
 // Small epsilon to absorb floating-point rounding when comparing rates.
@@ -101,6 +102,8 @@ export function composeFidelityVerdict(
     // Degenerate set — no attributable rows anywhere. Never capture or compare.
     return {
       status: "INCONCLUSIVE",
+      reason:
+        "degenerate labeled set — no attributable rows in this run; nothing captured",
       cur: {
         rate: 0,
         total_attributable: cur.total_attributable,
@@ -124,7 +127,13 @@ export function composeFidelityVerdict(
   if (prev.rate === null) {
     // A prior baseline with a null rate is invalid (should never have been written,
     // but guard defensively so a corrupt file doesn't yield a misleading pass/fail).
-    return { status: "INCONCLUSIVE", cur: curBaseline, prev };
+    return {
+      status: "INCONCLUSIVE",
+      reason:
+        "corrupt prior baseline (stored rate is null) — delete ~/.claude-data/eval/fidelity-baseline.json and re-capture",
+      cur: curBaseline,
+      prev,
+    };
   }
 
   const regressed = cur.rate < prev.rate - EPSILON;
@@ -194,6 +203,14 @@ async function main(): Promise<void> {
   console.log(
     `Micro-average fidelity rate: ${avg.rate === null ? "n/a (no attributable rows)" : avg.rate.toFixed(6)}`,
   );
+  // Report the owner-set floor alongside the measured rate so the arming-decision reader
+  // can compare them at a glance. Non-enforcement is intentional: the gate is baseline
+  // non-regression; the floor is the human owner's committed threshold, surfaced here but
+  // never used as a pass/fail branch (owner-set, agreed-before-arming design).
+  const floor = set.curation?.fidelity_floor ?? null;
+  console.log(
+    `Owner-set fidelity floor (reported, not enforced): ${floor === null || floor === undefined ? "n/a" : floor}`,
+  );
   console.log(`Total attributable: ${avg.totalAttributable}`);
   console.log(`Total survived:     ${avg.totalSurvived}`);
   console.log(`Excluded P1 (preserved class): ${totalExcludedP1}`);
@@ -209,9 +226,7 @@ async function main(): Promise<void> {
   });
 
   if (verdict.status === "INCONCLUSIVE") {
-    console.log(
-      `\nVERDICT: INCONCLUSIVE (null rate — degenerate labeled set; no attributable rows; never captured)`,
-    );
+    console.log(`\nVERDICT: INCONCLUSIVE (${verdict.reason})`);
     process.exitCode = 1;
     return;
   }

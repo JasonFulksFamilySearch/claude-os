@@ -57,4 +57,23 @@ describe("composeFidelityVerdict", () => {
     };
     expect(composeFidelityVerdict(prev, nullCur).status).toBe("INCONCLUSIVE");
   });
+
+  it("returns INCONCLUSIVE when prior baseline rate is null (corrupt prior baseline)", () => {
+    // Guards the corrupt-prior guard: if a stored baseline somehow has rate: null
+    // (e.g. JSON.stringify(NaN) written in a prior session), composing against it
+    // must abort rather than yield a misleading PASS or REGRESSED verdict.
+    const corruptPrev = {
+      rate: null,
+      total_attributable: 0,
+      captured_on_ref: "x",
+    } as any;
+    const cur: FidelityBaseline = {
+      rate: 0.8,
+      total_attributable: 10,
+      captured_on_ref: "y",
+    };
+    const result = composeFidelityVerdict(corruptPrev, cur);
+    expect(result.status).toBe("INCONCLUSIVE");
+    expect(result.reason).toMatch(/baseline/i);
+  });
 });
