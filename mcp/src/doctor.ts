@@ -14,6 +14,14 @@ export type AuditRunner = () => Promise<AuditResult>;
 export interface SubprocessResult { ok: boolean; passed: boolean; reason?: string; }
 export type SubprocessRunner = () => Promise<SubprocessResult>;
 
+// FixResult — the shared return shape for all Phase 3 fix functions.
+export interface FixResult {
+  applied: boolean;
+  backupPath?: string;
+  verdictAfter?: "PASS" | "FAIL" | "INCONCLUSIVE" | "CAPTURING" | null;
+  detail: string;
+}
+
 export interface DoctorContext {
   db: Database.Database;       // raw-opened (Task 4 of Phase 3) so pre-C2 DBs are diagnosable
   dbPath: string;
@@ -285,6 +293,52 @@ export function checkAdvisorySingleRowContext(ctx: DoctorContext): Promise<Check
     return { id: "advisory/single-row-context", status: "ADVISORY", fixable: false,
       detail: `${n} single-row context file(s) may rank poorly (issue #82) — a known standing condition, not a fault.` };
   });
+}
+
+// ---------------------------------------------------------------------------
+// Task 9: fix functions — Phase 3 repair mutations
+// ---------------------------------------------------------------------------
+import { copyFileSync, writeFileSync } from "node:fs";
+
+// dropDeadLabel: backs up the labels file, confirms the target label is STILL
+// dead at apply-time (held-out doctrine: never drop a live label), removes it,
+// writes back, then re-runs eval via the injected runner.
+export async function dropDeadLabel(opts: {
+  db: Database.Database;
+  labelsPath: string;
+  deadQuery: string;
+  runEval: EvalRunner;
+}): Promise<FixResult> {
+  const { db, labelsPath, deadQuery, runEval } = opts;
+  const raw = readFileSync(labelsPath, "utf8");
+  const parsed = JSON.parse(raw) as { queries?: { query: string; expectedPathContains: string[] }[] };
+  const queries = parsed.queries ?? [];
+
+  const target = queries.find((q) => q.query === deadQuery);
+  if (target === undefined) {
+    // Already gone — idempotent.
+    return { applied: false, detail: `label "${deadQuery}" not found in labels file — nothing to drop.` };
+  }
+
+  // Held-out doctrine: re-verify deadness at apply-time.
+  const liveIds = resolveRelevantIds(db, target.expectedPathContains);
+  if (liveIds.length > 0) {
+    return { applied: false, detail: `label "${deadQuery}" is not dead (matches ${liveIds.length} row(s)) — refusing to drop.` };
+  }
+
+  // Backup BEFORE mutation.
+  const backupPath = labelsPath + ".bak";
+  copyFileSync(labelsPath, backupPath);
+
+  // Remove the dead entry and write back.
+  const updated = { ...parsed, queries: queries.filter((q) => q.query !== deadQuery) };
+  writeFileSync(labelsPath, JSON.stringify(updated, null, 2), "utf8");
+
+  // Re-run eval to check the post-fix verdict.
+  const r = await runEval();
+  const verdictAfter = r.ok ? r.verdict : null;
+
+  return { applied: true, backupPath, verdictAfter, detail: `dropped dead label "${deadQuery}"; eval re-run: ${verdictAfter ?? "inconclusive"}.` };
 }
 
 // ---------------------------------------------------------------------------
