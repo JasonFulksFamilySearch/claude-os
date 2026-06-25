@@ -15,13 +15,12 @@ const require = createRequire(import.meta.url);
 /* eslint-disable @typescript-eslint/no-var-requires */
 const sc = require("../../hooks/lib/smart-crusher.js") as {
   compress: CompressFn;
-  classifyRows: (array: unknown[]) => { verdicts: string[]; fields: unknown };
   kneedleBudget: (array: unknown[], droppableIndices: number[]) => number;
   MIN_ROWS_TO_COMPRESS: number;
   SCHEMA_FRACTION: number;
   RECENCY_FRACTION: number;
 };
-const { compress, classifyRows, kneedleBudget, MIN_ROWS_TO_COMPRESS, SCHEMA_FRACTION, RECENCY_FRACTION } = sc;
+const { compress, kneedleBudget, MIN_ROWS_TO_COMPRESS, SCHEMA_FRACTION, RECENCY_FRACTION } = sc;
 
 // The compressor's result shape the measure depends on (a local structural type — the hooks
 // module ships no .d.ts). Only the fields the measure reads are declared.
