@@ -364,7 +364,11 @@ Run genuineness BEFORE polish: red-blue-judge asks "does this genuinely fix the 
 ## Step 5 — Review
 
 <instructions>
-Run `/comprehensive-review:full-review`, because an automated multi-dimensional pass surfaces issues a single-focus review would miss. Triage findings as follows:
+**Scale the review to the track** — the heavy multi-dimensional pass is for changes that earn it:
+- **SMALL / MEDIUM:** run the lighter lane — the project's `comprehensive-review:code-reviewer` and `qa` agents — and dispatch both on **Sonnet** (`model: sonnet`). These tracks are ≤~500 LOC and pattern-mirroring or non-critical-path, so the full 5-phase / 8-agent `full-review` is overkill and running it on Opus is the unjustified token cost this routing removes. (Matches the SMALL/MEDIUM review lane already specified in `triage-design.md`.)
+- **LARGE:** run `/comprehensive-review:full-review` — a critical-path, >500 LOC, or irreversible change earns the deepest multi-dimensional pass.
+
+An automated review surfaces issues a single-focus pass would miss regardless of lane. Triage findings as follows:
 
 <thinking>
 Before categorizing each finding, reason through: Does this finding touch code changed by this ticket? Is it a correctness issue or a stylistic one? Does fixing it risk introducing new failures? What is the minimal safe action?
@@ -436,7 +440,7 @@ Before declaring the ticket done, confirm by evidence (not assumption) every ite
 1. **Gate 1** [MEDIUM/LARGE] — red-blue-judge (prd) returned CLEAN and posted to JIRA. (SMALL: N/A — no PRD.)
 2. **Gate 2** [MEDIUM/LARGE] — red-blue-judge (plan) returned CLEAN and posted to JIRA. (SMALL: N/A — no plan.)
 3. **Gate 3** [ALL TRACKS] — the lazy-review self-check is evidenced (its delete-list and per-item disposition present in session context, plus the collapse commit in branch history for anything it flagged — a clean run that found nothing leaves no commit, which is fine), AND red-blue-judge (diff) returned CLEAN before Step 5 and posted to JIRA. This is mandatory on every track. If either part is missing, return to Step 4 / Gate 3.
-4. **Step 5** — `/comprehensive-review:full-review` (or the project's code-reviewer + qa lanes) was run and all must-fix findings addressed. Name the commit that contains the fixes.
+4. **Step 5** — the track's review lane was run (LARGE: `/comprehensive-review:full-review`; SMALL/MEDIUM: the project's `comprehensive-review:code-reviewer` + `qa` agents on Sonnet) and all must-fix findings addressed. Name the commit that contains the fixes.
 5. **Step 6** — State the PR URL. Automated feedback (Copilot/SonarQube/CI) resolved or, where a source is not integrated/available, documented as such.
 6. **Step 7** — JIRA story is In Progress; each implementation subtask (if the track created any) is Done; QA subtask is In Progress; hours logged; progress comment posted. Quote the first line of the comment. (SMALL: no subtasks — confirm the inline spec + progress comment instead.)
 </instructions>
@@ -460,7 +464,7 @@ The skill is complete when (criteria marked [M/L] apply only on the MEDIUM/LARGE
 - Step 2 (subtasks) [M/L]: subtasks created per the table after user approval; QA subtask present.
 - Step 3 (plan) [M/L]: superpowers:writing-plans was invoked — not substituted; plan kept lean (no boilerplate code blocks).
 - Step 4 (implement): superpowers:subagent-driven-development or superpowers:executing-plans was invoked (M/L); on SMALL, TDD red→green→commit was followed; prettier pre-flight run before each /commit; the `/lazy-review` self-check was run on the diff before Gate 3 and its delete-list acted on (or each flagged item explicitly justified as not-applicable).
-- Step 5 (review): /comprehensive-review:full-review (or the project's code-reviewer + qa lanes) was run; all must-fix findings addressed.
+- Step 5 (review): the track's review lane was run (LARGE: /comprehensive-review:full-review; SMALL/MEDIUM: comprehensive-review:code-reviewer + qa on Sonnet); all must-fix findings addressed.
 - Step 6 (PR): PR is open; automated feedback (Copilot/SonarQube/CI) resolved or documented as not-integrated/unavailable.
 - Step 7 (JIRA): Story In Progress; impl subtasks Done (if any were created); QA subtask In Progress; hours logged; progress comment posted.
 - Completion verification checklist shows every applicable item ✅ (N/A items named) with evidence.
@@ -550,7 +554,7 @@ Step 4: built TDD; committed. Lazy-review self-check on the diff flagged a
 export per the delete-list (safety set untouched); re-ran tests green.
 Gate 3: red-blue-judge (diff) → CLEAN (the e2e fails when error.tsx is reverted —
 not a band-aid), judging the now-leaner diff. Posted to JIRA.
-Step 5: code-reviewer + qa → LGTM/PASS; one a11y fix committed.
+Step 5: comprehensive-review:code-reviewer + qa → LGTM/PASS; one a11y fix committed.
 Step 6–7: PR opened; JIRA closed out.
 Result: the SAME work the full pipeline did, with ~5-6 agents instead of ~20 and
 no PRD/plan/two-planning-gate overhead — because the change was small, additive,

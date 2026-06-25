@@ -128,6 +128,9 @@ gh api graphql -f query='
           comments(first: 10) { nodes { databaseId author { login } body } }
         }
       }
+      reviews(last: 20) {
+        nodes { author { login } state body submittedAt commit { oid } }
+      }
     }
   }
 }'
@@ -138,8 +141,51 @@ re-acting on them double-posts. (Reviewer identity surfaces under several logins
 `copilot-pull-request-reviewer`, `copilot-pull-request-reviewer[bot]`, plus any human reviewer; see
 CLAUDE.md. Human threads count toward branch protection too — handle them.)
 
-- **No unresolved threads** → `break` (loop is done; go to Phase 2).
-- **Unresolved threads exist** → `round += 1`, continue to 1b.
+The same query also pulls Copilot's **PR-level reviews** (`reviews`). Copilot's affirmative "I
+reviewed and found nothing" line is a *review body*, not an inline thread, so without this the thread
+set alone can't tell "Copilot reviewed clean" from "Copilot hasn't re-reviewed yet."
+
+Compute `copilot_clean` from the **most recent Copilot review that is bound to the current HEAD** —
+both conditions matter, because a clean review of an *older* commit says nothing about the code you
+just pushed (the stale-signal false-break this guard exists to prevent):
+
+```bash
+HEAD_OID=$(git rev-parse HEAD)          # the commit Copilot must have reviewed
+# $RESP = the GraphQL response above
+echo "$RESP" | jq -r --arg head "$HEAD_OID" '
+  [ .data.repository.pullRequest.reviews.nodes[]
+    # exact Copilot identities only — NOT a substring, so a human login containing "copilot" cannot match
+    | select((.author.login | ascii_downcase) as $l
+        | $l == "copilot" or ($l | startswith("copilot-pull-request-reviewer")))
+    # a COMMENTED review carrying only inline threads has an EMPTY body, and a PENDING draft is not posted —
+    # either would clobber the real summary if taken as "latest", so drop them before picking the newest
+    | select(.state != "PENDING" and (.body | length > 0)) ]
+  | sort_by(.submittedAt) | last
+  | if . == null then "none"
+    elif (.commit.oid == $head
+          and (.body | contains("in this pull request and generated no new comments."))) then "clean"
+    else "not-clean" end'
+```
+
+- `clean` → set `copilot_clean = true`. Copilot reviewed **this exact HEAD** and produced nothing.
+  (Its full line reads "Copilot reviewed N out of M changed files in this pull request and generated
+  no new comments." — the match is on the file-count-independent tail.)
+- `not-clean` → Copilot's latest HEAD-review had real content, **or** its clean summary is for an older
+  commit (a re-review of the pushed HEAD has not landed). `copilot_clean = false`.
+- `none` → no posted Copilot review yet. `copilot_clean = false`.
+
+- **Unresolved threads exist** → `round += 1`, continue to 1b. (A "no new comments" summary sitting
+  *alongside* open threads does not apply — that phrase refers to *new* comments on the latest commit,
+  not the still-open ones; handle the threads.)
+- **No unresolved threads AND `copilot_clean`** → `break` with `exit: copilot-confirmed-clean`. This
+  is the definitive done signal Jason asked for: the review ran and produced nothing actionable, so
+  **no more cycles, and post no reply** — the summary is not a thread, and acknowledging "you found
+  nothing" only adds noise. Go to Phase 2.
+- **No unresolved threads and NOT `copilot_clean`** → `break` with `exit: clean`, but note in the
+  Final Report that no Copilot clean-summary **bound to the current HEAD** was seen — either Copilot
+  has not re-reviewed the pushed commit yet, or its latest review carried content. (Minimal by design:
+  this skill does not block waiting for a review that may never come; re-run /pr-response once Copilot
+  posts if you expected one.)
 
 > `isOutdated` is **not** `isResolved`. Pushing a fix marks a thread outdated, but it still blocks
 > merge until explicitly resolved in 1e, so never treat outdated as done.
@@ -249,14 +295,23 @@ reviewer to generate fresh nits — the non-monotonic-oracle trap this rule exis
 
 Otherwise, if `round < max_rounds`: wait `settle_min` minutes (natural polling, not a blocking sleep)
 to let the reviewer re-review the pushed commit, since that re-review is what surfaces a late wave;
-then loop back to 1a. The settle is why the loop catches late waves a single pass misses.
+then loop back to 1a. The settle is why the loop catches late waves a single pass misses. If that
+re-review comes back as Copilot's "no new comments" summary **bound to the pushed HEAD** with no fresh
+threads, 1a breaks it as `copilot-confirmed-clean` — the late wave is confirmed empty, not merely
+absent. If Copilot has not finished re-reviewing the pushed commit within the settle, `copilot_clean`
+stays false (commit mismatch) and the loop reports `exit: clean` honestly rather than over-claiming a
+confirmation it doesn't have.
 
 If `round == max_rounds`: exit the loop and note the cap was hit in the Final Report, because there
 may be unhandled threads — say so explicitly; do not imply full coverage.
 
 ## Phase 2: (reached on clean break) note the loop cleared
 
-Emit: `✅ No unresolved reviewer threads remain after {round} round(s).`
+Emit one of:
+- `✅ Copilot reviewed and generated no new comments — nothing to address. (after {round} round(s))`
+  when the break was `copilot-confirmed-clean`.
+- `✅ No unresolved reviewer threads remain after {round} round(s).` otherwise (note if no Copilot
+  "no new comments" summary was seen).
 
 ## Phase 3: Merge-readiness check (skip if `--no-merge-check`)
 
@@ -287,6 +342,9 @@ run `gh pr merge`.
 <success_criteria>
 - Phase 0 resolved PR number, repo, and branch state before any worker was dispatched.
 - Each round fetched unresolved threads via GraphQL and acted only on `isResolved: false` threads.
+- When Copilot's latest review body carried "in this pull request and generated no new comments." with
+  no open threads, the loop recognized it as the done signal — broke as `copilot-confirmed-clean`,
+  ran no further cycle, and posted no reply to the summary.
 - A worker subagent (not the parent inline) did the per-comment judgment and code edits, scoped to
   referenced files, and ran the project gate before any commit.
 - Each round produced exactly one grouped commit via `/commit` (or none, if all rebuttals).
@@ -299,6 +357,18 @@ run `gh pr merge`.
 </success_criteria>
 
 <examples>
+<example label="copilot-confirmed-clean-no-op">
+Input: /pr-response (PR #1502, Copilot just reviewed right after /ship and found nothing)
+
+Phase 0: PR #1502 | branch feat/ARC-4012-... | OPEN | mergeStateStatus BLOCKED (awaiting approval)
+Round 1 / 1a: 0 unresolved reviewer threads. Copilot's latest non-empty review (commit.oid == HEAD):
+  "Copilot reviewed 6 out of 6 changed files in this pull request and generated no new comments."
+  → bound to HEAD + phrase present → copilot_clean = true. No threads + confirmed clean → break
+  (exit: copilot-confirmed-clean). No worker dispatched, no commit, no reply posted.
+Phase 2: ✅ Copilot reviewed and generated no new comments — nothing to address. (after 1 round)
+Phase 3: mergeable MERGEABLE, no threads. ⚠ reviewDecision REVIEW_REQUIRED — needs a human approval.
+This is the case Jason flagged: the phrase IS the done signal — don't loop, don't reply.
+</example>
 <example label="single-wave-clean">
 Input: /pr-response (PR #1487, 4 Copilot comments, 3 fixes + 1 rebut)
 
@@ -357,7 +427,7 @@ Always end with a structured summary, every terminal path:
 ─── PR-Response Report ──────────────────────────
 PR:        #<n> <title>
 Branch:    <branch>
-Rounds:    <n> of <max>   (exit: converged | cap hit | clean)
+Rounds:    <n> of <max>   (exit: copilot-confirmed-clean | converged | cap hit | clean)
 
 Round 1:   <k> threads → <f> fixed, <r> rebutted, <d> deferred | commit <sha> | CI ✅/❌ | resolved <m>/<k>
 Round 2:   ...
