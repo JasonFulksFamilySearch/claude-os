@@ -64,7 +64,7 @@ export async function safeCheck(
 // ---------------------------------------------------------------------------
 import { readFileSync } from "node:fs";
 import { readBaseline, resolveRelevantIds, distinctSourcePaths, chunkingEnabled } from "./eval_inspect.js";
-import { isCutoverBoundary } from "./eval.js";
+import { isCutoverBoundary, fileSetHash } from "./eval.js";
 
 export function checkBaselinePresent(ctx: DoctorContext): Promise<CheckResult> {
   return safeCheck("eval/baseline-present", () => {
@@ -90,16 +90,26 @@ export function checkBaselineStale(ctx: DoctorContext): Promise<CheckResult> {
   });
 }
 
-export function checkCorpusSnapshot(ctx: DoctorContext): Promise<CheckResult> {
-  return safeCheck("eval/corpus-snapshot", () => {
-    const snapshot = JSON.parse(readFileSync(ctx.labelsPath, "utf8"))?.curation?.corpus_snapshot;
-    const live = distinctSourcePaths(ctx.db).length; // doctor recomputes; never trusts the snapshot
-    if (typeof snapshot === "number" && snapshot !== live) return {
-      id: "eval/corpus-snapshot", status: "FAIL", fixable: true,
-      detail: `labeled-set corpus_snapshot is ${snapshot} but the live corpus has ${live} distinct files.`,
-      remediation: { id: "recompute-corpus-snapshot", description: `recompute corpus_snapshot to ${live}` },
+export function checkCorpusDrift(ctx: DoctorContext): Promise<CheckResult> {
+  return safeCheck("eval/corpus-drift", () => {
+    const baseline = readBaseline(ctx.baselinePath);
+    if (baseline === null) return {
+      id: "eval/corpus-drift", status: "INCONCLUSIVE", fixable: false,
+      detail: "no baseline to compare corpus shape against.",
     };
-    return { id: "eval/corpus-snapshot", status: "PASS", detail: `corpus_snapshot matches the live count (${live}).`, fixable: false };
+    const storedHash = baseline.corpus?.file_set_hash;
+    if (storedHash == null) return {
+      id: "eval/corpus-drift", status: "INCONCLUSIVE", fixable: true,
+      detail: "baseline predates the file-set-hash shape signal — re-baseline to record it.",
+      remediation: { id: "recapture-baseline", description: "recapture the baseline to record the file-set-hash shape signal" },
+    };
+    const liveHash = fileSetHash(distinctSourcePaths(ctx.db));
+    if (storedHash !== liveHash) return {
+      id: "eval/corpus-drift", status: "FAIL", fixable: true,
+      detail: "the live corpus file-set differs from the baseline (corpus drifted since capture) — re-baseline after a PASS.",
+      remediation: { id: "recapture-baseline", description: "recapture the baseline after a fresh eval PASS" },
+    };
+    return { id: "eval/corpus-drift", status: "PASS", detail: "live corpus file-set matches the baseline shape hash.", fixable: false };
   });
 }
 
@@ -341,38 +351,6 @@ export async function dropDeadLabel(opts: {
   return { applied: true, backupPath, verdictAfter, detail: `dropped dead label "${deadQuery}"; eval re-run: ${verdictAfter ?? "inconclusive"}.` };
 }
 
-// recomputeCorpusSnapshot: backs up the labels file, then writes the LIVE
-// distinct-file count into curation.corpus_snapshot (never trusts the stored
-// value — the stored value is precisely what may be stale). Synchronous; no
-// eval re-run needed (checkCorpusSnapshot re-reads the live count on demand).
-export function recomputeCorpusSnapshot(opts: {
-  db: Database.Database;
-  labelsPath: string;
-}): FixResult {
-  const { db, labelsPath } = opts;
-  const raw = readFileSync(labelsPath, "utf8");
-  const parsed = JSON.parse(raw) as { curation?: { corpus_snapshot?: number }; [k: string]: unknown };
-
-  const liveCount = distinctSourcePaths(db).length;
-
-  // Backup BEFORE mutation (idempotent is not reversible — recomputing silently overwrites).
-  const backupPath = labelsPath + ".bak";
-  copyFileSync(labelsPath, backupPath);
-
-  // Write the live count into curation.corpus_snapshot.
-  const updated = {
-    ...parsed,
-    curation: { ...(parsed.curation ?? {}), corpus_snapshot: liveCount },
-  };
-  writeFileSync(labelsPath, JSON.stringify(updated, null, 2), "utf8");
-
-  return {
-    applied: true,
-    backupPath,
-    detail: `recomputed corpus_snapshot to ${liveCount} (live distinct-file count).`,
-  };
-}
-
 // runMigrateFix: delegates the v2→v3 schema migration to the injected
 // migrateRunner (the real impl shells `npm run migrate` with CLAUDE_OS_DB_PATH).
 // The migrate script owns its own VACUUM INTO backup — this fix does NOT
@@ -553,7 +531,7 @@ export async function recaptureBaseline(opts: {
 // ---------------------------------------------------------------------------
 
 export const CHECKS: Check[] = [
-  checkBaselinePresent, checkBaselineStale, checkBrokenLabels, checkCorpusSnapshot, checkLastVerdict,
+  checkBaselinePresent, checkBaselineStale, checkBrokenLabels, checkCorpusDrift, checkLastVerdict,
   checkChunkingMarker, checkChunkShapeDivergence, checkSchemaCurrent,
   checkIntegrity, checkCorpusShape, checkOrphanEmbeddings, checkExpectedContextFiles,
   checkStaleLock,

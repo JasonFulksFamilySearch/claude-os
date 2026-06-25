@@ -59,9 +59,10 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  checkBaselinePresent, checkBaselineStale, checkCorpusSnapshot,
+  checkBaselinePresent, checkBaselineStale, checkCorpusDrift,
   checkBrokenLabels, checkLastVerdict,
 } from "../src/doctor.js";
+import { fileSetHash } from "../src/eval.js";
 
 const evalRunner = (r: any) => () => Promise.resolve(r);
 
@@ -98,17 +99,31 @@ describe("eval-gate checks", () => {
     db.prepare("INSERT OR REPLACE INTO meta(key,value) VALUES('c2_chunking_enabled','1')").run();
     expect((await checkBaselineStale({ db, baselinePath } as any)).status).toBe("PASS");
   });
-  it("corpus_snapshot mismatch vs live COUNT(DISTINCT) => FAIL fixable, names both numbers", async () => {
-    writeFileSync(labelsPath, JSON.stringify({ curation: { corpus_snapshot: 387 } }));
-    const res = await checkCorpusSnapshot({ db, labelsPath } as any);
-    expect(res.status).toBe("FAIL");
-    expect(res.detail).toMatch(/387/);
-    expect(res.detail).toMatch(/\b3\b/);
-    expect(res.remediation?.id).toBe("recompute-corpus-snapshot");
+  it("corpus-drift: baseline absent => INCONCLUSIVE (not fixable)", async () => {
+    const res = await checkCorpusDrift({ db, baselinePath } as any);
+    expect(res.status).toBe("INCONCLUSIVE");
+    expect(res.fixable).toBe(false);
   });
-  it("corpus_snapshot matching live => PASS", async () => {
-    writeFileSync(labelsPath, JSON.stringify({ curation: { corpus_snapshot: 3 } }));
-    expect((await checkCorpusSnapshot({ db, labelsPath } as any)).status).toBe("PASS");
+  it("corpus-drift: baseline present, file_set_hash absent => INCONCLUSIVE fixable recapture-baseline", async () => {
+    writeFileSync(baselinePath, JSON.stringify({ corpus: { observation_count: 3 } }));
+    const res = await checkCorpusDrift({ db, baselinePath } as any);
+    expect(res.status).toBe("INCONCLUSIVE");
+    expect(res.fixable).toBe(true);
+    expect(res.remediation?.id).toBe("recapture-baseline");
+  });
+  it("corpus-drift: file_set_hash matches live => PASS", async () => {
+    // The seeded DB has /a.md, /b.md, /c.md — compute the expected hash.
+    const hash = fileSetHash(["/a.md", "/b.md", "/c.md"]);
+    writeFileSync(baselinePath, JSON.stringify({ corpus: { file_set_hash: hash } }));
+    const res = await checkCorpusDrift({ db, baselinePath } as any);
+    expect(res.status).toBe("PASS");
+  });
+  it("corpus-drift: file_set_hash differs from live => FAIL fixable recapture-baseline", async () => {
+    writeFileSync(baselinePath, JSON.stringify({ corpus: { file_set_hash: "deadbeef00000000" } }));
+    const res = await checkCorpusDrift({ db, baselinePath } as any);
+    expect(res.status).toBe("FAIL");
+    expect(res.fixable).toBe(true);
+    expect(res.remediation?.id).toBe("recapture-baseline");
   });
   it("a label matching 0 rows => INCONCLUSIVE fixable, names the dead query + substring", async () => {
     writeFileSync(labelsPath, JSON.stringify({ queries: [
@@ -387,15 +402,17 @@ function buildHealthyCtx(): { ctx: any; cleanup: () => void } {
   db.prepare("INSERT INTO vec_items(observation_id, embedding) VALUES (?,?)").run(BigInt(rowId), embBuf);
 
   // Baseline: chunking_enabled=false (live index is also non-chunked), so stale check
-  // sees isCutoverBoundary(false, false)=false → PASS.
+  // sees isCutoverBoundary(false, false)=false → PASS. Include file_set_hash so
+  // checkCorpusDrift can compare against the live corpus (one path: contextPath).
   const baselinePath = join(dir, "eval-baseline.json");
-  writeFileSync(baselinePath, JSON.stringify({ corpus: { chunking_enabled: false } }));
+  writeFileSync(baselinePath, JSON.stringify({
+    corpus: { chunking_enabled: false, file_set_hash: fileSetHash([contextPath]) },
+  }));
 
-  // Labels: corpus_snapshot must equal distinctSourcePaths(db).length (= 1), and every
-  // query must resolve to ≥1 row via resolveRelevantIds (instr on source_path).
+  // Labels: every query must resolve to ≥1 row via resolveRelevantIds (instr on source_path).
   const labelsPath = join(dir, "labeled-queries.json");
   writeFileSync(labelsPath, JSON.stringify({
-    curation: { corpus_snapshot: 1 },
+    curation: { corpus_snapshot: null },
     queries: [{ query: "find java", expectedPathContains: ["java.md"] }],
   }));
 
