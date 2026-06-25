@@ -46,7 +46,12 @@ export interface FidelityBaseline {
 // Stable content hash of the fidelity labeled set's measurement-determining fields.
 // Mirrors eval.ts's fileSetHash idiom: only fields that affect measurement are hashed
 // (array + important_indices); notes is human annotation and does not affect the result.
-// Deterministic: JSON.stringify of a sorted-key representation is stable across calls.
+// Hashes the raw JSON.stringify (no key canonicalization). The labeled set is a single
+// committed file parsed identically every run, so this is deterministic run-over-run. The
+// raw form is intentionally fail-SAFE for comparability: a no-op object-key reorder of a
+// payload moves the hash and forces a re-baseline (harmless), but a real content change can
+// never preserve the hash — so it can never let a non-comparable baseline compose a spurious
+// PASS, which is the property this guard exists to protect.
 export function labeledSetHash(payloads: PayloadEntry[]): string {
   const stable = JSON.stringify(
     payloads.map((p) => [p.array, p.important_indices]),
