@@ -150,13 +150,17 @@ export function composeFidelityVerdict(
     return { status: "CAPTURED", cur: curBaseline, prev: null };
   }
 
-  if (prev.rate === null) {
-    // A prior baseline with a null rate is invalid (should never have been written,
-    // but guard defensively so a corrupt file doesn't yield a misleading pass/fail).
+  if (prev.rate === null || !Number.isFinite(prev.rate)) {
+    // A prior baseline with a null or non-finite rate is invalid: a hand-edited file can
+    // produce rate: NaN, Infinity, or a string that coerces to NaN. The downstream
+    // comparison `cur.rate < prev.rate - EPSILON` then devolves into NaN math and always
+    // evaluates to false — silently yielding PASS instead of failing safe.
+    // Number.isFinite(null) is false, so this subsumes the null check; null is kept explicit
+    // in the reason string so both cases produce an actionable message.
     return {
       status: "INCONCLUSIVE",
       reason:
-        "corrupt prior baseline (stored rate is null) — delete ~/.claude-data/eval/fidelity-baseline.json and re-capture",
+        "corrupt prior baseline (stored rate is null or non-finite) — delete ~/.claude-data/eval/fidelity-baseline.json and re-capture",
       cur: curBaseline,
       prev,
     };

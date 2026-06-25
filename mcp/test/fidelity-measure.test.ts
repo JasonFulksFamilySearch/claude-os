@@ -101,6 +101,22 @@ describe("measurePayload — importance-attributable survival", () => {
     expect(() => measurePayload(arr, [-1])).toThrow(/out of range/);
   });
 
+  it("aborts loud on a non-integer important_index — NaN/float silently passes the range check and lands as spurious P1", () => {
+    // NaN < 0 === false and NaN >= n === false, so a non-integer slips past the range
+    // check, then verdicts[NaN] === undefined (not "droppable"), landing it as a P1
+    // exclusion that silently understates the attributable denominator. Fail loud.
+    const arr = rows(12);
+    expect(() => measurePayload(arr, [1.5 as any])).toThrow(/integer/);
+    expect(() => measurePayload(arr, [NaN as any])).toThrow(/integer/);
+  });
+
+  it("aborts loud on a duplicate important_index — a double-counted row skews both the numerator and denominator", () => {
+    // A duplicate index is counted twice in the attributable denominator (and potentially
+    // twice in survived), making the rate wrong without any visible error.
+    const arr = rows(12);
+    expect(() => measurePayload(arr, [5, 5])).toThrow(/duplicate/);
+  });
+
   it("CONTRACT TRIPWIRE (ID-8/US-7) — a verdicts.length mismatch aborts loud", () => {
     // The real compress() never produces verdicts.length !== originalCount, so the tripwire
     // is only reachable via the injectable compressFn seam. STUB a malformed result (per

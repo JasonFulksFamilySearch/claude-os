@@ -84,6 +84,31 @@ describe("composeFidelityVerdict", () => {
     expect(result.reason).toMatch(/baseline/i);
   });
 
+  it("returns INCONCLUSIVE when prior baseline rate is non-finite (hand-edited file) — not spurious PASS via NaN math", () => {
+    // A hand-edited baseline can produce rate: NaN or Infinity. The downstream comparison
+    // `cur.rate < prev.rate - EPSILON` devolves into `NaN < NaN` (false) and incorrectly
+    // yields PASS instead of failing safe. Non-finite prev.rate must be treated as corrupt.
+    const hash = "SAME_HASH";
+    const cur: FidelityBaseline = {
+      rate: 0.8,
+      total_attributable: 10,
+      labeled_set_hash: hash,
+      captured_on_ref: "y",
+    };
+
+    // NaN: `cur.rate < NaN - EPSILON` → NaN → false → would be spurious PASS without the guard
+    const prevNaN = { rate: NaN, total_attributable: 10, labeled_set_hash: hash, captured_on_ref: "x" } as any;
+    const r1 = composeFidelityVerdict(prevNaN, cur);
+    expect(r1.status).toBe("INCONCLUSIVE");
+    expect(r1.reason).toMatch(/non-finite/i);
+
+    // Infinity: same issue — `0.8 < Infinity - EPSILON` is false → spurious PASS
+    const prevInf = { rate: Infinity, total_attributable: 10, labeled_set_hash: hash, captured_on_ref: "x" } as any;
+    const r2 = composeFidelityVerdict(prevInf, cur);
+    expect(r2.status).toBe("INCONCLUSIVE");
+    expect(r2.reason).toMatch(/non-finite/i);
+  });
+
   it("returns INCONCLUSIVE when baseline predates the content-hash guard (no labeled_set_hash)", () => {
     // A pre-fix baseline has no labeled_set_hash. Composing against it must force a
     // re-capture rather than silently skipping the comparability check.

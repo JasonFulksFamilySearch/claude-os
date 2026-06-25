@@ -76,6 +76,25 @@ export function measurePayload(
     positionGuaranteed.add(droppableIndices[droppableIndices.length - 1 - k]);
   }
 
+  // Validate importantIndices BEFORE the loop: duplicates would double-count a row in
+  // both the attributable denominator and the survived numerator, skewing the gated arming
+  // number without any visible error. Non-integer/NaN indices would silently pass the
+  // range check (NaN < 0 === false, NaN >= n === false) and then verdicts[NaN] === undefined
+  // (not "droppable"), landing them as spurious P1 exclusions.
+  // Both are malformed labeled-set cases that must fail loud — same category as the
+  // existing out-of-range guard, which already establishes the "fail loud on malformed
+  // curated index" precedent.
+  const seenIndices = new Set<number>();
+  for (const idx of importantIndices) {
+    if (!Number.isInteger(idx)) {
+      throw new Error(`important_index ${idx} is not an integer`);
+    }
+    if (seenIndices.has(idx)) {
+      throw new Error(`duplicate important_index ${idx}`);
+    }
+    seenIndices.add(idx);
+  }
+
   let attributable = 0, survived = 0, excludedP1 = 0, excludedP2 = 0;
   for (const idx of importantIndices) {
     // A curated index outside the payload's range is a malformed labeled set, not a
