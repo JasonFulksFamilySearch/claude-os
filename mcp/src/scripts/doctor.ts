@@ -56,14 +56,27 @@ export function jsonTrailer(results: CheckResult[]): string {
 
 // Real subprocess runners (the seams the registry injects). Each parses structured output
 // and NEVER throws past safeCheck — a non-zero/parse failure becomes ok:false.
+
+// parseEvalVerdict maps the eval script's `VERDICT:` line to an EvalResult. The no-baseline
+// run prints `VERDICT: BASELINE CAPTURED (...)` (eval.ts) — NOT the literal "CAPTURING" — so
+// that line is recognized first and mapped to the CAPTURING verdict, letting checkLastVerdict
+// report the honest CAPTURING→INCONCLUSIVE "no baseline yet" state instead of a parse failure.
+// Checked before the PASS|FAIL|INCONCLUSIVE regex so a real verdict line is never misread.
+export function parseEvalVerdict(out: string): EvalResult {
+  if (/VERDICT:\s*BASELINE CAPTURED/.test(out)) return { verdict: "CAPTURING", ok: true };
+  const m = out.match(/VERDICT:\s*(PASS|FAIL|INCONCLUSIVE|CAPTURING)/);
+  return m
+    ? { verdict: m[1] as EvalResult["verdict"], ok: true }
+    : { verdict: "INCONCLUSIVE", ok: false, reason: "could not parse eval verdict" };
+}
+
 function makeEvalRunner(dbPath: string): () => Promise<EvalResult> {
   return async () => {
     try {
       const out = execFileSync("npm", ["run", "--silent", "eval"], {
         env: { ...process.env, CLAUDE_OS_DB_PATH: dbPath }, encoding: "utf8",
       });
-      const m = out.match(/VERDICT:\s*(PASS|FAIL|INCONCLUSIVE|CAPTURING)/);
-      return m ? { verdict: m[1] as EvalResult["verdict"], ok: true } : { verdict: "INCONCLUSIVE", ok: false, reason: "could not parse eval verdict" };
+      return parseEvalVerdict(out);
     } catch (e) {
       return { verdict: "INCONCLUSIVE", ok: false, reason: e instanceof Error ? e.message : String(e) };
     }

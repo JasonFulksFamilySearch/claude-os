@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb } from "../src/db.js";
 import * as doctor from "../src/doctor.js";
-import { applyFix } from "../src/scripts/doctor.js";
+import { applyFix, parseEvalVerdict } from "../src/scripts/doctor.js";
 import type { DoctorContext } from "../src/doctor.js";
 
 // Mock the embedder so importing the doctor graph never loads @huggingface/transformers.
@@ -97,5 +97,29 @@ describe("applyFix dispatcher", () => {
     const result = await applyFix("clear-stale-lock", ctx);
     expect(result.applied).toBe(false);
     expect(result.detail).toBe("no writer lock present — nothing to clear.");
+  });
+});
+
+describe("parseEvalVerdict — eval VERDICT line mapping", () => {
+  it("maps `VERDICT: BASELINE CAPTURED (...)` to CAPTURING/ok:true (no-baseline run)", () => {
+    // The eval script prints this exact line when no baseline exists yet — NOT the literal
+    // "CAPTURING". The old regex didn't match it and returned ok:false, mislabeling a
+    // first-install bootstrap as an unparseable verdict. It must map to CAPTURING/ok:true so
+    // checkLastVerdict reports the honest "no baseline yet" INCONCLUSIVE.
+    const out = "...\nVERDICT: BASELINE CAPTURED (recorded → ~/.claude-data/eval-baseline.json; no pass/fail this run)\n";
+    expect(parseEvalVerdict(out)).toEqual({ verdict: "CAPTURING", ok: true });
+  });
+  it("still parses PASS / FAIL / INCONCLUSIVE verdict lines unchanged", () => {
+    expect(parseEvalVerdict("VERDICT: PASS")).toEqual({ verdict: "PASS", ok: true });
+    expect(parseEvalVerdict("VERDICT: FAIL (presence regressed)")).toEqual({ verdict: "FAIL", ok: true });
+    expect(parseEvalVerdict("VERDICT: INCONCLUSIVE (baseline stale)")).toEqual({ verdict: "INCONCLUSIVE", ok: true });
+  });
+  it("a FAIL line is never misread as a capture (capture check is anchored to the BASELINE CAPTURED phrase)", () => {
+    expect(parseEvalVerdict("VERDICT: FAIL").verdict).toBe("FAIL");
+  });
+  it("returns ok:false when no VERDICT line is present", () => {
+    expect(parseEvalVerdict("eval crashed before composing")).toEqual({
+      verdict: "INCONCLUSIVE", ok: false, reason: "could not parse eval verdict",
+    });
   });
 });
