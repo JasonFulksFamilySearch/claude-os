@@ -44,7 +44,7 @@ import {
 import { resolveRelevantIds, distinctSourcePaths, chunkingEnabled } from "../eval_inspect.js";
 import { log } from "../logger.js";
 
-interface PresenceQuery {
+export interface PresenceQuery {
   query: string;
   expectedPathContains: string[];
 }
@@ -59,7 +59,7 @@ interface AbsenceStage {
   description?: string;
   queries: AbsenceQuery[];
 }
-interface LabeledSetV2 {
+export interface LabeledSetV2 {
   k: number;
   curation?: { date: string | null; approver: string | null; corpus_snapshot: string | null };
   presence: { queries: PresenceQuery[] };

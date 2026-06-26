@@ -83,23 +83,55 @@ function makeEvalRunner(dbPath: string): () => Promise<EvalResult> {
   };
 }
 
+// Run `npm audit --json` (optionally --omit=dev) and return the per-severity counts,
+// or null if it could not run/parse. npm audit exits non-zero WHEN vulns exist but still
+// prints JSON on stdout, so a non-zero exit is recovered from e.stdout — only a genuine
+// parse failure returns null.
+//
+// parseAuditJson is the load-bearing discrimination of FIX 1, exported pure for testability
+// (same rationale as parseEvalVerdict): a successful audit — even on a fully clean tree —
+// ALWAYS carries a metadata.vulnerabilities object (present with all-zero counts on a clean
+// run). So its ABSENCE means the JSON is an error payload ("audit could not run", e.g.
+// {"error":{"code":"ENOLOCK",...}} on a missing lockfile), NOT a clean audit. It THROWS in
+// that case so auditCounts's catch resolves it to null → makeAuditRunner returns ok:false →
+// checkNpmAudit reports INCONCLUSIVE, never a false clean "0/0/0/0". The honest distinction
+// is presence (a real result, keep even at all-zero) vs absence (could-not-run).
+export function parseAuditJson(raw: string): { critical: number; high: number; moderate: number; low: number } {
+  const v = JSON.parse(raw).metadata?.vulnerabilities;
+  if (v === null || typeof v !== "object" || Array.isArray(v)) {
+    throw new Error("npm audit JSON has no metadata.vulnerabilities object (error payload, not a result)");
+  }
+  return { critical: v.critical ?? 0, high: v.high ?? 0, moderate: v.moderate ?? 0, low: v.low ?? 0 };
+}
+
+// Run `npm audit --json` (optionally --omit=dev) and return the per-severity counts,
+// or null if it could not run/parse. npm audit exits non-zero WHEN vulns exist but still
+// prints JSON on stdout, so a non-zero exit is recovered from e.stdout — only a genuine
+// parse failure (or an error-payload with no vulnerabilities object) returns null.
+export function auditCounts(extraArgs: string[]): { critical: number; high: number; moderate: number; low: number } | null {
+  try {
+    return parseAuditJson(execFileSync("npm", ["audit", "--json", ...extraArgs], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }));
+  } catch (e: any) {
+    try { return parseAuditJson(e.stdout?.toString() ?? ""); } catch { return null; }
+  }
+}
+
 function makeAuditRunner(): () => Promise<AuditResult> {
   return async () => {
-    try {
-      const out = execFileSync("npm", ["audit", "--json"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-      const j = JSON.parse(out);
-      const v = j.metadata?.vulnerabilities ?? {};
-      return { ok: true, vulnerabilities: { critical: v.critical ?? 0, high: v.high ?? 0, moderate: v.moderate ?? 0, low: v.low ?? 0 } };
-    } catch (e: any) {
-      // npm audit exits non-zero WHEN vulns exist but still prints JSON — recover it.
-      try {
-        const j = JSON.parse(e.stdout?.toString() ?? "");
-        const v = j.metadata?.vulnerabilities ?? {};
-        return { ok: true, vulnerabilities: { critical: v.critical ?? 0, high: v.high ?? 0, moderate: v.moderate ?? 0, low: v.low ?? 0 } };
-      } catch {
-        return { ok: false, reason: "npm audit could not run or parse" };
-      }
-    }
+    // The plain run is load-bearing: it produces the counts the check reports.
+    const full = auditCounts([]);
+    if (full === null) return { ok: false, reason: "npm audit could not run or parse" };
+
+    // dev-only classification is best-effort. `--omit=dev` re-audits the production-only
+    // tree; a vuln is dev-only iff it disappears when dev deps are omitted. If this second
+    // run fails, leave devOnly UNDEFINED (silence) — never emit a false "runtime" or a
+    // false "dev-only" from a classification we could not actually make.
+    const total = (c: { critical: number; high: number; moderate: number; low: number }) =>
+      c.critical + c.high + c.moderate + c.low;
+    const prod = auditCounts(["--omit=dev"]);
+    const devOnly = prod === null ? undefined : total(full) > 0 && total(prod) === 0;
+
+    return { ok: true, vulnerabilities: full, devOnly };
   };
 }
 
@@ -168,17 +200,17 @@ function buildContext(dbPath: string, full: boolean): { ctx: DoctorContext; db: 
 export async function applyFix(fixId: string, ctx: DoctorContext): Promise<FixResult> {
   switch (fixId) {
     case "drop-dead-label": {
-      // Re-run the broken-labels check at apply-time to find the dead query.
+      // Re-run the broken-labels check at apply-time (held-out doctrine: never trust
+      // diagnose-time data) and read the dead query from its STRUCTURED context — not by
+      // re-parsing the human-readable detail, which would silently break on a reword.
       const check = await checkBrokenLabels(ctx);
       if (!check.fixable || check.remediation?.id !== "drop-dead-label") {
         return { applied: false, detail: "no dead label to drop — broken-labels check did not report a dead label." };
       }
-      // Extract deadQuery from the detail: label "<query>" ...
-      const m = check.detail.match(/^label "(.+)" matches 0 observation rows/);
-      if (!m) {
-        return { applied: false, detail: "could not parse dead query from broken-labels check detail." };
+      const deadQuery = check.context?.deadQuery;
+      if (deadQuery === undefined) {
+        return { applied: false, detail: "broken-labels check did not carry a dead query to drop." };
       }
-      const deadQuery = m[1];
       return dropDeadLabel({ db: ctx.db, labelsPath: ctx.labelsPath, deadQuery, runEval: makeEvalRunner(ctx.dbPath) });
     }
     case "run-migrate":
@@ -199,6 +231,22 @@ export async function applyFix(fixId: string, ctx: DoctorContext): Promise<FixRe
     default:
       return { applied: false, detail: `unknown fix id: ${fixId}` };
   }
+}
+
+// The single CLI boundary for --apply-fix: it must ALWAYS emit a structured FixResult JSON
+// and a 0/1 exit, never a raw stack trace. applyFix's individual fix functions have their own
+// internal safety, but a throw can still escape (e.g. dropDeadLabel's readFileSync/JSON.parse
+// on a missing/corrupt labels file, or readPresenceQueries now throwing on a non-array). Catch
+// here and convert the throw into { applied:false, detail:"fix failed: <message>" } so the
+// repair contract — structured JSON out — holds even on an unexpected failure.
+export async function runApplyFix(fixId: string, ctx: DoctorContext): Promise<{ json: string; exitCode: number }> {
+  let result: FixResult;
+  try {
+    result = await applyFix(fixId, ctx);
+  } catch (e) {
+    result = { applied: false, detail: `fix failed: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  return { json: JSON.stringify(result, null, 2) + "\n", exitCode: result.applied ? 0 : 1 };
 }
 
 export async function run(opts: { full: boolean; fix: boolean; dbPath: string }): Promise<"PASS" | "FAIL" | "INCONCLUSIVE"> {
@@ -230,9 +278,9 @@ if (isDirectEntry) {
     const fixId = applyFixArg.slice("--apply-fix=".length);
     const { ctx, db } = buildContext(dbPath, false);
     try {
-      const result = await applyFix(fixId, ctx);
-      process.stdout.write(JSON.stringify(result, null, 2) + "\n");
-      process.exitCode = result.applied ? 0 : 1;
+      const { json, exitCode } = await runApplyFix(fixId, ctx);
+      process.stdout.write(json);
+      process.exitCode = exitCode;
     } finally {
       db.close();
     }
