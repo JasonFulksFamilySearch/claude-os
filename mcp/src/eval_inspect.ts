@@ -19,15 +19,21 @@ export type { PresenceQuery } from "./scripts/eval.js";
 // LabeledSetV2 directly, since it also needs k/stages from the same parse — TypeScript
 // keeps that access drift-safe without this helper.)
 export function readPresenceQueries(labelsPath: string): PresenceQuery[] {
-  const parsed = JSON.parse(readFileSync(labelsPath, "utf8")) as {
-    presence?: { queries?: PresenceQuery[] };
-  };
+  const parsed = JSON.parse(readFileSync(labelsPath, "utf8")) as unknown;
   // Preserve the absent-vs-corrupt distinction (the honesty invariant): an ABSENT
   // presence/queries is a genuinely empty label set → [] (broken-labels PASS is honest).
   // But a PRESENT-yet-non-array queries is schema corruption — coercing it to [] would let
   // a corrupt labels file false-PASS. Throw instead so safeCheck resolves checkBrokenLabels
   // to INCONCLUSIVE ("couldn't determine the truth"), never a silent clean.
-  const q = parsed.presence?.queries;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("labeled-set root is not an object — labels file is corrupt");
+  }
+  const presence = (parsed as Record<string, unknown>).presence;
+  if (presence === undefined) return [];
+  if (!presence || typeof presence !== "object" || Array.isArray(presence)) {
+    throw new Error("labeled-set presence is not an object — labels file is corrupt");
+  }
+  const q = (presence as Record<string, unknown>).queries;
   if (q === undefined) return [];
   if (!Array.isArray(q)) {
     throw new Error("labeled-set presence.queries is not an array — labels file is corrupt");

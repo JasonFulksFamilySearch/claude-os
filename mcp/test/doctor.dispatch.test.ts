@@ -187,6 +187,13 @@ describe("parseAuditJson — error-JSON must not read as a clean audit", () => {
     expect(() => parseAuditJson(JSON.stringify({ metadata: {} }))).toThrow(/no metadata.vulnerabilities object/);
     expect(() => parseAuditJson(JSON.stringify({ metadata: { vulnerabilities: null } }))).toThrow(/no metadata.vulnerabilities object/);
   });
+  it("THROWS when metadata.vulnerabilities is an array (corruption, not a valid count object)", () => {
+    // Arrays pass typeof === 'object' but are not valid vulnerabilities objects. An array
+    // would coerce to 0/0/0/0 and be misreported as clean. Reject arrays explicitly to
+    // avoid honesty violations.
+    const arrayVulns = JSON.stringify({ metadata: { vulnerabilities: [{ critical: 1 }] } });
+    expect(() => parseAuditJson(arrayVulns)).toThrow(/no metadata.vulnerabilities object/);
+  });
 });
 
 describe("runApplyFix — the --apply-fix CLI boundary always emits structured JSON + 0/1 exit", () => {

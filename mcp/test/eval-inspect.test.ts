@@ -155,4 +155,21 @@ describe("readPresenceQueries (single labeled-set key-path accessor)", () => {
       expect(() => readPresenceQueries(path)).toThrow(/not an array.*corrupt/);
     }
   });
+
+  it("THROWS when presence itself is non-object (null/number/array) — corruption ≠ empty", () => {
+    // The honesty contract extends to presence itself: if presence exists but is not an
+    // object, that is schema corruption (null, number, array, string all violate the shape).
+    // Coercing to [] would let the corrupt file false-PASS broken-labels; throwing makes
+    // safeCheck resolve to INCONCLUSIVE.
+    for (const corrupt of [
+      { presence: null },
+      { presence: 42 },
+      { presence: "not-an-object" },
+      { presence: [{ queries: "x" }] },
+    ]) {
+      const path = join(workDir, "corrupt-presence.json");
+      writeFileSync(path, JSON.stringify(corrupt));
+      expect(() => readPresenceQueries(path)).toThrow(/presence.*not an object.*corrupt/);
+    }
+  });
 });

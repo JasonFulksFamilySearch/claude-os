@@ -98,7 +98,7 @@ function makeEvalRunner(dbPath: string): () => Promise<EvalResult> {
 // is presence (a real result, keep even at all-zero) vs absence (could-not-run).
 export function parseAuditJson(raw: string): { critical: number; high: number; moderate: number; low: number } {
   const v = JSON.parse(raw).metadata?.vulnerabilities;
-  if (v === null || typeof v !== "object") {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) {
     throw new Error("npm audit JSON has no metadata.vulnerabilities object (error payload, not a result)");
   }
   return { critical: v.critical ?? 0, high: v.high ?? 0, moderate: v.moderate ?? 0, low: v.low ?? 0 };
