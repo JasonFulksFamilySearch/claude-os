@@ -4,7 +4,7 @@
 **Date:** 2026-06-22
 **Tracking issues:** [#83](https://github.com/JasonFulksFamilySearch/claude-os/issues/83) (this feature) · [#84](https://github.com/JasonFulksFamilySearch/claude-os/issues/84) (vitest upgrade, spun off) · [#82](https://github.com/JasonFulksFamilySearch/claude-os/issues/82) (retrieval gap — detected here, fixed elsewhere)
 
-> **Provenance:** Authored through the claude-os PRD process and reconciled from two independent agent drafts into one canonical spec. Verified by the red-blue-judge gate (3 cycles; audit records under `docs/superpowers/rbj/`). Pending Jason's approval.
+> **Provenance:** Authored through the claude-os PRD process and reconciled from two independent agent drafts into one canonical spec. Verified by the red-blue-judge gate (3 cycles; audit records under `docs/superpowers/rbj/`). Re-validated 2026-06-25 against live `mcp/` source (21/21 source-anchored claims confirmed) with one post-judge amendment — the verdict-vocabulary section now maps the eval gate's `CAPTURING` verdict to `INCONCLUSIVE`; that amendment closes a gap toward the source and was not part of the original 3-cycle judging. Pending Jason's approval.
 
 ---
 
@@ -300,6 +300,8 @@ And `npm audit fix --force` was never used
 - `ADVISORY` — a known standing condition; reported but **never** contributes to the top verdict.
 
 Composition: any `FAIL` ⇒ `FAIL`; else any `INCONCLUSIVE` ⇒ `INCONCLUSIVE`; else `PASS`. `ADVISORY` statuses are excluded from composition by construction.
+
+The eval gate itself has a fourth verdict, `CAPTURING` (`eval.ts:83`; the eval's own precedence is `CAPTURING > FAIL > INCONCLUSIVE > PASS`), which it returns on a first run when no baseline exists yet — it records the current index *as* the baseline rather than judging against one. doctor's last-composed-verdict check (story 8) **maps a `CAPTURING` eval result to its own `INCONCLUSIVE`**: the regression gate isn't armed, so the screen could not actually judge — the honesty invariant's couldn't-run state, never `PASS`. This is the same no-baseline root cause story 4's baseline-present check already reports as `INCONCLUSIVE`, so the two checks agree rather than one reading `INCONCLUSIVE` and the other a fault.
 
 ### Module structure — two new modules, split deep/thin
 

@@ -41,6 +41,7 @@ import {
   type StageResult,
   type PresenceMetrics,
 } from "../eval.js";
+import { resolveRelevantIds, distinctSourcePaths, chunkingEnabled } from "../eval_inspect.js";
 import { log } from "../logger.js";
 
 interface PresenceQuery {
@@ -104,41 +105,6 @@ function gitRef(): string {
   }
 }
 
-// Broken-labels probe (NOT the recall denominator any more — that is file-level now).
-// Returns every observation whose source_path contains any expected substring; the runner
-// only checks whether this is empty, which means the labels match nothing in the corpus.
-// Uses instr() (case-sensitive, literal substring) — the SAME matching semantics as the
-// file-level scorer's String.includes — so a label can never pass this probe yet be
-// unhittable under scoring (which would spuriously FAIL instead of flagging broken labels).
-function resolveRelevant(db: Database.Database, substrings: string[]): number[] {
-  const ids = new Set<number>();
-  const stmt = db.prepare("SELECT id FROM observations WHERE instr(source_path, ?) > 0");
-  for (const s of substrings) {
-    for (const row of stmt.all(s) as { id: number }[]) ids.add(row.id);
-  }
-  return [...ids];
-}
-
-// The corpus's distinct file set, used to compute the shape-guard hash. Granularity-invariant:
-// a chunk-split adds rows but not distinct source_paths.
-function distinctSourcePaths(db: Database.Database): string[] {
-  return (db.prepare("SELECT DISTINCT source_path FROM observations").all() as {
-    source_path: string;
-  }[]).map((r) => r.source_path);
-}
-
-// Whether chunking is enabled on this index (the meta.c2_chunking_enabled marker the indexer's
-// chunking chokepoint uses — read here purely to discriminate the cutover boundary, never to
-// drive chunking). This is the steady marker STATE; the boundary itself is the transition of
-// this value between the baseline and the current run (see isCutoverBoundary). Default '0'
-// (off) when the meta row is absent (a routine whole-file corpus).
-function chunkingEnabled(db: Database.Database): boolean {
-  const row = db.prepare("SELECT value FROM meta WHERE key = 'c2_chunking_enabled'").get() as
-    | { value: string }
-    | undefined;
-  return row?.value === "1";
-}
-
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const rebaseline = args.includes("--rebaseline");
@@ -186,9 +152,9 @@ async function main(): Promise<void> {
       const rr = fileLevelReciprocalRank(rankedPaths, q.expectedPathContains);
       recalls.push(recall);
       rrs.push(rr);
-      // resolveRelevant survives only as the broken-labels probe: labels that match no
+      // resolveRelevantIds survives only as the broken-labels probe: labels that match no
       // observation row at all drive presence INCONCLUSIVE (fix labels, not the ranker).
-      const labelsMatchNothing = resolveRelevant(db, q.expectedPathContains).length === 0;
+      const labelsMatchNothing = resolveRelevantIds(db, q.expectedPathContains).length === 0;
       if (labelsMatchNothing) brokenLabels = true;
       const flag = labelsMatchNothing ? "  [no ground-truth match — fix labels]" : "";
       console.log(`  r@${k}=${recall.toFixed(2)}  rr=${rr.toFixed(2)}  "${q.query}"${flag}`);

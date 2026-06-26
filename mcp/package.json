@@ -15,6 +15,7 @@
     "eval": "tsx src/scripts/eval.ts",
     "migrate": "tsx src/scripts/migrate.ts",
     "cutover": "tsx src/scripts/cutover.ts",
+    "doctor": "tsx src/scripts/doctor.ts",
     "graph:build": "tsx src/scripts/graph-build.ts",
     "fidelity": "tsx src/scripts/fidelity.ts"
   },
