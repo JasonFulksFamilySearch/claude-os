@@ -4,7 +4,11 @@ export type CheckStatus = "PASS" | "FAIL" | "INCONCLUSIVE" | "ADVISORY";
 export type DoctorVerdict = "PASS" | "FAIL" | "INCONCLUSIVE";
 
 export interface Remediation { id: string; description: string; command?: string; }
-export interface CheckResult { id: string; status: CheckStatus; detail: string; fixable: boolean; remediation?: Remediation; }
+// Structured handoff from a check to its fix — so applyFix reads typed data, never
+// re-parses the human-readable detail string. Narrowly typed per the data a check
+// actually carries (today: the dead query for drop-dead-label), NOT an untyped grab-bag.
+export interface CheckContext { deadQuery?: string; }
+export interface CheckResult { id: string; status: CheckStatus; detail: string; fixable: boolean; remediation?: Remediation; context?: CheckContext; }
 
 // Injected subprocess seams — real implementations live in the Phase 3 thin runner.
 export interface EvalResult { verdict: "PASS" | "FAIL" | "INCONCLUSIVE" | "CAPTURING"; ok: boolean; reason?: string; }
@@ -63,7 +67,7 @@ export async function safeCheck(
 // Task 4: eval-gate checks
 // ---------------------------------------------------------------------------
 import { readFileSync } from "node:fs";
-import { readBaseline, resolveRelevantIds, distinctSourcePaths, chunkingEnabled } from "./eval_inspect.js";
+import { readBaseline, resolveRelevantIds, distinctSourcePaths, chunkingEnabled, readPresenceQueries, type PresenceQuery } from "./eval_inspect.js";
 import { isCutoverBoundary, fileSetHash } from "./eval.js";
 
 export function checkBaselinePresent(ctx: DoctorContext): Promise<CheckResult> {
@@ -118,12 +122,11 @@ export function checkCorpusDrift(ctx: DoctorContext): Promise<CheckResult> {
 
 export function checkBrokenLabels(ctx: DoctorContext): Promise<CheckResult> {
   return safeCheck("eval/broken-labels", () => {
-    // Canonical labeled-set shape is LabeledSetV2 (eval.ts): queries are nested under
-    // presence.queries, NOT top-level .queries. Reading the wrong key silently yields an
-    // empty list and a false PASS on every real install — the exact honesty violation this
-    // check exists to catch.
-    const parsed = JSON.parse(readFileSync(ctx.labelsPath, "utf8"));
-    const queries: { query: string; expectedPathContains: string[] }[] = parsed.presence?.queries ?? [];
+    // Labeled-set queries live at presence.queries (LabeledSetV2). The key path is
+    // resolved by the single shared accessor so it can never drift per-reader — reading
+    // the wrong key would silently yield an empty list and a false PASS, the exact honesty
+    // violation this check exists to catch.
+    const queries = readPresenceQueries(ctx.labelsPath);
     const dead = queries
       .map((q) => ({ q, ids: resolveRelevantIds(ctx.db, q.expectedPathContains) }))
       .filter((x) => x.ids.length === 0);
@@ -131,6 +134,9 @@ export function checkBrokenLabels(ctx: DoctorContext): Promise<CheckResult> {
       const { q } = dead[0];
       return {
         id: "eval/broken-labels", status: "INCONCLUSIVE", fixable: true,
+        // Carry the dead query as STRUCTURED data so applyFix reads it typed, never by
+        // re-parsing this human-readable detail (which is edited for clarity over time).
+        context: { deadQuery: q.query },
         detail: `label "${q.query}" matches 0 observation rows (dead path ${q.expectedPathContains.join(", ")}) — fix the labels, not the ranker.`,
         remediation: { id: "drop-dead-label", description: `drop or re-point the dead label "${q.query}", then re-run eval` },
       };
@@ -274,7 +280,14 @@ export function checkNpmAudit(ctx: DoctorContext): Promise<CheckResult> {
     const rr = await ctx.runAudit();
     if (!rr.ok) return { id: "deps/npm-audit", status: "INCONCLUSIVE", detail: `npm audit could not run: ${rr.reason ?? "unknown"}.`, fixable: false };
     const v = rr.vulnerabilities ?? { critical: 0, high: 0, moderate: 0, low: 0 };
-    const summary = `${v.critical} critical / ${v.high} high / ${v.moderate} moderate / ${v.low} low${rr.devOnly ? " (dev-only)" : ""}`;
+    const hasVulns = v.critical + v.high + v.moderate + v.low > 0;
+    // Honest 3-state classification: dev-only (gone under --omit=dev), reaches-production,
+    // or unavailable (the --omit=dev run could not be made — say so, never imply clean).
+    const classification = !hasVulns ? ""
+      : rr.devOnly === true ? " — all dev-only (none reach the production tree)"
+      : rr.devOnly === false ? " — some reach the production dependency tree"
+      : " — dev-vs-runtime classification unavailable (the --omit=dev pass could not run)";
+    const summary = `${v.critical} critical / ${v.high} high / ${v.moderate} moderate / ${v.low} low${classification}`;
     return { id: "deps/npm-audit", status: "ADVISORY", fixable: false,
       detail: `npm audit: ${summary}. Report-only — tracked in #84; doctor never runs npm audit fix.` };
   });
@@ -328,11 +341,11 @@ export async function dropDeadLabel(opts: {
 }): Promise<FixResult> {
   const { db, labelsPath, deadQuery, runEval } = opts;
   const raw = readFileSync(labelsPath, "utf8");
-  // Canonical shape (eval.ts LabeledSetV2): queries live under presence.queries.
-  // Read AND write that nesting — a top-level .queries read finds nothing (silent no-op)
-  // and a top-level write would inject a phantom key while the real list stays dead.
-  const parsed = JSON.parse(raw) as { presence?: { queries?: { query: string; expectedPathContains: string[] }[] } };
-  const queries = parsed.presence?.queries ?? [];
+  // Read the queries through the single shared accessor (the one place presence.queries
+  // is resolved); keep the full parsed object for the nesting-preserving write-back below
+  // — a top-level write would inject a phantom key while the real list stays dead.
+  const parsed = JSON.parse(raw) as { presence?: { queries?: PresenceQuery[] } };
+  const queries = readPresenceQueries(labelsPath);
 
   const target = queries.find((q) => q.query === deadQuery);
   if (target === undefined) {

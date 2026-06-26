@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type Database from "better-sqlite3";
 import { openDb } from "../src/db.js";
 import {
@@ -9,6 +10,7 @@ import {
   distinctSourcePaths,
   chunkingEnabled,
   readBaseline,
+  readPresenceQueries,
 } from "../src/eval_inspect.js";
 
 let workDir: string;
@@ -85,5 +87,44 @@ describe("chunkingEnabled (c2_chunking_enabled marker reader)", () => {
 describe("re-exported baseline surface", () => {
   it("readBaseline is reachable through eval_inspect and returns null when absent", () => {
     expect(readBaseline(join(workDir, "nope.json"))).toBeNull();
+  });
+});
+
+describe("readPresenceQueries (single labeled-set key-path accessor)", () => {
+  // The conformance guard: the original PR #105 false-PASS happened because readers
+  // hardcoded top-level `.queries` while the canonical schema nests under
+  // `presence.queries`. This accessor is now the ONE place that path is resolved; these
+  // tests pin it against the COMMITTED template (the in-repo, stable schema source — the
+  // live labeled set is machine-local/gitignored) so a regression back to `.queries`
+  // fails CI instead of silently false-PASSing on a real install.
+  const templatePath = join(
+    fileURLToPath(new URL(".", import.meta.url)),
+    "..",
+    "eval",
+    "labeled-queries.template.json",
+  );
+
+  it("resolves presence.queries to a non-empty, correctly-shaped array against the real template", () => {
+    const queries = readPresenceQueries(templatePath);
+    expect(queries.length).toBeGreaterThan(0);
+    for (const q of queries) {
+      expect(typeof q.query).toBe("string");
+      expect(Array.isArray(q.expectedPathContains)).toBe(true);
+    }
+  });
+
+  it("returns [] for a top-level `queries` shape — proving it reads presence.queries, not .queries", () => {
+    // This is the exact bug shape: a file with queries at the TOP level. The canonical
+    // accessor must NOT find them there (it would have to read `presence.queries`), so a
+    // reader that regressed to `.queries` would diverge from this accessor and be caught.
+    const wrongShape = join(workDir, "wrong-shape.json");
+    writeFileSync(wrongShape, JSON.stringify({ queries: [{ query: "x", expectedPathContains: ["x"] }] }));
+    expect(readPresenceQueries(wrongShape)).toEqual([]);
+  });
+
+  it("returns [] when presence is absent entirely (no throw)", () => {
+    const empty = join(workDir, "empty.json");
+    writeFileSync(empty, JSON.stringify({ k: 5 }));
+    expect(readPresenceQueries(empty)).toEqual([]);
   });
 });
