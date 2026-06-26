@@ -118,10 +118,10 @@ describe("eval-gate checks", () => {
     const res = await checkCorpusDrift({ db, baselinePath } as any);
     expect(res.status).toBe("PASS");
   });
-  it("corpus-drift: file_set_hash differs from live => FAIL fixable recapture-baseline", async () => {
+  it("corpus-drift: file_set_hash differs from live => ADVISORY fixable recapture-baseline", async () => {
     writeFileSync(baselinePath, JSON.stringify({ corpus: { file_set_hash: "deadbeef00000000" } }));
     const res = await checkCorpusDrift({ db, baselinePath } as any);
-    expect(res.status).toBe("FAIL");
+    expect(res.status).toBe("ADVISORY");
     expect(res.fixable).toBe(true);
     expect(res.remediation?.id).toBe("recapture-baseline");
   });

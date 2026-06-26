@@ -112,8 +112,8 @@ export function checkCorpusDrift(ctx: DoctorContext): Promise<CheckResult> {
     };
     const liveHash = fileSetHash(distinctSourcePaths(ctx.db));
     if (storedHash !== liveHash) return {
-      id: "eval/corpus-drift", status: "FAIL", fixable: true,
-      detail: "the live corpus file-set differs from the baseline (corpus drifted since capture) — re-baseline after a PASS.",
+      id: "eval/corpus-drift", status: "ADVISORY", fixable: true,
+      detail: "baseline is behind the live corpus file-set (expected as memory accretes — the baseline is a deliberately-frozen pre-change reference, not a live mirror) — recapture before your next eval-gated ranking/embedding/indexing change so the comparison is clean.",
       remediation: { id: "recapture-baseline", description: "recapture the baseline after a fresh eval PASS" },
     };
     return { id: "eval/corpus-drift", status: "PASS", detail: "live corpus file-set matches the baseline shape hash.", fixable: false };
