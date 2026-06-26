@@ -127,4 +127,32 @@ describe("readPresenceQueries (single labeled-set key-path accessor)", () => {
     writeFileSync(empty, JSON.stringify({ k: 5 }));
     expect(readPresenceQueries(empty)).toEqual([]);
   });
+
+  it("returns [] when presence is present but queries is absent (a real empty set)", () => {
+    const noQueries = join(workDir, "no-queries.json");
+    writeFileSync(noQueries, JSON.stringify({ presence: { k: 5 } }));
+    expect(readPresenceQueries(noQueries)).toEqual([]);
+  });
+
+  it("returns the array for a valid presence.queries shape", () => {
+    const valid = join(workDir, "valid.json");
+    const queries = [{ query: "x", expectedPathContains: ["x"] }];
+    writeFileSync(valid, JSON.stringify({ presence: { queries } }));
+    expect(readPresenceQueries(valid)).toEqual(queries);
+  });
+
+  it("THROWS when presence.queries is present but not an array (corruption ≠ empty)", () => {
+    // The absent-vs-corrupt distinction: a non-array queries is schema corruption, not an
+    // empty set. Coercing it to [] would let a corrupt labels file false-PASS broken-labels;
+    // throwing makes safeCheck resolve checkBrokenLabels to INCONCLUSIVE instead.
+    for (const corrupt of [
+      { presence: { queries: "not-an-array" } },
+      { presence: { queries: { query: "x" } } },
+      { presence: { queries: 42 } },
+    ]) {
+      const path = join(workDir, "corrupt.json");
+      writeFileSync(path, JSON.stringify(corrupt));
+      expect(() => readPresenceQueries(path)).toThrow(/not an array.*corrupt/);
+    }
+  });
 });

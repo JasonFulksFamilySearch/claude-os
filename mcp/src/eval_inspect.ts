@@ -22,7 +22,17 @@ export function readPresenceQueries(labelsPath: string): PresenceQuery[] {
   const parsed = JSON.parse(readFileSync(labelsPath, "utf8")) as {
     presence?: { queries?: PresenceQuery[] };
   };
-  return parsed.presence?.queries ?? [];
+  // Preserve the absent-vs-corrupt distinction (the honesty invariant): an ABSENT
+  // presence/queries is a genuinely empty label set → [] (broken-labels PASS is honest).
+  // But a PRESENT-yet-non-array queries is schema corruption — coercing it to [] would let
+  // a corrupt labels file false-PASS. Throw instead so safeCheck resolves checkBrokenLabels
+  // to INCONCLUSIVE ("couldn't determine the truth"), never a silent clean.
+  const q = parsed.presence?.queries;
+  if (q === undefined) return [];
+  if (!Array.isArray(q)) {
+    throw new Error("labeled-set presence.queries is not an array — labels file is corrupt");
+  }
+  return q;
 }
 
 // Broken-labels probe. Returns every observation whose source_path contains any

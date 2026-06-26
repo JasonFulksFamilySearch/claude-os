@@ -87,15 +87,32 @@ function makeEvalRunner(dbPath: string): () => Promise<EvalResult> {
 // or null if it could not run/parse. npm audit exits non-zero WHEN vulns exist but still
 // prints JSON on stdout, so a non-zero exit is recovered from e.stdout — only a genuine
 // parse failure returns null.
-function auditCounts(extraArgs: string[]): { critical: number; high: number; moderate: number; low: number } | null {
-  const parse = (raw: string) => {
-    const v = JSON.parse(raw).metadata?.vulnerabilities ?? {};
-    return { critical: v.critical ?? 0, high: v.high ?? 0, moderate: v.moderate ?? 0, low: v.low ?? 0 };
-  };
+//
+// parseAuditJson is the load-bearing discrimination of FIX 1, exported pure for testability
+// (same rationale as parseEvalVerdict): a successful audit — even on a fully clean tree —
+// ALWAYS carries a metadata.vulnerabilities object (present with all-zero counts on a clean
+// run). So its ABSENCE means the JSON is an error payload ("audit could not run", e.g.
+// {"error":{"code":"ENOLOCK",...}} on a missing lockfile), NOT a clean audit. It THROWS in
+// that case so auditCounts's catch resolves it to null → makeAuditRunner returns ok:false →
+// checkNpmAudit reports INCONCLUSIVE, never a false clean "0/0/0/0". The honest distinction
+// is presence (a real result, keep even at all-zero) vs absence (could-not-run).
+export function parseAuditJson(raw: string): { critical: number; high: number; moderate: number; low: number } {
+  const v = JSON.parse(raw).metadata?.vulnerabilities;
+  if (v === null || typeof v !== "object") {
+    throw new Error("npm audit JSON has no metadata.vulnerabilities object (error payload, not a result)");
+  }
+  return { critical: v.critical ?? 0, high: v.high ?? 0, moderate: v.moderate ?? 0, low: v.low ?? 0 };
+}
+
+// Run `npm audit --json` (optionally --omit=dev) and return the per-severity counts,
+// or null if it could not run/parse. npm audit exits non-zero WHEN vulns exist but still
+// prints JSON on stdout, so a non-zero exit is recovered from e.stdout — only a genuine
+// parse failure (or an error-payload with no vulnerabilities object) returns null.
+export function auditCounts(extraArgs: string[]): { critical: number; high: number; moderate: number; low: number } | null {
   try {
-    return parse(execFileSync("npm", ["audit", "--json", ...extraArgs], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }));
+    return parseAuditJson(execFileSync("npm", ["audit", "--json", ...extraArgs], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }));
   } catch (e: any) {
-    try { return parse(e.stdout?.toString() ?? ""); } catch { return null; }
+    try { return parseAuditJson(e.stdout?.toString() ?? ""); } catch { return null; }
   }
 }
 
@@ -216,6 +233,22 @@ export async function applyFix(fixId: string, ctx: DoctorContext): Promise<FixRe
   }
 }
 
+// The single CLI boundary for --apply-fix: it must ALWAYS emit a structured FixResult JSON
+// and a 0/1 exit, never a raw stack trace. applyFix's individual fix functions have their own
+// internal safety, but a throw can still escape (e.g. dropDeadLabel's readFileSync/JSON.parse
+// on a missing/corrupt labels file, or readPresenceQueries now throwing on a non-array). Catch
+// here and convert the throw into { applied:false, detail:"fix failed: <message>" } so the
+// repair contract — structured JSON out — holds even on an unexpected failure.
+export async function runApplyFix(fixId: string, ctx: DoctorContext): Promise<{ json: string; exitCode: number }> {
+  let result: FixResult;
+  try {
+    result = await applyFix(fixId, ctx);
+  } catch (e) {
+    result = { applied: false, detail: `fix failed: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  return { json: JSON.stringify(result, null, 2) + "\n", exitCode: result.applied ? 0 : 1 };
+}
+
 export async function run(opts: { full: boolean; fix: boolean; dbPath: string }): Promise<"PASS" | "FAIL" | "INCONCLUSIVE"> {
   if (opts.fix) {
     process.stdout.write(
@@ -245,9 +278,9 @@ if (isDirectEntry) {
     const fixId = applyFixArg.slice("--apply-fix=".length);
     const { ctx, db } = buildContext(dbPath, false);
     try {
-      const result = await applyFix(fixId, ctx);
-      process.stdout.write(JSON.stringify(result, null, 2) + "\n");
-      process.exitCode = result.applied ? 0 : 1;
+      const { json, exitCode } = await runApplyFix(fixId, ctx);
+      process.stdout.write(json);
+      process.exitCode = exitCode;
     } finally {
       db.close();
     }
