@@ -71,7 +71,10 @@ export function checkBaselinePresent(ctx: DoctorContext): Promise<CheckResult> {
     if (readBaseline(ctx.baselinePath) === null) return {
       id: "eval/baseline-present", status: "INCONCLUSIVE", fixable: true,
       detail: "no eval baseline — the regression gate is not armed; capture one.",
-      remediation: { id: "capture-baseline", description: "capture an eval baseline on the current index", command: "npm run eval" },
+      // recaptureBaseline IS the apply-time capture path (gated on a fresh eval PASS). The
+      // id MUST match a real applyFix case; "capture-baseline" had no case and printed a fix
+      // that --apply-fix would reject as unknown.
+      remediation: { id: "recapture-baseline", description: "capture an eval baseline on the current index (gated on a fresh PASS)", command: "npm run eval -- --rebaseline" },
     };
     return { id: "eval/baseline-present", status: "PASS", detail: "eval baseline present.", fixable: false };
   });
@@ -115,8 +118,12 @@ export function checkCorpusDrift(ctx: DoctorContext): Promise<CheckResult> {
 
 export function checkBrokenLabels(ctx: DoctorContext): Promise<CheckResult> {
   return safeCheck("eval/broken-labels", () => {
-    const queries: { query: string; expectedPathContains: string[] }[] =
-      JSON.parse(readFileSync(ctx.labelsPath, "utf8")).queries ?? [];
+    // Canonical labeled-set shape is LabeledSetV2 (eval.ts): queries are nested under
+    // presence.queries, NOT top-level .queries. Reading the wrong key silently yields an
+    // empty list and a false PASS on every real install — the exact honesty violation this
+    // check exists to catch.
+    const parsed = JSON.parse(readFileSync(ctx.labelsPath, "utf8"));
+    const queries: { query: string; expectedPathContains: string[] }[] = parsed.presence?.queries ?? [];
     const dead = queries
       .map((q) => ({ q, ids: resolveRelevantIds(ctx.db, q.expectedPathContains) }))
       .filter((x) => x.ids.length === 0);
@@ -321,8 +328,11 @@ export async function dropDeadLabel(opts: {
 }): Promise<FixResult> {
   const { db, labelsPath, deadQuery, runEval } = opts;
   const raw = readFileSync(labelsPath, "utf8");
-  const parsed = JSON.parse(raw) as { queries?: { query: string; expectedPathContains: string[] }[] };
-  const queries = parsed.queries ?? [];
+  // Canonical shape (eval.ts LabeledSetV2): queries live under presence.queries.
+  // Read AND write that nesting — a top-level .queries read finds nothing (silent no-op)
+  // and a top-level write would inject a phantom key while the real list stays dead.
+  const parsed = JSON.parse(raw) as { presence?: { queries?: { query: string; expectedPathContains: string[] }[] } };
+  const queries = parsed.presence?.queries ?? [];
 
   const target = queries.find((q) => q.query === deadQuery);
   if (target === undefined) {
@@ -340,8 +350,8 @@ export async function dropDeadLabel(opts: {
   const backupPath = labelsPath + ".bak";
   copyFileSync(labelsPath, backupPath);
 
-  // Remove the dead entry and write back.
-  const updated = { ...parsed, queries: queries.filter((q) => q.query !== deadQuery) };
+  // Remove the dead entry and write back, preserving the presence nesting.
+  const updated = { ...parsed, presence: { ...parsed.presence, queries: queries.filter((q) => q.query !== deadQuery) } };
   writeFileSync(labelsPath, JSON.stringify(updated, null, 2), "utf8");
 
   // Re-run eval to check the post-fix verdict.
@@ -464,28 +474,35 @@ export function clearStaleLock(opts: { lockPath: string; now?: number }): FixRes
 // ---------------------------------------------------------------------------
 // Task 14: recaptureBaseline fix — code-enforced fresh-PASS gate
 // ---------------------------------------------------------------------------
-import { writeBaseline } from "./eval_inspect.js";
 
 // recaptureBaseline: re-records the eval baseline on the current (chunked) index,
 // but ONLY after a fresh eval composes PASS. The refusal is a code guard — not a
 // log line, not operator discipline — executed BEFORE any write.
 //
+// The capture itself is DELEGATED to the eval script's own --rebaseline path (via the
+// injected rebaselineRunner, the same way runMigrateFix delegates to migrate). The eval
+// script is the authority that knows the real presence metrics (recall@k/MRR), the live
+// file_set_hash, and the chunking state — a baseline it writes arms the gate. A baseline
+// hand-written here could only hard-zero the metrics (neutering the regression floor) and
+// omit file_set_hash (forcing checkCorpusDrift INCONCLUSIVE) — the exact gate-breakage this
+// fix is meant to repair.
+//
 // Safety contract (load-bearing):
 //   1. Run eval FIRST. If verdict !== "PASS" OR ok === false → refuse immediately;
-//      the baseline file is provably untouched (no write has occurred).
+//      the baseline file is provably untouched (no rebaseline has run).
 //   2. If a baseline file already exists → copy it to <baselinePath>.bak BEFORE
-//      overwriting. Pre-image backup is always written before the new baseline.
-//   3. Write the new baseline recording chunking_enabled from the live index.
+//      delegating the overwrite. Pre-image backup is always written before the rebaseline.
+//   3. Delegate the actual capture to the eval --rebaseline runner.
 //   4. Return { applied:true, backupPath?, verdictAfter:"PASS", detail }.
 //
 // Idempotent: after a successful recapture, checkBaselineStale reports PASS; a
 // re-offer only proceeds if a fresh eval still PASSes (the guard re-runs).
 export async function recaptureBaseline(opts: {
-  db: Database.Database;
   baselinePath: string;
   runEval: EvalRunner;
+  rebaselineRunner: () => Promise<{ ok: boolean; reason?: string }>;
 }): Promise<FixResult> {
-  const { db, baselinePath, runEval } = opts;
+  const { baselinePath, runEval, rebaselineRunner } = opts;
 
   // Step 1 (load-bearing guard): run eval and refuse on any non-PASS result.
   // This guard is a code gate — no write has occurred yet at this point.
@@ -497,32 +514,29 @@ export async function recaptureBaseline(opts: {
     };
   }
 
-  // Step 2: back up any existing baseline BEFORE overwriting.
+  // Step 2: back up any existing baseline BEFORE the rebaseline overwrites it.
   let backupPath: string | undefined;
   if (existsSync(baselinePath)) {
     backupPath = baselinePath + ".bak";
     copyFileSync(baselinePath, backupPath);
   }
 
-  // Step 3: write the recaptured baseline.
-  const chunked = chunkingEnabled(db);
-  writeBaseline(baselinePath, {
-    captured_at: new Date().toISOString(),
-    captured_on_ref: "recapture-baseline-fix",
-    corpus: {
-      db_path: "",
-      observation_count: (db.prepare("SELECT COUNT(*) AS n FROM observations").get() as { n: number }).n,
-      chunking_enabled: chunked,
-    },
-    presence: { mean_recall_at_k: 0, mrr: 0, k: 5 },
-    absence: {},
-  });
+  // Step 3: delegate the capture to the eval script's --rebaseline path. It writes a
+  // real baseline — live file_set_hash, real presence metrics, current chunking state.
+  const cap = await rebaselineRunner();
+  if (!cap.ok) {
+    return {
+      applied: false,
+      backupPath,
+      detail: `eval --rebaseline failed: ${cap.reason ?? "unknown error"}${backupPath ? ` (pre-image preserved at ${backupPath})` : ""}.`,
+    };
+  }
 
   return {
     applied: true,
     backupPath,
     verdictAfter: "PASS",
-    detail: `recaptured baseline; chunking_enabled=${chunked}; pre-image backed up at ${backupPath ?? "(none — no prior baseline)"}.`,
+    detail: `recaptured baseline via eval --rebaseline; pre-image backed up at ${backupPath ?? "(none — no prior baseline)"}.`,
   };
 }
 

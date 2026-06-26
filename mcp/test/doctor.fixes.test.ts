@@ -32,12 +32,16 @@ function seedRow(db: import("better-sqlite3").Database, sourcePath: string) {
 }
 
 // The labels file contains one dead label (matches nothing) and one live label (matches /a.md).
+// Canonical LabeledSetV2 shape (eval.ts): queries nest under presence.queries.
 function writeLabels(labelsPath: string) {
   writeFileSync(labelsPath, JSON.stringify({
-    queries: [
-      { query: "find a", expectedPathContains: ["/a.md"] },
-      { query: "the pruned episode", expectedPathContains: ["episodes/2026-05-01"] },
-    ],
+    k: 5,
+    presence: {
+      queries: [
+        { query: "find a", expectedPathContains: ["/a.md"] },
+        { query: "the pruned episode", expectedPathContains: ["episodes/2026-05-01"] },
+      ],
+    },
   }));
 }
 
@@ -100,10 +104,10 @@ describe("doctor.fixes — dropDeadLabel", () => {
     expect(res.backupPath).toBe(labelsPath + ".bak");
     expect(res.verdictAfter).toBe("PASS");
 
-    // Dead label gone; live label preserved.
+    // Dead label gone; live label preserved — under the canonical presence.queries nesting.
     const after = JSON.parse(readFileSync(labelsPath, "utf8"));
-    expect(after.queries.find((q: any) => q.query === "the pruned episode")).toBeUndefined();
-    expect(after.queries.find((q: any) => q.query === "find a")).toBeDefined();
+    expect(after.presence.queries.find((q: any) => q.query === "the pruned episode")).toBeUndefined();
+    expect(after.presence.queries.find((q: any) => q.query === "find a")).toBeDefined();
   });
 
   // -------------------------------------------------------------------------
@@ -658,6 +662,29 @@ describe("doctor.fixes — recaptureBaseline", () => {
       .run(enabled ? "1" : "0");
   }
 
+  // A rebaseline runner that fails the test if invoked — proves the fresh-PASS guard
+  // refuses BEFORE any capture is delegated.
+  const rebaselineMustNotRun = () => {
+    throw new Error("rebaselineRunner was invoked despite a non-PASS eval — the guard did not refuse");
+  };
+
+  // A rebaseline runner that simulates the eval script's --rebaseline: it writes a REAL
+  // baseline (file_set_hash present, non-zero presence metrics, live chunking state), the
+  // way the authority does. Used to assert the corrected baseline shape — not the old
+  // hard-zero/no-hash baseline the hand-written path produced.
+  function rebaselineWritesReal(chunked: boolean): () => Promise<{ ok: boolean; reason?: string }> {
+    return async () => {
+      writeBaseline(baselinePath, {
+        captured_at: new Date().toISOString(),
+        captured_on_ref: "abc1234",
+        corpus: { db_path: dbPath, observation_count: 3, file_set_hash: "feedface00000000", chunking_enabled: chunked },
+        presence: { mean_recall_at_k: 0.8, mrr: 0.75, k: 5 },
+        absence: {},
+      });
+      return { ok: true };
+    };
+  }
+
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "doctor-recapture-"));
     dbPath = join(dir, "memory.db");
@@ -679,9 +706,9 @@ describe("doctor.fixes — recaptureBaseline", () => {
     expect(existsSync(baselinePath)).toBe(false);
 
     const res: FixResult = await recaptureBaseline({
-      db,
       baselinePath,
       runEval: () => Promise.resolve({ verdict: "INCONCLUSIVE", ok: true }),
+      rebaselineRunner: rebaselineMustNotRun,
     });
 
     // Refused.
@@ -697,9 +724,9 @@ describe("doctor.fixes — recaptureBaseline", () => {
     expect(existsSync(baselinePath)).toBe(false);
 
     const res: FixResult = await recaptureBaseline({
-      db,
       baselinePath,
       runEval: () => Promise.resolve({ verdict: "FAIL", ok: true }),
+      rebaselineRunner: rebaselineMustNotRun,
     });
 
     expect(res.applied).toBe(false);
@@ -711,9 +738,9 @@ describe("doctor.fixes — recaptureBaseline", () => {
     expect(existsSync(baselinePath)).toBe(false);
 
     const res: FixResult = await recaptureBaseline({
-      db,
       baselinePath,
       runEval: () => Promise.resolve({ verdict: "PASS", ok: false, reason: "subprocess error" }),
+      rebaselineRunner: rebaselineMustNotRun,
     });
 
     expect(res.applied).toBe(false);
@@ -727,9 +754,9 @@ describe("doctor.fixes — recaptureBaseline", () => {
     const preImage = readFileSync(baselinePath, "utf8");
 
     const res: FixResult = await recaptureBaseline({
-      db,
       baselinePath,
       runEval: () => Promise.resolve({ verdict: "INCONCLUSIVE", ok: true }),
+      rebaselineRunner: rebaselineMustNotRun,
     });
 
     expect(res.applied).toBe(false);
@@ -743,18 +770,16 @@ describe("doctor.fixes — recaptureBaseline", () => {
   // BACKUP-BEFORE-OVERWRITE + SUCCESS
   // -------------------------------------------------------------------------
 
-  it("on PASS with a prior baseline: backs up pre-image BEFORE write, new baseline records live chunking_enabled, applied:true", async () => {
+  it("on PASS with a prior baseline: backs up pre-image BEFORE delegating, capture writes a REAL baseline (file_set_hash + non-zero metrics), applied:true", async () => {
     // Seed a prior baseline (unchunked) and capture its bytes.
     seedBaseline(baselinePath, false);
     const preImage = readFileSync(baselinePath, "utf8");
 
-    // Set the live DB to chunked so we can verify the new baseline picks it up.
-    setChunkingEnabled(db, true);
-
     const res: FixResult = await recaptureBaseline({
-      db,
       baselinePath,
       runEval: () => Promise.resolve({ verdict: "PASS", ok: true }),
+      // The delegated eval --rebaseline writes the real baseline (chunked, live).
+      rebaselineRunner: rebaselineWritesReal(true),
     });
 
     // Applied.
@@ -762,23 +787,28 @@ describe("doctor.fixes — recaptureBaseline", () => {
     expect(res.verdictAfter).toBe("PASS");
     expect(res.backupPath).toBe(baselinePath + ".bak");
 
-    // .bak must contain the pre-image (old baseline).
+    // .bak must contain the pre-image (old baseline), proving backup happened BEFORE capture.
     expect(existsSync(baselinePath + ".bak")).toBe(true);
     expect(readFileSync(baselinePath + ".bak", "utf8")).toBe(preImage);
 
-    // New baseline must record chunking_enabled matching the live index (true).
+    // The recaptured baseline is REAL — it records a file_set_hash (so checkCorpusDrift can
+    // compose, not go INCONCLUSIVE) and non-zero presence metrics (so the regression floor is
+    // armed, not neutered), plus the live chunking state. This is the corrected shape; the old
+    // hand-written path produced zero metrics and no hash.
     const newBaseline = JSON.parse(readFileSync(baselinePath, "utf8")) as Baseline;
+    expect(newBaseline.corpus.file_set_hash).toBeTruthy();
     expect(newBaseline.corpus.chunking_enabled).toBe(true);
+    expect(newBaseline.presence.mean_recall_at_k).toBeGreaterThan(0);
+    expect(newBaseline.presence.mrr).toBeGreaterThan(0);
   });
 
-  it("on PASS with no prior baseline: no backup path, new baseline written, applied:true", async () => {
+  it("on PASS with no prior baseline: no backup path, capture writes the baseline, applied:true", async () => {
     expect(existsSync(baselinePath)).toBe(false);
-    setChunkingEnabled(db, false);
 
     const res: FixResult = await recaptureBaseline({
-      db,
       baselinePath,
       runEval: () => Promise.resolve({ verdict: "PASS", ok: true }),
+      rebaselineRunner: rebaselineWritesReal(false),
     });
 
     expect(res.applied).toBe(true);
@@ -787,10 +817,29 @@ describe("doctor.fixes — recaptureBaseline", () => {
     expect(res.backupPath).toBeUndefined();
     expect(existsSync(baselinePath + ".bak")).toBe(false);
 
-    // Baseline file was created.
+    // Baseline file was created with the real shape.
     expect(existsSync(baselinePath)).toBe(true);
     const written = JSON.parse(readFileSync(baselinePath, "utf8")) as Baseline;
+    expect(written.corpus.file_set_hash).toBeTruthy();
     expect(written.corpus.chunking_enabled).toBe(false);
+  });
+
+  it("surfaces a capture failure: rebaseline runner ok:false yields applied:false with the reason, pre-image preserved", async () => {
+    seedBaseline(baselinePath, false);
+    const preImage = readFileSync(baselinePath, "utf8");
+
+    const res: FixResult = await recaptureBaseline({
+      baselinePath,
+      runEval: () => Promise.resolve({ verdict: "PASS", ok: true }),
+      rebaselineRunner: async () => ({ ok: false, reason: "eval crashed mid-capture" }),
+    });
+
+    expect(res.applied).toBe(false);
+    expect(res.detail).toMatch(/eval --rebaseline failed/);
+    expect(res.detail).toMatch(/eval crashed mid-capture/);
+    // The pre-image was backed up before the (failed) delegation — recoverable.
+    expect(res.backupPath).toBe(baselinePath + ".bak");
+    expect(readFileSync(baselinePath + ".bak", "utf8")).toBe(preImage);
   });
 
   // -------------------------------------------------------------------------
@@ -806,11 +855,11 @@ describe("doctor.fixes — recaptureBaseline", () => {
     const before = await checkBaselineStale({ db, baselinePath } as any);
     expect(before.status).toBe("FAIL");
 
-    // Apply the fix.
+    // Apply the fix — the delegated capture writes a baseline recording the live chunked state.
     const res: FixResult = await recaptureBaseline({
-      db,
       baselinePath,
       runEval: () => Promise.resolve({ verdict: "PASS", ok: true }),
+      rebaselineRunner: rebaselineWritesReal(true),
     });
     expect(res.applied).toBe(true);
 

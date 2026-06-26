@@ -126,10 +126,10 @@ describe("eval-gate checks", () => {
     expect(res.remediation?.id).toBe("recapture-baseline");
   });
   it("a label matching 0 rows => INCONCLUSIVE fixable, names the dead query + substring", async () => {
-    writeFileSync(labelsPath, JSON.stringify({ queries: [
+    writeFileSync(labelsPath, JSON.stringify({ k: 5, presence: { queries: [
       { query: "find a", expectedPathContains: ["/a.md"] },
       { query: "the pruned episode", expectedPathContains: ["episodes/2026-05-01"] },
-    ]}));
+    ]}}));
     const res = await checkBrokenLabels({ db, labelsPath } as any);
     expect(res.status).toBe("INCONCLUSIVE");
     expect(res.fixable).toBe(true);
@@ -137,7 +137,7 @@ describe("eval-gate checks", () => {
     expect(res.remediation?.id).toBe("drop-dead-label");
   });
   it("all labels resolve to >=1 row => PASS", async () => {
-    writeFileSync(labelsPath, JSON.stringify({ queries: [{ query: "find a", expectedPathContains: ["/a.md"] }] }));
+    writeFileSync(labelsPath, JSON.stringify({ k: 5, presence: { queries: [{ query: "find a", expectedPathContains: ["/a.md"] }] } }));
     expect((await checkBrokenLabels({ db, labelsPath } as any)).status).toBe("PASS");
   });
   it("eval PASS => PASS; FAIL => FAIL; INCONCLUSIVE => INCONCLUSIVE", async () => {
@@ -412,8 +412,9 @@ function buildHealthyCtx(): { ctx: any; cleanup: () => void } {
   // Labels: every query must resolve to ≥1 row via resolveRelevantIds (instr on source_path).
   const labelsPath = join(dir, "labeled-queries.json");
   writeFileSync(labelsPath, JSON.stringify({
+    k: 5,
     curation: { corpus_snapshot: null },
-    queries: [{ query: "find java", expectedPathContains: ["java.md"] }],
+    presence: { queries: [{ query: "find java", expectedPathContains: ["java.md"] }] },
   }));
 
   // context-templates/ in repoRoot: one .md file matching the indexed observation.

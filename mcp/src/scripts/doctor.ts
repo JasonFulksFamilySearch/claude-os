@@ -115,6 +115,23 @@ function makeMigrateRunner(dbPath: string): () => Promise<{ ok: boolean; reason?
   };
 }
 
+// The eval script owns baseline capture — it writes the real file_set_hash, presence
+// metrics, and chunking state. recaptureBaseline delegates the capture here rather than
+// hand-writing a baseline that would break the gate it repairs.
+function makeRebaselineRunner(dbPath: string): () => Promise<{ ok: boolean; reason?: string }> {
+  return async () => {
+    try {
+      execFileSync("npm", ["run", "eval", "--", "--rebaseline"], {
+        env: { ...process.env, CLAUDE_OS_DB_PATH: dbPath }, encoding: "utf8", stdio: "ignore",
+      });
+      return { ok: true };
+    } catch (e: any) {
+      const reason = e.stderr?.toString().trim() || e.message || "unknown error";
+      return { ok: false, reason };
+    }
+  };
+}
+
 function buildContext(dbPath: string, full: boolean): { ctx: DoctorContext; db: Database.Database } {
   // Raw open (NOT openDb) so a pre-C2 schema is diagnosable instead of throwing.
   const db = new Database(dbPath);
@@ -161,7 +178,11 @@ export async function applyFix(fixId: string, ctx: DoctorContext): Promise<FixRe
     case "clear-stale-lock":
       return clearStaleLock({ lockPath: ctx.lockPath });
     case "recapture-baseline":
-      return recaptureBaseline({ db: ctx.db, baselinePath: ctx.baselinePath, runEval: makeEvalRunner(ctx.dbPath) });
+      return recaptureBaseline({
+        baselinePath: ctx.baselinePath,
+        runEval: makeEvalRunner(ctx.dbPath),
+        rebaselineRunner: makeRebaselineRunner(ctx.dbPath),
+      });
     default:
       return { applied: false, detail: `unknown fix id: ${fixId}` };
   }
