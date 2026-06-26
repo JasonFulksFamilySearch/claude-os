@@ -345,6 +345,27 @@ describe("election / deps / backup / advisory checks", () => {
     expect(res.detail).toMatch(/#84/);
     expect(res.detail).not.toMatch(/--force/);
   });
+  it("devOnly:true => detail says all dev-only (none reach production)", async () => {
+    const res = await checkNpmAudit({ runAudit: auditRunner({ ok: true, vulnerabilities: { critical: 1, high: 0, moderate: 2, low: 0 }, devOnly: true }) } as any);
+    expect(res.detail).toMatch(/dev-only/);
+    expect(res.detail).toMatch(/none reach the production/);
+  });
+  it("devOnly:false => detail says some reach the production tree (not dev-only)", async () => {
+    const res = await checkNpmAudit({ runAudit: auditRunner({ ok: true, vulnerabilities: { critical: 1, high: 0, moderate: 0, low: 0 }, devOnly: false }) } as any);
+    expect(res.detail).toMatch(/reach the production/);
+    expect(res.detail).not.toMatch(/all dev-only/);
+  });
+  it("devOnly:undefined with vulns => classification unavailable, never implies clean", async () => {
+    const res = await checkNpmAudit({ runAudit: auditRunner({ ok: true, vulnerabilities: { critical: 0, high: 1, moderate: 0, low: 0 } }) } as any);
+    expect(res.detail).toMatch(/classification unavailable/);
+    expect(res.detail).not.toMatch(/dev-only \(none/);
+  });
+  it("zero vulns => no dev/runtime classification suffix at all", async () => {
+    const res = await checkNpmAudit({ runAudit: auditRunner({ ok: true, vulnerabilities: { critical: 0, high: 0, moderate: 0, low: 0 } }) } as any);
+    expect(res.detail).not.toMatch(/dev-only/);
+    expect(res.detail).not.toMatch(/classification unavailable/);
+    expect(res.detail).not.toMatch(/production/);
+  });
   it("npm audit itself failed => INCONCLUSIVE, never PASS", async () => {
     expect((await checkNpmAudit({ runAudit: auditRunner({ ok: false, reason: "registry unreachable" }) } as any)).status).toBe("INCONCLUSIVE");
   });

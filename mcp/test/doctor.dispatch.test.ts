@@ -98,6 +98,46 @@ describe("applyFix dispatcher", () => {
     expect(result.applied).toBe(false);
     expect(result.detail).toBe("no writer lock present — nothing to clear.");
   });
+
+  it("drop-dead-label reads the dead query from STRUCTURED context, not the detail string", async () => {
+    // Regression guard for the regex de-coupling: the check's detail is deliberately
+    // reworded here so any prose-parsing approach would fail to recover the query. The
+    // dispatcher must read context.deadQuery and still hand the right query to dropDeadLabel.
+    vi.spyOn(doctor, "checkBrokenLabels").mockResolvedValue({
+      id: "eval/broken-labels",
+      status: "INCONCLUSIVE",
+      fixable: true,
+      detail: "completely reworded message that no regex would parse",
+      context: { deadQuery: "the dead query" },
+      remediation: { id: "drop-dead-label", description: "drop it" },
+    });
+    const dropSpy = vi.spyOn(doctor, "dropDeadLabel").mockResolvedValue({
+      applied: true,
+      detail: "dropped",
+    });
+
+    await applyFix("drop-dead-label", ctx);
+
+    expect(dropSpy).toHaveBeenCalledOnce();
+    expect((dropSpy.mock.calls[0][0] as { deadQuery: string }).deadQuery).toBe("the dead query");
+  });
+
+  it("drop-dead-label refuses when the check carries no dead query (no detail parsing fallback)", async () => {
+    vi.spyOn(doctor, "checkBrokenLabels").mockResolvedValue({
+      id: "eval/broken-labels",
+      status: "INCONCLUSIVE",
+      fixable: true,
+      detail: 'label "x" matches 0 observation rows', // parseable prose, but no context
+      remediation: { id: "drop-dead-label", description: "drop it" },
+    });
+    const dropSpy = vi.spyOn(doctor, "dropDeadLabel");
+
+    const result = await applyFix("drop-dead-label", ctx);
+
+    expect(result.applied).toBe(false);
+    expect(result.detail).toContain("did not carry a dead query");
+    expect(dropSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe("parseEvalVerdict — eval VERDICT line mapping", () => {
