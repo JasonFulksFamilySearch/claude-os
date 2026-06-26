@@ -472,4 +472,7 @@ module.exports = {
   stableStringify,
   hashOriginal,
   MIN_ROWS_TO_COMPRESS,
+  // Exported for the fidelity harness to mirror split sizing without hardcoding:
+  SCHEMA_FRACTION,
+  RECENCY_FRACTION,
 };

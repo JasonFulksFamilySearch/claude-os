@@ -153,6 +153,28 @@ the cutover itself, only on a file genuinely added or removed.
   stale (observation-row-scaled) recall, the runner returns INCONCLUSIVE and instructs a
   re-baseline — the mandatory re-baseline at the version boundary recaptures it.
 
+## Fidelity gate (compression fidelity — disjoint from the retrieval eval set)
+
+`npm run fidelity` measures a separate property: what fraction of importance-attributable
+rows survive bigram-importance compression? It loads a disjoint labeled set
+(`~/.claude-data/eval/fidelity-payloads.json`) seeded from
+`mcp/eval/fidelity-payloads.template.json` by `update.sh` Step 2.7.
+
+**Disjointness is non-negotiable:** the fidelity set and the retrieval eval set (`labeled-queries.json`)
+measure different things (compression fidelity vs retrieval recall) and must never share payload
+rows. Sharing rows is train/test leakage: a payload used to tune the importance ranker (via
+fidelity feedback) and also scored by the retrieval eval would make the gate non-independent.
+The tripwire is `mcp/test/fidelity-script.test.ts` — it asserts no payload `array` from
+the fidelity template appears anywhere in the eval template's JSON.
+
+**Baseline:** machine-local `~/.claude-data/eval/fidelity-baseline.json`. Null-rate contract:
+if `microAverage` returns `rate: null` (degenerate set — no attributable rows), the run is
+INCONCLUSIVE and no baseline is written. A null rate must never be captured or composed against
+because `JSON.stringify(NaN) === 'null'`, which could later be misread as 0 → spurious PASS.
+
+Run the fidelity gate before and after any change to the compression or importance-ranking logic in
+`hooks/lib/smart-crusher.js` (capturing a baseline on the pre-change compressor).
+
 ## When to run
 
 - Before and after any change to a ranking, embedding, or indexing module
