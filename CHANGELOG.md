@@ -5,6 +5,8 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
 ## [1.2.0] — 2026-06-25
 
 First release under the official **Dioscuri** name. 331 commits since v1.1.0
@@ -22,7 +24,7 @@ working after `update.sh`.
   entry, with new `anchor` / `parent_title` columns. The chunk-split cutover is
   flag-gated (`c2_chunking_enabled`) and ships **default-off**, deferred.
 - **D1** durable episodic + learnings capture; **D2** vector-coverage sweep.
-- **DIO-18 / FR-B5** compressed-tool-output capture path — built **default-OFF**
+- **DIO-18 / FR-B5** compressed-tool-output capture path — built **default-off**
   (file-sentinel flag); arming remains a separate human-gated decision (#72).
 - **DIO-19** non-error fidelity A/B harness — the content-level fidelity floor
   that the content-blind eval gate cannot provide.
@@ -51,4 +53,5 @@ working after `update.sh`.
   **major** (v2.0.0) bump. See
   `docs/superpowers/specs/2026-06-05-claude-os-identity-architecture-design.md` §10.
 
+[Unreleased]: https://github.com/JasonFulksFamilySearch/claude-os/compare/v1.2.0...HEAD
 [1.2.0]: https://github.com/JasonFulksFamilySearch/claude-os/releases/tag/v1.2.0
