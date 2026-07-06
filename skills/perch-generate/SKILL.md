@@ -100,6 +100,7 @@ Rules:
 - Each pattern gets its own beat; do not compress them into a single sentence.
 - Separate each story beat into its own paragraph — lede + high-concern PRs; dependency traffic; recurring misses; sign-off — with a blank line between paragraphs. (Blank-line separators only; still no bullets/headers/markdown.)
 - Reference specific identifiers from the request (PR numbers, Jira keys, metric values).
+- Any count you state must match what you enumerate — if you say a service carries N pull requests, list exactly N of them. Count the items in the request; never round or estimate the total.
 - Write version numbers, durations, day counts, and metric values as numerals, not spelled-out words, even in the spoken cadence — "9.2.0" not "nine-point-two-point-zero"; "1500ms" not "fifteen-hundred-millisecond"; "58 days" not "fifty-eight days"; "10.5" and "87%" as digits. (Narrative quantities like the opening item count may stay in words.)
 - Tone: steady, serious, never breathless or sensationalist.
 - If `recurring` is empty (rare — the agent normally handles all-clear itself), write exactly:
